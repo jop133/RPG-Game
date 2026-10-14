@@ -4,13 +4,17 @@ Onde o projeto está agora. Atualizado ao fim de cada passo. O porquê das escol
 
 ## Agora
 
-**Passo 1 concluído.** Próximo: passo 2, mapa do Tiled com colisão (e, junto, o interest management adiado do passo 1).
+**Passo 2 em andamento.** Dividido em três partes, um commit cada:
 
-**Limitações conhecidas do passo 1** (todas resolvidas por passos futuros):
-- Sem limites de mundo: dá para andar para fora da tela. Resolve no passo 2 (colisão).
-- Todos nascem no mesmo ponto fixo. Resolve no passo 2 (spawn vindo do mapa).
-- O servidor replica todos os jogadores para todos. Exceção registrada em `DECISIONS.md`; resolve no passo 2.
+- [x] **2a.** Mapa e colisão: o servidor carrega o mapa do Tiled e bloqueia paredes; o cliente desenha o mapa e a câmera segue o jogador.
+- [ ] **2b.** Spawn vindo do mapa (pontos marcados no Tiled, servidor sorteia).
+- [ ] **2c.** Interest management por grade (exceção à regra 5 aberta no passo 1).
+
+**Limitações conhecidas agora:**
+- Todos nascem no mesmo ponto fixo (400, 300). Resolve no 2b.
+- O servidor replica todos os jogadores para todos. Resolve no 2c.
 - O movimento dos outros deve parecer "em degraus" (o servidor atualiza 20× por segundo e o cliente desenha a 60). Se incomodar, a correção é interpolação, que é só visual.
+- O mapa é um placeholder de teste (`assets/maps/test.json`). O andar 1 de verdade ainda vai ser desenhado.
 
 ## Ordem de construção
 
@@ -39,7 +43,17 @@ npm run dev:client   # Vite em http://localhost:5173
 npm test             # testes de shared/
 ```
 
+## Como editar o mapa
+
+O Tiled está instalado em `C:\Program Files\Tiled\tiled.exe`. Abra `assets/maps/test.json` direto nele.
+
+- **Parede** é qualquer tile cuja propriedade `solid` (booleana) esteja marcada no tileset. No placeholder, o tile marrom.
+- **O tileset precisa ficar embutido no mapa.** O Phaser não carrega tilesets externos (`.tsx`). Ao criar um tileset novo no Tiled, marque "Embed in map".
+- **Formato da camada: CSV.** Se for comprimido (Base64/zlib), o servidor recusa o mapa com um erro dizendo isso.
+- **Depois de salvar o mapa, reinicie o servidor.** O modo watch recarrega quando o código muda, mas não quando o mapa muda. O cliente recarrega sozinho.
+
 ## Histórico
 
 - **2026-10-13** — Passo 0 concluído. Repositório criado, workspaces configurados, Phaser 3.90 e Colyseus 0.18 subindo sem erro.
 - **2026-10-13** — Passo 1 concluído. Movimento WASD autoritativo no servidor (`shared/src/movement.ts`, 8 testes). Verificado com duas abas: cada uma vê a outra andar, e o quadrado de quem sai some. Verificado também por script: 160 px/s medidos no servidor, input malicioso ignorado.
+- **2026-10-13** — Passo 2a concluído. Colisão contra tiles `solid` (`shared/src/collision.ts`, `shared/src/tiledMap.ts`, 25 testes no total). Mapa placeholder 40×30 gerado e conferido no Tiled 1.12.2 (abre e exporta igual). Verificado por script: o jogador para exatamente encostado na parede, desliza na diagonal e não sai pela borda. No navegador: mapa desenhado e câmera seguindo.

@@ -1,8 +1,22 @@
+import { readFileSync } from "node:fs";
 import { Room, type Client } from "colyseus";
-import { NO_INPUT, TICK_RATE, parseMoveInput, stepPosition, type MoveInput } from "shared";
+import {
+  NO_INPUT,
+  PLAYER_SIZE,
+  TICK_RATE,
+  moveWithCollision,
+  movementDelta,
+  parseCollisionGrid,
+  parseMoveInput,
+  type MoveInput,
+  type TiledMap,
+} from "shared";
 import { GameState, PlayerState } from "./state";
 
-// Provisório: no passo 2 o ponto de spawn vem do mapa do Tiled.
+const MAP_FILE = new URL("../../assets/maps/test.json", import.meta.url);
+const collisionGrid = parseCollisionGrid(JSON.parse(readFileSync(MAP_FILE, "utf8")) as TiledMap);
+
+// Provisório: no passo 2b o ponto de spawn vem do mapa do Tiled.
 const SPAWN_POINT = { x: 400, y: 300 };
 
 export class GameRoom extends Room<{ state: GameState }> {
@@ -31,7 +45,8 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   private tick(dtMs: number) {
     this.state.players.forEach((player, sessionId) => {
-      const next = stepPosition(player, this.moveInputs.get(sessionId) ?? NO_INPUT, dtMs);
+      const delta = movementDelta(this.moveInputs.get(sessionId) ?? NO_INPUT, dtMs);
+      const next = moveWithCollision(collisionGrid, player, delta, PLAYER_SIZE / 2);
       player.x = next.x;
       player.y = next.y;
     });

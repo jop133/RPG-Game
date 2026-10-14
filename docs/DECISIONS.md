@@ -182,3 +182,28 @@ Se uma das duas mudar, a outra tem que acompanhar.
 **Por quê:** a regra 2 proíbe o `shared` de depender do Colyseus. Tipos simples bastam para as funções puras, e `PlayerState` tem `x`/`y`, então é aceito onde se espera um `Vec2`.
 
 **Custo aceito:** o `ServerState` do cliente é uma cópia manual do formato. Se o estado no servidor mudar, o cliente precisa acompanhar à mão.
+
+---
+
+## 2026-10 — Parede marcada por propriedade `solid` no tileset
+
+**Decisão:** um tile é parede se tiver a propriedade booleana `solid = true` no tileset. Vale para qualquer camada de tiles.
+
+**Por quê:** é menos trabalho ao desenhar. Pinta-se o mapa uma vez só, sem manter uma segunda camada de colisão em sincronia com a arte.
+
+**Alternativa descartada:** uma camada `collision` separada, onde qualquer tile pintado é parede.
+
+**Custo aceito:** a colisão fica amarrada à arte. Quando o pack de tiles definitivo for escolhido (decisão "placeholders primeiro"), a propriedade `solid` terá que ser marcada de novo nos tiles do pack novo.
+
+---
+
+## 2026-10 — Colisão própria por grade, um eixo por vez
+
+**Decisão:** função pura `moveWithCollision` em `shared/src/collision.ts`, sem biblioteca de física. A caixa do jogador anda primeiro em X, depois em Y. Em cada eixo, a borda da frente para encostada no primeiro tile sólido do caminho. Fora do mapa conta como parede.
+
+**Por quê:**
+- O mapa é uma grade de tiles; uma biblioteca de física seria uma caixa-preta grande para resolver um problema de ~40 linhas
+- Mover um eixo por vez faz o jogador deslizar ao longo da parede em vez de grudar nela
+- Verificar todas as células do caminho, e não só a de destino, impede atravessar parede num tick longo (lag no servidor)
+
+**Limite conhecido:** só caixas contra tiles. Empurrão entre jogadores ou mobs, se for desejado, é outro problema.

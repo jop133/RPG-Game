@@ -1,27 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { PLAYER_SPEED } from "./balance";
-import { NO_INPUT, inputToDirection, parseMoveInput, stepPosition } from "./movement";
+import { NO_INPUT, inputToDirection, movementDelta, parseMoveInput } from "./movement";
 
-const origin = { x: 0, y: 0 };
-
-describe("stepPosition", () => {
+describe("movementDelta", () => {
   it("anda PLAYER_SPEED pixels em 1 segundo", () => {
-    const next = stepPosition(origin, { ...NO_INPUT, right: true }, 1000);
-    expect(next).toEqual({ x: PLAYER_SPEED, y: 0 });
+    expect(movementDelta({ ...NO_INPUT, right: true }, 1000)).toEqual({ x: PLAYER_SPEED, y: 0 });
   });
 
   it("y cresce para baixo, como na tela", () => {
-    const next = stepPosition(origin, { ...NO_INPUT, down: true }, 1000);
-    expect(next.y).toBe(PLAYER_SPEED);
+    expect(movementDelta({ ...NO_INPUT, down: true }, 1000).y).toBe(PLAYER_SPEED);
   });
 
   it("diagonal não é mais rápida que andar reto", () => {
-    const next = stepPosition(origin, { ...NO_INPUT, right: true, down: true }, 1000);
-    expect(Math.hypot(next.x, next.y)).toBeCloseTo(PLAYER_SPEED);
+    const delta = movementDelta({ ...NO_INPUT, right: true, down: true }, 1000);
+    expect(Math.hypot(delta.x, delta.y)).toBeCloseTo(PLAYER_SPEED);
   });
 
   it("sem tecla, fica parado", () => {
-    expect(stepPosition({ x: 5, y: 7 }, NO_INPUT, 1000)).toEqual({ x: 5, y: 7 });
+    expect(movementDelta(NO_INPUT, 1000)).toEqual({ x: 0, y: 0 });
   });
 
   it("teclas opostas se anulam", () => {
