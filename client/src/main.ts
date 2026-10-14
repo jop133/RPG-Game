@@ -36,6 +36,7 @@ interface MobView extends Vec2 {
 interface ServerState {
   players: { forEach(callback: (player: PlayerView, sessionId: string) => void): void };
   mobs: { forEach(callback: (mob: MobView, id: string) => void): void };
+  loot: { forEach(callback: (pile: Vec2, id: string) => void): void };
 }
 
 const SERVER_URL = `ws://${window.location.hostname}:2567`;
@@ -49,6 +50,7 @@ const MOB_NAMES: Record<MobKind, string> = { rato: "um rato", goblin: "um goblin
 
 // Ordem de desenho: aviso de golpe no chão, mobs por baixo dos jogadores, barras e golpes por cima de tudo.
 const TELEGRAPH_DEPTH = 0.5;
+const LOOT_DEPTH = 0.8;
 const MOB_DEPTH = 1;
 const PLAYER_DEPTH = 2;
 const OVERLAY_DEPTH = 3;
@@ -58,6 +60,8 @@ const HUD_DEPTH = 10;
 const HUD_MARGIN = 16;
 const HUNGER_BAR = { width: 160, height: 10 };
 const HUNGER_COLOR = 0xffb300;
+const LOOT_SIZE = 12;
+const LOOT_COLOR = 0x8d6e63;
 
 // Barra de inventário fixa, embaixo e no centro.
 const SLOT_SIZE = 36;
@@ -100,6 +104,8 @@ class GameScene extends Phaser.Scene {
   private keys?: MoveKeys;
   private playerSprites = new Map<string, Phaser.GameObjects.Rectangle>();
   private mobSprites = new Map<string, Phaser.GameObjects.Rectangle>();
+  private lootSprites = new Map<string, Phaser.GameObjects.Rectangle>();
+  private pickupKey?: Phaser.Input.Keyboard.Key;
   private lastSentInput = "";
   private overlay?: Phaser.GameObjects.Graphics;
   private telegraphs?: Phaser.GameObjects.Graphics;
@@ -123,6 +129,7 @@ class GameScene extends Phaser.Scene {
     this.hud = this.add.graphics().setDepth(HUD_DEPTH).setScrollFactor(0);
     this.add.text(HUD_MARGIN, HUD_MARGIN, "Fome", { fontSize: "12px", color: "#ffffff" }).setScrollFactor(0).setDepth(HUD_DEPTH);
     this.keys = this.input.keyboard?.addKeys({ up: "W", down: "S", left: "A", right: "D" }) as MoveKeys;
+    this.pickupKey = this.input.keyboard?.addKey("F");
     for (let i = 0; i < INVENTORY_SLOTS; i++) {
       const { x, y } = slotPosition(this.scale.width, this.scale.height, i);
       const key = SLOT_KEYS[i];
@@ -157,8 +164,11 @@ class GameScene extends Phaser.Scene {
     this.slotKeys.forEach((key, slot) => {
       if (Phaser.Input.Keyboard.JustDown(key)) this.room?.send("use", { slot });
     });
-    this.syncPlayerSprites(this.room);
-    this.syncMobSprites(this.room);
+    if (this.pickupKey && Phaser.Input.Keyboard.JustDown(this.pickupKey)) this.room.send("pickup");
+    const room = this.room;
+    syncSprites(room.state.players, this.playerSprites, (_, id) => this.createPlayerSprite(id, room.sessionId));
+    syncSprites(room.state.mobs, this.mobSprites, (mob) => this.createMobSprite(mob.kind as MobKind));
+    syncSprites(room.state.loot, this.lootSprites, () => this.createLootSprite());
     this.collectSwings(this.room, time);
     this.drawOverlay(this.room, this.overlay, time);
     this.drawTelegraphs(this.room, this.telegraphs, time);
@@ -282,49 +292,45 @@ ${slot.count}` : "";
     room.send("input", input);
   }
 
-  private syncPlayerSprites(room: Room<unknown, ServerState>) {
-    const seen = new Set<string>();
-    room.state.players.forEach((player, sessionId) => {
-      seen.add(sessionId);
-      const sprite = this.playerSprites.get(sessionId) ?? this.createPlayerSprite(sessionId, room.sessionId);
-      sprite.setPosition(player.x, player.y);
-    });
-    for (const [sessionId, sprite] of this.playerSprites) {
-      if (seen.has(sessionId)) continue;
-      sprite.destroy();
-      this.playerSprites.delete(sessionId);
-    }
-  }
-
   private createPlayerSprite(sessionId: string, ownSessionId: string) {
     const isSelf = sessionId === ownSessionId;
     const sprite = this.add.rectangle(0, 0, PLAYER_SIZE, PLAYER_SIZE, isSelf ? SELF_COLOR : OTHER_COLOR);
     sprite.setDepth(PLAYER_DEPTH);
     if (isSelf) this.cameras.main.startFollow(sprite, true);
-    this.playerSprites.set(sessionId, sprite);
     return sprite;
   }
 
-  private syncMobSprites(room: Room<unknown, ServerState>) {
-    const seen = new Set<string>();
-    room.state.mobs.forEach((mob, id) => {
-      seen.add(id);
-      const sprite = this.mobSprites.get(id) ?? this.createMobSprite(id, mob.kind as MobKind);
-      sprite.setPosition(mob.x, mob.y);
-    });
-    for (const [id, sprite] of this.mobSprites) {
-      if (seen.has(id)) continue;
-      sprite.destroy();
-      this.mobSprites.delete(id);
-    }
-  }
-
-  private createMobSprite(id: string, kind: MobKind) {
+  private createMobSprite(kind: MobKind) {
     const size = MOB_KINDS[kind].size;
-    const sprite = this.add.rectangle(0, 0, size, size, MOB_COLORS[kind]);
-    sprite.setDepth(MOB_DEPTH);
-    this.mobSprites.set(id, sprite);
-    return sprite;
+    return this.add.rectangle(0, 0, size, size, MOB_COLORS[kind]).setDepth(MOB_DEPTH);
+  }
+
+  private createLootSprite() {
+    return this.add.rectangle(0, 0, LOOT_SIZE, LOOT_SIZE, LOOT_COLOR).setStrokeStyle(1, 0x000000).setDepth(LOOT_DEPTH);
+  }
+}
+
+// Deixa os desenhos iguais à coleção que o servidor mandou: cria o que chegou, move o que já existe
+// e destrói o que saiu (morreu, foi pego ou saiu do raio de visão).
+function syncSprites<T extends Vec2>(
+  collection: { forEach(callback: (entity: T, id: string) => void): void },
+  sprites: Map<string, Phaser.GameObjects.Rectangle>,
+  create: (entity: T, id: string) => Phaser.GameObjects.Rectangle,
+) {
+  const seen = new Set<string>();
+  collection.forEach((entity, id) => {
+    seen.add(id);
+    let sprite = sprites.get(id);
+    if (!sprite) {
+      sprite = create(entity, id);
+      sprites.set(id, sprite);
+    }
+    sprite.setPosition(entity.x, entity.y);
+  });
+  for (const [id, sprite] of sprites) {
+    if (seen.has(id)) continue;
+    sprite.destroy();
+    sprites.delete(id);
   }
 }
 

@@ -6,6 +6,7 @@ import {
   INVENTORY_SLOTS,
   MOB_KINDS,
   NO_INPUT,
+  PICKUP_RADIUS,
   PLAYER_ATTACK,
   PLAYER_MAX_HP,
   PLAYER_SIZE,
@@ -15,32 +16,37 @@ import {
   applyDamage,
   isInArc,
   isInSwing,
+  inventoryToPile,
   isOffCooldown,
   mobStrikeArc,
   moveWithCollision,
   movementDelta,
+  nearestWithin,
   parseAttackAngle,
   parseMoveInput,
   parseSlotIndex,
   pickSpawnPoint,
   planMobSpawns,
+  rollDrops,
   shouldSee,
   startIdle,
   startingInventory,
   starvationDamage,
   stepMob,
+  takeFromPile,
   tickHunger,
   useSlot,
   type Area,
   type DeathCause,
   type Inventory,
+  type ItemStack,
   type MobKind,
   type MobMind,
   type MoveInput,
   type Vec2,
 } from "shared";
 import { loadLevel } from "./level";
-import { GameState, ItemSlotState, MobState, OWNER_TAG, PlayerState } from "./state";
+import { GameState, ItemSlotState, LootState, MobState, OWNER_TAG, PlayerState } from "./state";
 
 const level = loadLevel(new URL("../../assets/maps/test.json", import.meta.url));
 
@@ -61,6 +67,9 @@ export class GameRoom extends Room<{ state: GameState }> {
   private lastAttackMs = new Map<string, number>();
   // A verdade do inventário. PlayerState.inventory só espelha isto para o dono ver.
   private inventories = new Map<string, Inventory>();
+  // Conteúdo das pilhas no chão, por id. O cliente só recebe a posição (LootState).
+  private lootPiles = new Map<string, ItemStack[]>();
+  private nextLootId = 1;
   private mobBrains = new Map<string, MobBrain>();
   // Mortes do tick (ou do golpe) atual. Resolvidas depois dos laços, para não remover jogador no meio de um forEach.
   private deaths = new Map<string, DeathCause>();
@@ -73,6 +82,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     });
     this.onMessage("attack", (client, message) => this.handleAttack(client.sessionId, message));
     this.onMessage("use", (client, message) => this.handleUse(client.sessionId, message));
+    this.onMessage("pickup", (client) => this.handlePickup(client.sessionId));
     this.spawnMobs();
     this.setSimulationInterval((dtMs) => this.tick(dtMs), 1000 / TICK_RATE);
   }
@@ -147,6 +157,10 @@ export class GameRoom extends Room<{ state: GameState }> {
   private resolveDeaths() {
     for (const [sessionId, cause] of this.deaths) {
       const client = this.clients.getById(sessionId);
+      // O que ele carregava fica no chão, para quem pegar (aliado ou não).
+      const body = this.state.players.get(sessionId);
+      const inventory = this.inventories.get(sessionId);
+      if (body && inventory) this.dropPile(body, inventoryToPile(inventory));
       client?.send("death", cause);
       this.removePlayer(sessionId);
       // CONSENTED: saída intencional. Sem código, o SDK trataria como queda de rede e tentaria reconectar o morto.
@@ -183,8 +197,37 @@ export class GameRoom extends Room<{ state: GameState }> {
       if (mob.hp === 0) dead.push(id);
     });
     for (const id of dead) {
+      const mob = this.state.mobs.get(id);
+      if (mob) this.dropPile(mob, rollDrops(mob.kind as MobKind, Math.random));
       this.state.mobs.delete(id);
       this.mobBrains.delete(id);
+    }
+  }
+
+  private dropPile(at: Vec2, items: ItemStack[]) {
+    if (items.length === 0) return;
+    const id = `loot-${this.nextLootId++}`;
+    this.lootPiles.set(id, items);
+    this.state.loot.set(id, new LootState({ x: at.x, y: at.y }));
+  }
+
+  // F: pega da pilha mais próxima o que couber no inventário. O que não couber fica no chão.
+  private handlePickup(sessionId: string) {
+    const player = this.state.players.get(sessionId);
+    const inventory = this.inventories.get(sessionId);
+    if (!player || !inventory) return;
+    const positions = new Map<string, Vec2>();
+    this.state.loot.forEach((pile, id) => positions.set(id, pile));
+    const id = nearestWithin(player, positions, PICKUP_RADIUS);
+    const pile = id && this.lootPiles.get(id);
+    if (!id || !pile) return;
+    const result = takeFromPile(inventory, pile);
+    this.setInventory(sessionId, player, result.inventory);
+    if (result.pile.length > 0) {
+      this.lootPiles.set(id, result.pile);
+    } else {
+      this.lootPiles.delete(id);
+      this.state.loot.delete(id);
     }
   }
 
@@ -274,11 +317,12 @@ export class GameRoom extends Room<{ state: GameState }> {
         if (sessionId !== client.sessionId) updateVisibility(view, self, other);
       });
       this.state.mobs.forEach((mob) => updateVisibility(view, self, mob));
+      this.state.loot.forEach((pile) => updateVisibility(view, self, pile));
     }
   }
 }
 
-function updateVisibility(view: StateView, observer: Vec2, entity: PlayerState | MobState) {
+function updateVisibility(view: StateView, observer: Vec2, entity: PlayerState | MobState | LootState) {
   const seen = view.has(entity);
   const see = shouldSee(observer, entity, VIEW_RADIUS, seen);
   if (see && !seen) view.add(entity);

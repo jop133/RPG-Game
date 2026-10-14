@@ -1,5 +1,6 @@
 import type { AreaConfig } from "./areas";
 import type { ItemStats } from "./inventory";
+import type { DropEntry } from "./loot";
 import type { MobStats } from "./mobs";
 
 // Pixels por segundo.
@@ -32,6 +33,19 @@ export const INVENTORY_SLOTS = 12;
 
 // Com o que todo personagem novo entra. Provisório: quando houver loja (passo 9), a comida passa a ser comprada.
 export const STARTING_ITEMS: Partial<Record<ItemId, number>> = { racao: 3 };
+
+// O que cada tipo de mob larga ao morrer. Cada linha é sorteada à parte: com chance `chance` (0 a 1),
+// cai uma quantidade entre `min` e `max`. Goblins às vezes carregam comida: fonte de ração dentro do labirinto.
+export const MOB_DROPS: Record<MobKind, DropEntry[]> = {
+  rato: [{ item: "pele_de_rato", chance: 0.8, min: 1, max: 1 }],
+  goblin: [
+    { item: "dente_de_goblin", chance: 1, min: 1, max: 2 },
+    { item: "racao", chance: 0.25, min: 1, max: 1 },
+  ],
+};
+
+// Distância, de centro a centro, em que o jogador alcança uma pilha para pegar (tecla F).
+export const PICKUP_RADIUS = 40;
 
 // Golpe do jogador: arma placeholder única até o passo 8 (maestria de armas).
 // range: alcance em pixels, contado da borda do alvo. arcDegrees: abertura do arco à frente.

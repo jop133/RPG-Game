@@ -6,6 +6,7 @@ export * from "./death";
 export * from "./hunger";
 export * from "./inventory";
 export * from "./lineOfSight";
+export * from "./loot";
 export * from "./mobAi";
 export * from "./mobs";
 export * from "./movement";

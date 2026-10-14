@@ -7,7 +7,7 @@ Onde o projeto está agora. Atualizado ao fim de cada passo. O porquê das escol
 **Passo 6 em andamento: loot e extração.** Dividido em três partes:
 
 - [x] **6a.** Inventário (12 slots com pilhas, privado) e comida: todo personagem entra com 3 rações; a tecla do slot (1–9, 0, -, =) come uma ração dali (+40 de fome), a qualquer momento.
-- [ ] **6b.** Loot: mob morto deixa pilha no chão (tabela de drop por tipo); quem morre deixa o inventário numa pilha; **F** pega.
+- [x] **6b.** Loot: mob morto deixa pilha no chão (tabela de drop por tipo); quem morre deixa o inventário numa pilha; **F** pega o que couber da pilha mais próxima.
 - [ ] **6c.** Extração: portais candidatos no Tiled, alguns ativos por run; ficar 5 s no portal extrai; tela "Você extraiu" com a lista.
 
 O passo 5 (fome, morte definitiva, desconexão) foi feito em 5a+5b e 5c. Sem linhagem: casa, baú, reputação e bestiário ficam para depois.
@@ -19,7 +19,9 @@ O passo 5 (fome, morte definitiva, desconexão) foi feito em 5a+5b e 5c. Sem lin
 O passo 4 (combate, pathfinding, perseguição, golpe telegrafado) foi feito em 4a, 4b+4c e 4d.
 
 **Limitações conhecidas agora:**
-- Sem loja ainda: a comida de cada run são as 3 rações iniciais (`STARTING_ITEMS`). Sem mais comida, a run acaba em morte por fome.
+- Sem loja ainda: a comida de cada run são as 3 rações iniciais (`STARTING_ITEMS`), mais as que goblins largam às vezes.
+- Uma run dura enquanto houver alguém na sala. Quando todos saem (ou morrem), a sala fecha e as pilhas no chão somem com ela.
+- Pilhas no chão não somem com o tempo e mostram só a posição: o conteúdo se descobre ao pegar.
 - Vários mobs perseguindo o mesmo jogador se sobrepõem: não há colisão entre mobs.
 - O aviso do golpe é desenhado no chão, por baixo dos quadrados: com o mob encostado, parte dele fica escondida sob o jogador. Rever quando houver arte.
 - "Novo personagem" só recarrega a página. Quando houver cidade (passo 9), leva para lá.
@@ -57,7 +59,7 @@ npm run dev:client   # Vite em http://localhost:5173
 npm test             # testes de shared/
 ```
 
-**Controles:** WASD anda. Clique esquerdo golpeia na direção do cursor (fogo amigo ligado: acerta outros jogadores também). As teclas **1–9, 0, - e =** usam o item do slot correspondente (ração: come uma). Barra amarela no canto superior esquerdo: sua fome. Embaixo, no centro: seu inventário.
+**Controles:** WASD anda. Clique esquerdo golpeia na direção do cursor (fogo amigo ligado: acerta outros jogadores também). As teclas **1–9, 0, - e =** usam o item do slot correspondente (ração: come uma). **F** pega a pilha de loot mais próxima. Barra amarela no canto superior esquerdo: sua fome. Embaixo, no centro: seu inventário.
 
 ## Como editar o mapa
 
@@ -93,3 +95,4 @@ O Tiled está instalado em `C:\Program Files\Tiled\tiled.exe`. Abra `assets/maps
 - **2026-10-14** — Passo 5c concluído, e com ele o passo 5. Reconexão (`onDrop` + `allowReconnection` no servidor; token por aba no cliente). Verificado por script: com a conexão caída, o corpo fica no mundo, na mesma posição, visível aos outros (sem a fome); a volta pelo token devolve o mesmo personagem, com a fome tendo continuado a cair; morto enquanto desconectado, a volta é recusada. No navegador: recarregar a página voltou ao mesmo personagem, no mesmo lugar.
 - **2026-10-14** — Passo 6a concluído. Inventário (`shared/src/inventory.ts`; 143 testes no total) e comida. Verificado por script: entra com 3 rações, visíveis só para o dono; comer com a fome quase cheia não gasta ração. No navegador: barra de inventário embaixo ("Raç 3") e fome movida para o canto superior, para não sobrepor.
 - **2026-10-14** — Comida revista a pedido do dono do projeto: em vez de **E** com regra de desperdício, o jogador usa a tecla do slot onde está a ração e come a qualquer momento, com qualquer fome (o excesso se perde). Verificado por script (slot 1 gastou uma ração; slot vazio e pedidos maliciosos não fizeram nada) e no navegador (tecla 1: "Raç 3" → "Raç 2", fome cheia).
+- **2026-10-14** — Passo 6b concluído. Loot (`shared/src/loot.ts`; 155 testes no total). Verificado por script: rato morto deixou pilha e F levou a pele ao inventário (pilha sumiu); F longe da pilha não pegou nada; jogador morto por fogo amigo deixou as 3 rações, e quem pegou ficou com 6. No navegador: pilhas desenhadas onde os ratos morreram. A tecla F não foi exercitada no navegador (as teclas disparadas pela ferramenta de teste não chegaram ao jogo nessa carga da página); o mecanismo é o mesmo das teclas de slot, que funcionaram. Também no cliente: a sincronização de desenhos de jogadores, mobs e pilhas virou uma função só (terceiro uso).

@@ -31,11 +31,16 @@ export const MobState = schema(
 );
 export type MobState = SchemaType<typeof MobState>;
 
+// Pilha de loot no chão. Só a posição é enviada; o conteúdo fica no servidor até alguém pegar.
+export const LootState = schema({ x: t.number(), y: t.number() }, "LootState");
+export type LootState = SchemaType<typeof LootState>;
+
 // `.view()`: cada cliente só recebe o que o servidor adicionou à visão dele (regra 5).
 export const GameState = schema(
   {
     players: t.map(PlayerState).view(),
     mobs: t.map(MobState).view(),
+    loot: t.map(LootState).view(),
   },
   "GameState",
 );

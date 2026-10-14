@@ -462,3 +462,22 @@ O cliente recebe `windup` e `attackAngle` e desenha o arco no chão: o contorno 
 **Histórico:** a primeira versão usava **E** e só comia se a ração coubesse inteira, para não desperdiçar. Foi trocada a pedido do dono do projeto.
 
 **Provisório:** a ração inicial existe porque ainda não há loja. Quando houver (passo 9), a comida passa a ser comprada, e a escolha de quanto levar vira de fato a decisão de preparação do GDD.
+
+---
+
+## 2026-10 — Loot: só de mobs, pilhas no chão com conteúdo escondido; morto larga tudo
+
+**Decisão (dono do projeto):**
+- Mob morto deixa uma pilha com o que sortear em `MOB_DROPS` (cada linha: chance e faixa de quantidade). Goblins às vezes largam ração: fonte de comida dentro do labirinto
+- Jogador morto deixa o inventário inteiro numa pilha no lugar da morte, para quem pegar: aliado ou, com fogo amigo, qualquer um. Vale também para quem morre desconectado
+- **F** pega da pilha mais próxima (até `PICKUP_RADIUS`) o que couber no inventário; o resto fica no chão
+
+**Como:** o conteúdo das pilhas fica num `Map` no servidor. O estado sincronizado (`LootState`) tem só a posição e passa pelo mesmo filtro de visão de mobs e jogadores. Regras puras em `shared/src/loot.ts` (`rollDrops`, `inventoryToPile`, `takeFromPile`, `nearestWithin`).
+
+**Por quê:**
+- Conteúdo escondido: quem passa não sabe o que tem na pilha sem ir até ela, o que é exposição a risco, coerente com o GDD
+- Morto larga tudo: morrer custa, mas o grupo pode decidir se vale arriscar buscar o corpo
+
+**Consequência descoberta em teste:** uma run dura enquanto houver alguém na sala. Quando a sala esvazia, o Colyseus a encerra, e as pilhas vão junto. Hoje isso é o comportamento desejado; quando houver persistência, decidir se algo do andar sobrevive.
+
+**Regra de estilo aplicada:** com as pilhas, o código de sincronizar desenhos no cliente chegou ao terceiro uso (jogadores, mobs, pilhas) e virou a função `syncSprites`, como manda o `CLAUDE.md`.
