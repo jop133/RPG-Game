@@ -48,6 +48,8 @@ const SERVER_URL = `ws://${window.location.hostname}:2567`;
 
 // Por aba (sessionStorage): sobrevive a recarregar a página, não a fechar a aba. Duas abas = dois jogadores.
 const RECONNECTION_TOKEN_KEY = "rpg-extracao:reconnectionToken";
+// Último nome usado, só para vir preenchido (localStorage: conveniência, não identidade).
+const LAST_NAME_KEY = "rpg-extracao:lastName";
 const SELF_COLOR = 0x4caf50;
 const OTHER_COLOR = 0xe53935;
 const MOB_COLORS: Record<MobKind, number> = { rato: 0x9e9e9e, goblin: 0xcddc39 };
@@ -143,6 +145,9 @@ class GameScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(HUD_DEPTH);
     this.add.text(HUD_MARGIN, HUD_MARGIN, "Fome", { fontSize: "12px", color: "#ffffff" }).setScrollFactor(0).setDepth(HUD_DEPTH);
+    // Antes de registrar as teclas do jogo: o Phaser as captura e o campo de nome não conseguiria recebê-las.
+    const room = await connect(new Client(SERVER_URL));
+    if (!room) return;
     this.keys = this.input.keyboard?.addKeys({ up: "W", down: "S", left: "A", right: "D" }) as MoveKeys;
     this.pickupKey = this.input.keyboard?.addKey("F");
     for (let i = 0; i < INVENTORY_SLOTS; i++) {
@@ -157,8 +162,6 @@ class GameScene extends Phaser.Scene {
       this.slotLabels.push(label.setScrollFactor(0).setDepth(HUD_DEPTH + 1));
     }
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => this.sendAttack(pointer));
-    const room = await connect(new Client(SERVER_URL));
-    if (!room) return;
     sessionStorage.setItem(RECONNECTION_TOKEN_KEY, room.reconnectionToken);
     // O Colyseus troca o token a cada reconexão; o guardado precisa acompanhar.
     room.onReconnect(() => sessionStorage.setItem(RECONNECTION_TOKEN_KEY, room.reconnectionToken));
@@ -376,7 +379,7 @@ function syncSprites<T extends Vec2>(
 // Se a volta falhar (morreu enquanto estava fora, ou a sala acabou), avisa em vez de começar outro calado.
 async function connect(client: Client): Promise<Room<unknown, ServerState> | undefined> {
   const token = sessionStorage.getItem(RECONNECTION_TOKEN_KEY);
-  if (!token) return client.joinOrCreate<ServerState>("game");
+  if (!token) return joinWithName(client);
   try {
     return await client.reconnect<ServerState>(token);
   } catch {
@@ -394,6 +397,61 @@ function slotPosition(screenWidth: number, screenHeight: number, index: number):
   };
 }
 
+// Pede o nome até o servidor aceitar. O nome identifica a linhagem; o servidor valida e pode recusar.
+async function joinWithName(client: Client): Promise<Room<unknown, ServerState>> {
+  let error = "";
+  for (;;) {
+    const name = await askName(error);
+    try {
+      const room = await client.joinOrCreate<ServerState>("game", { name });
+      localStorage.setItem(LAST_NAME_KEY, name);
+      return room;
+    } catch (e) {
+      error = e instanceof Error ? e.message : "Não foi possível entrar.";
+    }
+  }
+}
+
+function askName(error: string): Promise<string> {
+  return new Promise((resolve) => {
+    const screen = overlayScreen();
+    const title = document.createElement("h1");
+    title.textContent = "RPG de Extração";
+    title.style.margin = "0";
+    const label = document.createElement("label");
+    label.textContent = "Nome da sua linhagem";
+    const input = document.createElement("input");
+    input.maxLength = 20;
+    input.value = localStorage.getItem(LAST_NAME_KEY) ?? "";
+    input.style.cssText = "padding:6px 8px;font-size:16px;";
+    const message = document.createElement("p");
+    message.textContent = error;
+    message.style.cssText = "margin:0;color:#ef5350;min-height:1em;";
+    const enter = document.createElement("button");
+    enter.textContent = "Entrar";
+    enter.style.cssText = "padding:8px 16px;font-size:16px;cursor:pointer;";
+    const submit = () => {
+      screen.remove();
+      resolve(input.value);
+    };
+    enter.addEventListener("click", submit);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") submit();
+    });
+    screen.append(title, label, input, enter, message);
+    document.body.append(screen);
+    input.focus();
+  });
+}
+
+function overlayScreen(): HTMLDivElement {
+  const screen = document.createElement("div");
+  screen.style.cssText =
+    "position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;" +
+    "gap:12px;background:rgba(0,0,0,0.8);color:#fff;font-family:sans-serif;";
+  return screen;
+}
+
 function describeLoot(result: ExtractionResult): string {
   if (result.items.length === 0) return "Saiu de mãos vazias.";
   return "Levou: " + result.items.map((stack) => `${ITEMS[stack.item].name} ×${stack.count}`).join(", ") + ".";
@@ -405,12 +463,10 @@ function describeDeath(cause: DeathCause): string {
   return "Morto por outro jogador.";
 }
 
-// O personagem acabou. Sem cidade ainda (passo 9), "novo personagem" só recarrega e entra de novo.
+// Fim da run (morte, extração ou personagem perdido). Sem cidade ainda (passo 9), o botão recarrega e pede o nome:
+// se o personagem ainda vive (extraiu), volta a ele; se morreu, entra um herdeiro da mesma linhagem.
 function showEndScreen(heading: string, detail: string) {
-  const screen = document.createElement("div");
-  screen.style.cssText =
-    "position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;" +
-    "gap:12px;background:rgba(0,0,0,0.8);color:#fff;font-family:sans-serif;";
+  const screen = overlayScreen();
   const title = document.createElement("h1");
   title.textContent = heading;
   title.style.margin = "0";
@@ -418,7 +474,7 @@ function showEndScreen(heading: string, detail: string) {
   reason.textContent = detail;
   reason.style.margin = "0";
   const again = document.createElement("button");
-  again.textContent = "Novo personagem";
+  again.textContent = "Entrar de novo";
   again.style.cssText = "padding:8px 16px;font-size:16px;cursor:pointer;";
   again.addEventListener("click", () => window.location.reload());
   screen.append(title, reason, again);

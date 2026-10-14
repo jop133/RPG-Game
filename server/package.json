@@ -9,10 +9,12 @@
   "dependencies": {
     "@colyseus/schema": "^5.0.39",
     "@colyseus/ws-transport": "^0.18.0",
+    "better-sqlite3": "^13.0.3",
     "colyseus": "^0.18.0",
     "shared": "*"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^24.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.9.0"

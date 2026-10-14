@@ -4,25 +4,20 @@ Onde o projeto está agora. Atualizado ao fim de cada passo. O porquê das escol
 
 ## Agora
 
-**Passo 6 concluído: loot e extração.** Próximo: passo 7, essências e slots (fim da fatia mínima jogável).
+**Passo 7 em andamento: essências e slots** (último da fatia mínima jogável). Dividido em três partes:
 
-- [x] **6a.** Inventário (12 slots com pilhas, privado) e comida: todo personagem entra com 3 rações; a tecla do slot (1–9, 0, -, =) come uma ração dali (+40 de fome), a qualquer momento.
-- [x] **6b.** Loot: mob morto deixa pilha no chão (tabela de drop por tipo); quem morre deixa o inventário numa pilha; **F** pega o que couber da pilha mais próxima.
-- [x] **6c.** Extração: portais candidatos no Tiled (camada `exits`), 2 sorteados como ativos por run e escondidos pelo raio de visão; ficar 5 s no portal extrai (sair zera; dano não); tela "Você extraiu" com a lista.
+- [x] **7a.** Persistência (SQLite) e identidade por nome: a linhagem e o personagem sobrevivem entre runs. Tela de nome ao entrar; um personagem vivo por linhagem; morreu, o próximo é herdeiro; extraído vira crédito da linhagem.
+- [ ] **7b.** Bestiário (da linhagem) e XP pela 1ª kill de cada tipo (por personagem); nível = número de slots.
+- [ ] **7c.** Essências: drop dos mobs; consumir (tecla do slot) ocupa um slot de essência, em qualquer lugar; efeito de status. Tirar só com NPC, mais à frente.
 
-O passo 5 (fome, morte definitiva, desconexão) foi feito em 5a+5b e 5c. Sem linhagem: casa, baú, reputação e bestiário ficam para depois.
-
-- [x] **5a.** Fome: cai no tick do servidor (cheia → vazia em 5 min); zerada, tira 2 de vida por segundo. Fome é privada: só o dono recebe. Barra "Fome" no canto da tela.
-- [x] **5b.** Morte definitiva: vida 0 (por mob, outro jogador ou fome) tira o personagem da sala; tela "Você morreu" com a causa e botão "Novo personagem".
-- [x] **5c.** Desconexão: o personagem fica parado no mundo, vulnerável, e a fome continua. Recarregar a página (ou uma queda de rede) devolve o mesmo personagem; se ele morreu enquanto você estava fora, aparece "Seu personagem se foi".
-
-O passo 4 (combate, pathfinding, perseguição, golpe telegrafado) foi feito em 4a, 4b+4c e 4d.
+O passo 6 (inventário, loot, extração) foi feito em 6a, 6b e 6c.
 
 **Limitações conhecidas agora:**
 - Sem loja ainda: a comida de cada run são as 3 rações iniciais (`STARTING_ITEMS`), mais as que goblins largam às vezes.
 - Uma run dura enquanto houver alguém na sala. Quando todos saem (ou morrem), a sala fecha e as pilhas no chão somem com ela.
 - Pilhas no chão não somem com o tempo e mostram só a posição: o conteúdo se descobre ao pegar.
-- O que é extraído ainda não fica guardado em lugar nenhum: a tela "Você extraiu" só mostra a lista. Guardar vem com o baú (passo 9).
+- O que é extraído vira "crédito" da linhagem no banco, mas ainda não serve para nada: usar vem com baú e loja (passo 9). Entre runs, o inventário zera (decisão do dono do projeto); toda run começa com as 3 rações.
+- Identidade é só o nome, sem senha: quem digitar o seu nome entra como você. Serve para jogar entre amigos.
 - Vários mobs perseguindo o mesmo jogador se sobrepõem: não há colisão entre mobs.
 - O aviso do golpe é desenhado no chão, por baixo dos quadrados: com o mob encostado, parte dele fica escondida sob o jogador. Rever quando houver arte.
 - "Novo personagem" só recarrega a página. Quando houver cidade (passo 9), leva para lá.
@@ -59,6 +54,10 @@ npm run dev:server   # Colyseus em http://localhost:2567
 npm run dev:client   # Vite em http://localhost:5173
 npm test             # testes de shared/
 ```
+
+O banco fica em `data/rpg-extracao.db` (fora do git). Para usar outro arquivo, defina `DB_FILE` antes de subir o servidor.
+
+**Ao abrir:** digite o nome da sua linhagem. O mesmo nome volta ao mesmo personagem (se vivo) ou entra um herdeiro (se o anterior morreu).
 
 **Controles:** WASD anda. Clique esquerdo golpeia na direção do cursor (fogo amigo ligado: acerta outros jogadores também). As teclas **1–9, 0, - e =** usam o item do slot correspondente (ração: come uma). **F** pega a pilha de loot mais próxima. Anel azul no chão: portal de saída; fique dentro dele 5 s para extrair. Barra amarela no canto superior esquerdo: sua fome. Embaixo, no centro: seu inventário.
 
@@ -99,3 +98,4 @@ O Tiled está instalado em `C:\Program Files\Tiled\tiled.exe`. Abra `assets/maps
 - **2026-10-14** — Comida revista a pedido do dono do projeto: em vez de **E** com regra de desperdício, o jogador usa a tecla do slot onde está a ração e come a qualquer momento, com qualquer fome (o excesso se perde). Verificado por script (slot 1 gastou uma ração; slot vazio e pedidos maliciosos não fizeram nada) e no navegador (tecla 1: "Raç 3" → "Raç 2", fome cheia).
 - **2026-10-14** — Passo 6b concluído. Loot (`shared/src/loot.ts`; 155 testes no total). Verificado por script: rato morto deixou pilha e F levou a pele ao inventário (pilha sumiu); F longe da pilha não pegou nada; jogador morto por fogo amigo deixou as 3 rações, e quem pegou ficou com 6. No navegador: pilhas desenhadas onde os ratos morreram. A tecla F não foi exercitada no navegador (as teclas disparadas pela ferramenta de teste não chegaram ao jogo nessa carga da página); o mecanismo é o mesmo das teclas de slot, que funcionaram. Também no cliente: a sincronização de desenhos de jogadores, mobs e pilhas virou uma função só (terceiro uso).
 - **2026-10-14** — Passo 6c concluído, e com ele o passo 6. Extração (`shared/src/extraction.ts`; 165 testes no total). Verificado por script num servidor de teste (andando até o portal com o `findPath` do jogo): 1,7 s dentro do portal → contagem 1743 ms; saiu → 0; voltou e ficou → "extracted" com a lista certa e conexão fechada com 4000. O servidor recusa um mapa sem saídas. **Não verificado no navegador:** na sala aberta, nenhum portal ativo caiu perto do spawn; o anel, a contagem na tela e a tela "Você extraiu" ficam para conferência manual.
+- **2026-10-14** — Passo 7a concluído. SQLite com `better-sqlite3` e migrações numeradas (`server/src/db.ts`), nome validado em `shared/src/identity.ts` (170 testes no total). Verificado com banco descartável: nome inválido ou ausente recusado com mensagem; o mesmo nome em duas conexões recusado ("Teste já está no labirinto."); morte marca o personagem como morto e a próxima entrada cria um herdeiro na mesma linhagem; extrair soma o inventário no crédito da linhagem e o personagem segue vivo (voltar com o mesmo nome reencontra o mesmo personagem). No navegador: tela de nome, digitação de W/A/S/D no campo e mensagem de erro do servidor (sem entrar, para não sujar o banco do dono do projeto).

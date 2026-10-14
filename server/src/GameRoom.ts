@@ -1,5 +1,6 @@
+import { fileURLToPath } from "node:url";
 import { StateView } from "@colyseus/schema";
-import { CloseCode, Room, type Client } from "colyseus";
+import { CloseCode, Room, ServerError, type Client } from "colyseus";
 import {
   AREAS,
   EXITS_ACTIVE,
@@ -26,6 +27,7 @@ import {
   nearestWithin,
   parseAttackAngle,
   parseMoveInput,
+  parsePlayerName,
   parseSlotIndex,
   pickActiveExits,
   pickSpawnPoint,
@@ -50,10 +52,18 @@ import {
   type MoveInput,
   type Vec2,
 } from "shared";
+import { type CharacterRecord, Store } from "./db";
 import { loadLevel } from "./level";
 import { ExitState, GameState, ItemSlotState, LootState, MobState, OWNER_TAG, PlayerState } from "./state";
 
 const level = loadLevel(new URL("../../assets/maps/test.json", import.meta.url));
+
+// DB_FILE permite um banco separado (ex.: servidores de teste não tocam no banco de verdade).
+const store = new Store(process.env.DB_FILE ?? fileURLToPath(new URL("../../data/rpg-extracao.db", import.meta.url)));
+
+// Personagens dentro de alguma sala agora (conectados ou esperando reconexão), neste processo.
+// Impede o mesmo personagem de entrar duas vezes (ex.: o mesmo nome em duas abas).
+const charactersInside = new Set<number>();
 
 // O que o servidor precisa saber de um mob para movê-lo, e que o cliente não precisa ver.
 interface MobBrain {
@@ -78,6 +88,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   // Portais ativos desta run (sorteados uma vez) e contagem de extração de cada jogador.
   private activeExits: Vec2[] = [];
   private extractProgress = new Map<string, number>();
+  // Quem é cada sessão no banco.
+  private characters = new Map<string, CharacterRecord>();
   private mobBrains = new Map<string, MobBrain>();
   // Mortes do tick (ou do golpe) atual. Resolvidas depois dos laços, para não remover jogador no meio de um forEach.
   private deaths = new Map<string, DeathCause>();
@@ -96,7 +108,20 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.setSimulationInterval((dtMs) => this.tick(dtMs), 1000 / TICK_RATE);
   }
 
+  // Porta de entrada: valida o nome e acha (ou cria) o personagem. Recusa quem já está no labirinto.
+  onAuth(_client: Client, options: unknown): CharacterRecord {
+    const name = parsePlayerName((options as { name?: unknown } | undefined)?.name);
+    if (!name) throw new ServerError(400, "Nome inválido: use de 2 a 20 letras, números, espaço, - ou _.");
+    const record = store.enter(name);
+    if (charactersInside.has(record.characterId)) {
+      throw new ServerError(409, `${record.name} já está no labirinto.`);
+    }
+    charactersInside.add(record.characterId);
+    return record;
+  }
+
   onJoin(client: Client) {
+    this.characters.set(client.sessionId, client.auth as CharacterRecord);
     const player = new PlayerState({
       ...this.entryPoint(),
       hp: PLAYER_MAX_HP,
@@ -134,6 +159,9 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.lastAttackMs.delete(sessionId);
     this.inventories.delete(sessionId);
     this.extractProgress.delete(sessionId);
+    const record = this.characters.get(sessionId);
+    if (record) charactersInside.delete(record.characterId);
+    this.characters.delete(sessionId);
   }
 
   private openExits() {
@@ -160,6 +188,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     const client = this.clients.getById(sessionId);
     const inventory = this.inventories.get(sessionId);
     const result: ExtractionResult = { items: inventory ? inventoryToPile(inventory) : [] };
+    const record = this.characters.get(sessionId);
+    if (record) store.creditExtraction(record.lineageId, result.items);
     client?.send("extracted", result);
     this.removePlayer(sessionId);
     client?.leave(CloseCode.CONSENTED);
@@ -201,6 +231,8 @@ export class GameRoom extends Room<{ state: GameState }> {
       const body = this.state.players.get(sessionId);
       const inventory = this.inventories.get(sessionId);
       if (body && inventory) this.dropPile(body, inventoryToPile(inventory));
+      const record = this.characters.get(sessionId);
+      if (record) store.markDead(record.characterId, cause);
       client?.send("death", cause);
       this.removePlayer(sessionId);
       // CONSENTED: saída intencional. Sem código, o SDK trataria como queda de rede e tentaria reconectar o morto.

@@ -5,6 +5,7 @@ export * from "./combat";
 export * from "./death";
 export * from "./extraction";
 export * from "./hunger";
+export * from "./identity";
 export * from "./inventory";
 export * from "./lineOfSight";
 export * from "./loot";

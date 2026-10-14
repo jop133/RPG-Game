@@ -500,3 +500,43 @@ O cliente recebe `windup` e `attackAngle` e desenha o arco no chão: o contorno 
 - Dano não interrompe, coerente com o golpe de mob não interrompível
 
 **Em aberto:** para onde vão os itens extraídos. Hoje somem depois da tela; o baú (passo 9) é que guarda. Também em aberto: portal de **descida** para o próximo andar (o GDD fala em "saída/descida"); hoje todo portal é saída.
+
+---
+
+## 2026-10 — MUDANÇA: essência é consumida em qualquer lugar; só tirar exige NPC
+
+**Contraria duas decisões anteriores**, por escolha do dono do projeto:
+- "Status por essência, não por nível" dizia que a essência "precisa ser extraída" para valer
+- "Troca de essência só na cidade, via igreja" restringia toda a troca à cidade
+
+**Nova decisão:** a essência pode ser consumida a qualquer momento, dentro ou fora do labirinto, e ao ser consumida ocupa um slot. **Tirar** uma essência do personagem continua restrito: só com um NPC (a purificação da igreja, mais à frente).
+
+**O que continua valendo:** slots limitados pelo nível e purificação cara para liberar slot. E, pelo GDD, o personagem que morre perde as essências equipadas, então consumir dentro do labirinto é ficar forte agora, arriscando perder tudo.
+
+**Pendente:** o GDD ainda diz "precisam ser extraídas para valer" na seção de Essências; atualizar o texto é decisão do dono do projeto.
+
+---
+
+## 2026-10 — Persistência em SQLite (better-sqlite3), com migrações numeradas
+
+**Decisão (dono do projeto):** o servidor guarda linhagens, personagens e o crédito extraído num arquivo SQLite, via `better-sqlite3` (`server/src/db.ts`). O arquivo padrão é `data/rpg-extracao.db`, fora do git; `DB_FILE` aponta para outro (os testes usam um banco descartável e nunca tocam no do dono do projeto).
+
+**Como:** mudanças de esquema são migrações numeradas, aplicadas em ordem, com a última aplicada guardada em `PRAGMA user_version`. Nunca se edita uma migração já publicada; acrescenta-se outra. A regra "uma linhagem tem no máximo um personagem vivo" é garantida também por um índice único no banco, não só pelo código.
+
+**Por quê:** SQLite sobrevive a reiniciar o servidor, aguenta escritas de vários jogadores e escala até baú, cidade e linhagem completa. A alternativa embutida (`node:sqlite`) foi descartada pelo dono do projeto em favor da biblioteca madura.
+
+---
+
+## 2026-10 — Identidade por nome; personagem e linhagem entre runs
+
+**Decisões (dono do projeto):**
+- **Identidade = nome digitado ao entrar**, sem senha. Maiúsculas e minúsculas não importam. Validado na entrada (`parsePlayerName`): 2 a 20 caracteres, letras, números, espaço, - e _
+- **Linhagem** = o nome. Guarda o crédito extraído e, no 7b, o bestiário (sobrevive à morte)
+- **Personagem**: um vivo por linhagem. Sobrevive à extração. Morreu, a próxima entrada com o nome cria um herdeiro
+- **XP é por personagem** (7b): o herdeiro reganha nível matando de novo cada tipo; o bestiário (conhecimento) é que é da linhagem
+- **Entre runs, o inventário zera.** O que foi extraído vira crédito da linhagem, sem uso até baú e loja
+- **Um personagem não entra duas vezes ao mesmo tempo:** o `onAuth` recusa o nome de quem já está numa sala (incluindo desconectado esperando voltar)
+
+**Por quê:** jogo entre amigos; login com senha seria muito código para o problema de agora. O risco aceito é que qualquer um que digitar o seu nome entra como você.
+
+**Reavaliar quando:** o jogo sair do círculo de amigos.
