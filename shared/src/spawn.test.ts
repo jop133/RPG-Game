@@ -32,7 +32,7 @@ describe("entrySpawnPoints", () => {
     { name: "salao", rects: [{ x: 0, y: 0, width: 100, height: 100 }] },
     { name: "toca", rects: [{ x: 100, y: 0, width: 100, height: 100 }] },
   ];
-  const configs = { salao: { playerEntry: true }, toca: { playerEntry: false } };
+  const configs = { salao: { playerEntry: true, mobs: {} }, toca: { playerEntry: false, mobs: {} } };
 
   it("só ficam os pontos em áreas que aceitam entrada", () => {
     const points = [

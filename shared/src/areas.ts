@@ -1,3 +1,4 @@
+import type { MobKind } from "./balance";
 import type { Vec2 } from "./movement";
 
 export interface Rect {
@@ -25,6 +26,7 @@ export function areaAt(areas: readonly Area[], p: Vec2): Area | undefined {
 // O que o jogo sabe de cada área além do formato. Os valores ficam em balance.ts (AREAS).
 export interface AreaConfig {
   playerEntry: boolean;
+  mobs: Partial<Record<MobKind, number>>;
 }
 
 // Mapa e configuração precisam concordar nos nomes. Devolve os problemas encontrados; lista vazia = ok.

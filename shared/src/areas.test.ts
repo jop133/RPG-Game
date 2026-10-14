@@ -47,20 +47,20 @@ describe("areaAt", () => {
 });
 
 describe("validateAreas", () => {
-  const configs = { salao: { playerEntry: true }, tuneis: { playerEntry: false } };
+  const configs = { salao: { playerEntry: true, mobs: {} }, tuneis: { playerEntry: false, mobs: {} } };
 
   it("mapa e configuração batendo, sem erros", () => {
     expect(validateAreas(areas, configs, [{ x: 50, y: 50 }])).toEqual([]);
   });
 
   it("área no mapa sem configuração", () => {
-    expect(validateAreas(areas, { salao: { playerEntry: true } }, [])).toEqual([
+    expect(validateAreas(areas, { salao: { playerEntry: true, mobs: {} } }, [])).toEqual([
       expect.stringContaining('"tuneis" do mapa não está em AREAS'),
     ]);
   });
 
   it("configuração sem área no mapa (erro de digitação, por exemplo)", () => {
-    expect(validateAreas(areas, { ...configs, tunesi: { playerEntry: true } }, [])).toEqual([
+    expect(validateAreas(areas, { ...configs, tunesi: { playerEntry: true, mobs: {} } }, [])).toEqual([
       expect.stringContaining('AREAS tem "tunesi"'),
     ]);
   });

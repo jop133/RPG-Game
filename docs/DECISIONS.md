@@ -265,3 +265,18 @@ Se uma das duas mudar, a outra tem que acompanhar.
 **Por quê:** o GDD dizia "ponto de entrada aleatório, com restrição de área" sem definir a restrição. A interpretação escolhida permite, por exemplo, que ninguém nasça dentro da zona escura dos goblins.
 
 **Não adotado (por enquanto):** fazer o grupo todo entrar na mesma área. Cada jogador sorteia o próprio ponto.
+
+---
+
+## 2026-10 — Mobs nascem uma vez, em tiles de chão distintos da área
+
+**Decisão:** quando a sala é criada, cada área recebe os mobs de `AREAS[área].mobs`. Cada mob vai para o centro de um tile de chão **diferente**, sorteado entre os tiles cujo centro está dentro da área (`planMobSpawns` em `shared/src/mobs.ts`). Os tipos e seus números (tamanho, velocidade) ficam em `MOB_KINDS` no `balance.ts`. A cor de cada tipo é só visual e fica no cliente.
+
+**Por quê:**
+- Sortear entre tiles conhecidos não depende de tentativa e erro, sempre termina e é fácil de testar com um gerador aleatório fixo
+- Nenhum mob maior que um tile garante que qualquer tile de chão serve para qualquer tipo; o servidor recusa subir se isso for violado
+- Tiles distintos evitam mobs empilhados no mesmo ponto
+
+**Em aberto:** respawn. Hoje a população é fixa por run, o que combina com extraction game (o andar se esvazia conforme você mata), mas a regra fica para quando houver morte de mob (passo 4).
+
+**Regra de estilo aplicada:** no cliente, o código que sincroniza os desenhos de jogadores e o de mobs ficou duplicado de propósito (dois usos). Generaliza no terceiro, provavelmente o loot no passo 6.

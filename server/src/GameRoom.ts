@@ -1,6 +1,7 @@
 import { StateView } from "@colyseus/schema";
 import { Room, type Client } from "colyseus";
 import {
+  AREAS,
   NO_INPUT,
   PLAYER_SIZE,
   TICK_RATE,
@@ -9,11 +10,13 @@ import {
   movementDelta,
   parseMoveInput,
   pickSpawnPoint,
+  planMobSpawns,
   shouldSee,
   type MoveInput,
+  type Vec2,
 } from "shared";
 import { loadLevel } from "./level";
-import { GameState, PlayerState } from "./state";
+import { GameState, MobState, PlayerState } from "./state";
 
 const level = loadLevel(new URL("../../assets/maps/test.json", import.meta.url));
 
@@ -28,6 +31,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.onMessage("input", (client, message) => {
       this.moveInputs.set(client.sessionId, parseMoveInput(message));
     });
+    this.spawnMobs();
     this.setSimulationInterval((dtMs) => this.tick(dtMs), 1000 / TICK_RATE);
   }
 
@@ -44,6 +48,17 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.moveInputs.delete(client.sessionId);
   }
 
+  // Uma vez, quando a sala nasce: cada área recebe os mobs de AREAS em tiles de chão sorteados.
+  private spawnMobs() {
+    let nextId = 1;
+    for (const [areaName, config] of Object.entries(AREAS)) {
+      const cells = level.floorCells.get(areaName) ?? [];
+      for (const { kind, position } of planMobSpawns(cells, config.mobs, Math.random)) {
+        this.state.mobs.set(`mob-${nextId++}`, new MobState({ kind, ...position }));
+      }
+    }
+  }
+
   private tick(dtMs: number) {
     this.movePlayers(dtMs);
     this.updateViews();
@@ -58,19 +73,23 @@ export class GameRoom extends Room<{ state: GameState }> {
     });
   }
 
-  // O próprio jogador entra na visão no onJoin e nunca sai; aqui só os outros.
+  // O próprio jogador entra na visão no onJoin e nunca sai; aqui só os outros e os mobs.
   private updateViews() {
     for (const client of this.clients) {
       const view = client.view;
       const self = this.state.players.get(client.sessionId);
       if (!view || !self) continue;
       this.state.players.forEach((other, sessionId) => {
-        if (sessionId === client.sessionId) return;
-        const seen = view.has(other);
-        const see = shouldSee(self, other, VIEW_RADIUS, seen);
-        if (see && !seen) view.add(other);
-        if (!see && seen) view.remove(other);
+        if (sessionId !== client.sessionId) updateVisibility(view, self, other);
       });
+      this.state.mobs.forEach((mob) => updateVisibility(view, self, mob));
     }
   }
+}
+
+function updateVisibility(view: StateView, observer: Vec2, entity: PlayerState | MobState) {
+  const seen = view.has(entity);
+  const see = shouldSee(observer, entity, VIEW_RADIUS, seen);
+  if (see && !seen) view.add(entity);
+  if (!see && seen) view.remove(entity);
 }
