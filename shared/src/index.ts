@@ -4,6 +4,7 @@ export * from "./collision";
 export * from "./combat";
 export * from "./death";
 export * from "./hunger";
+export * from "./inventory";
 export * from "./lineOfSight";
 export * from "./mobAi";
 export * from "./mobs";

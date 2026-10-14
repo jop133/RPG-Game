@@ -2,12 +2,15 @@ import Phaser from "phaser";
 import { Client, type Room } from "@colyseus/sdk";
 import {
   HUNGER_MAX,
+  INVENTORY_SLOTS,
+  ITEMS,
   MOB_KINDS,
   PLAYER_ATTACK,
   PLAYER_MAX_HP,
   PLAYER_SIZE,
   mobStrikeArc,
   type DeathCause,
+  type ItemId,
   type MobKind,
   type MoveInput,
   type Vec2,
@@ -20,8 +23,9 @@ interface PlayerView extends Vec2 {
   hp: number;
   attackSeq: number;
   attackAngle: number;
-  // Só chega para o próprio jogador; para os outros fica undefined.
+  // Só chegam para o próprio jogador; para os outros ficam undefined.
   hunger?: number;
+  inventory?: { forEach(callback: (slot: { item: string; count: number }, index: number) => void): void };
 }
 interface MobView extends Vec2 {
   kind: string;
@@ -50,10 +54,30 @@ const PLAYER_DEPTH = 2;
 const OVERLAY_DEPTH = 3;
 const HUD_DEPTH = 10;
 
-// Barra de fome fixa na tela (não acompanha a câmera).
+// Barra de fome fixa no canto superior esquerdo (não acompanha a câmera).
 const HUD_MARGIN = 16;
 const HUNGER_BAR = { width: 160, height: 10 };
 const HUNGER_COLOR = 0xffb300;
+
+// Barra de inventário fixa, embaixo e no centro.
+const SLOT_SIZE = 36;
+const SLOT_GAP = 4;
+const ITEM_COLORS: Record<ItemId, number> = { racao: 0xc8a165, pele_de_rato: 0x8d8d8d, dente_de_goblin: 0xf5f5dc };
+// Tecla de cada slot, na ordem: 1–9, 0, - e = (12 slots, só 10 teclas de número).
+const SLOT_KEYS = [
+  { code: Phaser.Input.Keyboard.KeyCodes.ONE, label: "1" },
+  { code: Phaser.Input.Keyboard.KeyCodes.TWO, label: "2" },
+  { code: Phaser.Input.Keyboard.KeyCodes.THREE, label: "3" },
+  { code: Phaser.Input.Keyboard.KeyCodes.FOUR, label: "4" },
+  { code: Phaser.Input.Keyboard.KeyCodes.FIVE, label: "5" },
+  { code: Phaser.Input.Keyboard.KeyCodes.SIX, label: "6" },
+  { code: Phaser.Input.Keyboard.KeyCodes.SEVEN, label: "7" },
+  { code: Phaser.Input.Keyboard.KeyCodes.EIGHT, label: "8" },
+  { code: Phaser.Input.Keyboard.KeyCodes.NINE, label: "9" },
+  { code: Phaser.Input.Keyboard.KeyCodes.ZERO, label: "0" },
+  { code: Phaser.Input.Keyboard.KeyCodes.MINUS, label: "-" },
+  { code: Phaser.Input.Keyboard.KeyCodes.PLUS, label: "=" },
+];
 
 const HP_BAR_HEIGHT = 3;
 const HP_BAR_GAP = 4;
@@ -80,6 +104,8 @@ class GameScene extends Phaser.Scene {
   private overlay?: Phaser.GameObjects.Graphics;
   private telegraphs?: Phaser.GameObjects.Graphics;
   private hud?: Phaser.GameObjects.Graphics;
+  private slotKeys: Phaser.Input.Keyboard.Key[] = [];
+  private slotLabels: Phaser.GameObjects.Text[] = [];
   // Quando este cliente viu cada mob começar a preparar: base para o aviso encher no ritmo certo.
   private windupStartedAt = new Map<string, number>();
   private lastAttackSeq = new Map<string, number>();
@@ -95,9 +121,19 @@ class GameScene extends Phaser.Scene {
     this.overlay = this.add.graphics().setDepth(OVERLAY_DEPTH);
     this.telegraphs = this.add.graphics().setDepth(TELEGRAPH_DEPTH);
     this.hud = this.add.graphics().setDepth(HUD_DEPTH).setScrollFactor(0);
-    const hungerLabelY = this.scale.height - HUD_MARGIN - HUNGER_BAR.height - 16;
-    this.add.text(HUD_MARGIN, hungerLabelY, "Fome", { fontSize: "12px", color: "#ffffff" }).setScrollFactor(0).setDepth(HUD_DEPTH);
+    this.add.text(HUD_MARGIN, HUD_MARGIN, "Fome", { fontSize: "12px", color: "#ffffff" }).setScrollFactor(0).setDepth(HUD_DEPTH);
     this.keys = this.input.keyboard?.addKeys({ up: "W", down: "S", left: "A", right: "D" }) as MoveKeys;
+    for (let i = 0; i < INVENTORY_SLOTS; i++) {
+      const { x, y } = slotPosition(this.scale.width, this.scale.height, i);
+      const key = SLOT_KEYS[i];
+      if (key) {
+        const phaserKey = this.input.keyboard?.addKey(key.code);
+        if (phaserKey) this.slotKeys[i] = phaserKey;
+        this.add.text(x + SLOT_SIZE - 9, y + 2, key.label, { fontSize: "9px", color: "#9e9e9e" }).setScrollFactor(0).setDepth(HUD_DEPTH + 1);
+      }
+      const label = this.add.text(x + 2, y + 2, "", { fontSize: "10px", color: "#ffffff" });
+      this.slotLabels.push(label.setScrollFactor(0).setDepth(HUD_DEPTH + 1));
+    }
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => this.sendAttack(pointer));
     const room = await connect(new Client(SERVER_URL));
     if (!room) return;
@@ -118,6 +154,9 @@ class GameScene extends Phaser.Scene {
   update(time: number) {
     if (!this.room || !this.keys || !this.overlay || !this.telegraphs || !this.hud) return;
     this.sendInputIfChanged(this.room, this.keys);
+    this.slotKeys.forEach((key, slot) => {
+      if (Phaser.Input.Keyboard.JustDown(key)) this.room?.send("use", { slot });
+    });
     this.syncPlayerSprites(this.room);
     this.syncMobSprites(this.room);
     this.collectSwings(this.room, time);
@@ -133,11 +172,34 @@ class GameScene extends Phaser.Scene {
       if (sessionId === room.sessionId) hunger = player.hunger;
     });
     if (hunger === undefined) return;
-    const top = this.scale.height - HUD_MARGIN - HUNGER_BAR.height;
+    const top = HUD_MARGIN + 16;
     g.fillStyle(0x000000, 0.6);
     g.fillRect(HUD_MARGIN, top, HUNGER_BAR.width, HUNGER_BAR.height);
     g.fillStyle(HUNGER_COLOR, 1);
     g.fillRect(HUD_MARGIN, top, HUNGER_BAR.width * (hunger / HUNGER_MAX), HUNGER_BAR.height);
+    this.drawInventory(room, g);
+  }
+
+  private drawInventory(room: Room<unknown, ServerState>, g: Phaser.GameObjects.Graphics) {
+    let inventory: PlayerView["inventory"];
+    room.state.players.forEach((player, sessionId) => {
+      if (sessionId === room.sessionId) inventory = player.inventory;
+    });
+    for (let i = 0; i < INVENTORY_SLOTS; i++) {
+      const { x, y } = slotPosition(this.scale.width, this.scale.height, i);
+      g.fillStyle(0x000000, 0.6);
+      g.fillRect(x, y, SLOT_SIZE, SLOT_SIZE);
+    }
+    inventory?.forEach((slot, i) => {
+      const label = this.slotLabels[i];
+      const text = slot.count > 0 ? `${ITEMS[slot.item as ItemId].name.slice(0, 3)}
+${slot.count}` : "";
+      if (label && label.text !== text) label.setText(text);
+      if (slot.count === 0) return;
+      const { x, y } = slotPosition(this.scale.width, this.scale.height, i);
+      g.fillStyle(ITEM_COLORS[slot.item as ItemId], 1);
+      g.fillRect(x + SLOT_SIZE / 2, y + SLOT_SIZE / 2, SLOT_SIZE / 2 - 3, SLOT_SIZE / 2 - 3);
+    });
   }
 
   // Aviso do golpe do mob: contorno = área atingida; preenchimento cresce até a borda no tempo da preparação.
@@ -278,6 +340,14 @@ async function connect(client: Client): Promise<Room<unknown, ServerState> | und
     showEndScreen("Seu personagem se foi", "Ele morreu ou a partida acabou enquanto você estava fora.");
     return undefined;
   }
+}
+
+function slotPosition(screenWidth: number, screenHeight: number, index: number): Vec2 {
+  const total = INVENTORY_SLOTS * SLOT_SIZE + (INVENTORY_SLOTS - 1) * SLOT_GAP;
+  return {
+    x: (screenWidth - total) / 2 + index * (SLOT_SIZE + SLOT_GAP),
+    y: screenHeight - HUD_MARGIN - SLOT_SIZE,
+  };
 }
 
 function describeDeath(cause: DeathCause): string {

@@ -435,3 +435,30 @@ O cliente recebe `windup` e `attackAngle` e desenha o arco no chão: o contorno 
 - Token por aba (escolha do dono do projeto): duas abas no mesmo navegador continuam sendo dois jogadores, como nos testes. O custo é que fechar a aba perde o personagem
 
 **Reavaliar quando:** houver contas ou login. Aí o vínculo jogador-personagem passa a ser a conta, não a aba.
+
+---
+
+## 2026-10 — Inventário: slots com pilhas, verdade no servidor, privado
+
+**Decisão (dono do projeto):** `INVENTORY_SLOTS` (12) slots. Cada slot guarda um tipo de item, empilhando até `maxStack` do item (`ITEMS` no `balance.ts`). Comida ocupa slot como qualquer item.
+
+**Como:**
+- A verdade é um vetor simples (`Inventory` em `shared/src/inventory.ts`) guardado num `Map` no servidor. As regras (`addItems`, `removeItems`, `eat`) são funções puras
+- `PlayerState.inventory` só espelha esse vetor para o dono ver, com `.view(OWNER_TAG)` como a fome: os outros não sabem o que você carrega
+- O cliente só manda pedidos ("eat"; no 6b, "pegar"). O servidor decide
+
+**Por quê:**
+- Slots com pilhas tornam a tensão "comida vs. loot" (GDD) visível de cara: cada ração é espaço que não vai para loot
+- Inventário alheio escondido: ver o que o outro leva é informação que o jogo pode querer dar como mecânica, mas não de graça
+
+---
+
+## 2026-10 — Comida: o jogador escolhe o slot e come quando quiser; ração inicial provisória
+
+**Decisão (dono do projeto):** cada slot tem uma tecla (1–9, 0, - e =; são 12 slots e só 10 teclas de número). Apertar a tecla do slot onde está a ração come uma, **a qualquer momento, com qualquer fome**: o que passar de `HUNGER_MAX` se perde. O cliente manda `{ slot }`; o servidor valida o índice (`parseSlotIndex`) e aplica o efeito do que está nele (`useSlot`). Todo personagem entra com `STARTING_ITEMS` (3 rações).
+
+**Por quê:** comer é decisão do jogador, inclusive "comer cheio antes de uma luta". Escolher o slot (e não "comer a primeira comida") prepara o terreno para itens diferentes usados pela mesma tecla.
+
+**Histórico:** a primeira versão usava **E** e só comia se a ração coubesse inteira, para não desperdiçar. Foi trocada a pedido do dono do projeto.
+
+**Provisório:** a ração inicial existe porque ainda não há loja. Quando houver (passo 9), a comida passa a ser comprada, e a escolha de quanto levar vira de fato a decisão de preparação do GDD.

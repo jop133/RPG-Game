@@ -3,11 +3,13 @@ import { CloseCode, Room, type Client } from "colyseus";
 import {
   AREAS,
   HUNGER_MAX,
+  INVENTORY_SLOTS,
   MOB_KINDS,
   NO_INPUT,
   PLAYER_ATTACK,
   PLAYER_MAX_HP,
   PLAYER_SIZE,
+  STARTING_ITEMS,
   TICK_RATE,
   VIEW_RADIUS,
   applyDamage,
@@ -19,22 +21,26 @@ import {
   movementDelta,
   parseAttackAngle,
   parseMoveInput,
+  parseSlotIndex,
   pickSpawnPoint,
   planMobSpawns,
   shouldSee,
   startIdle,
+  startingInventory,
   starvationDamage,
   stepMob,
   tickHunger,
+  useSlot,
   type Area,
   type DeathCause,
+  type Inventory,
   type MobKind,
   type MobMind,
   type MoveInput,
   type Vec2,
 } from "shared";
 import { loadLevel } from "./level";
-import { GameState, MobState, OWNER_TAG, PlayerState } from "./state";
+import { GameState, ItemSlotState, MobState, OWNER_TAG, PlayerState } from "./state";
 
 const level = loadLevel(new URL("../../assets/maps/test.json", import.meta.url));
 
@@ -53,6 +59,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   // Fora do state de propósito: teclas apertadas não são replicadas para os outros jogadores.
   private moveInputs = new Map<string, MoveInput>();
   private lastAttackMs = new Map<string, number>();
+  // A verdade do inventário. PlayerState.inventory só espelha isto para o dono ver.
+  private inventories = new Map<string, Inventory>();
   private mobBrains = new Map<string, MobBrain>();
   // Mortes do tick (ou do golpe) atual. Resolvidas depois dos laços, para não remover jogador no meio de um forEach.
   private deaths = new Map<string, DeathCause>();
@@ -64,6 +72,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.moveInputs.set(client.sessionId, parseMoveInput(message));
     });
     this.onMessage("attack", (client, message) => this.handleAttack(client.sessionId, message));
+    this.onMessage("use", (client, message) => this.handleUse(client.sessionId, message));
     this.spawnMobs();
     this.setSimulationInterval((dtMs) => this.tick(dtMs), 1000 / TICK_RATE);
   }
@@ -76,6 +85,8 @@ export class GameRoom extends Room<{ state: GameState }> {
       attackAngle: 0,
       hunger: HUNGER_MAX,
     });
+    for (let i = 0; i < INVENTORY_SLOTS; i++) player.inventory.push(new ItemSlotState({ item: "", count: 0 }));
+    this.setInventory(client.sessionId, player, startingInventory(STARTING_ITEMS));
     this.state.players.set(client.sessionId, player);
     this.moveInputs.set(client.sessionId, NO_INPUT);
     client.view = new StateView();
@@ -101,6 +112,28 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.state.players.delete(sessionId);
     this.moveInputs.delete(sessionId);
     this.lastAttackMs.delete(sessionId);
+    this.inventories.delete(sessionId);
+  }
+
+  private setInventory(sessionId: string, player: PlayerState, inventory: Inventory) {
+    this.inventories.set(sessionId, inventory);
+    inventory.forEach((slot, i) => {
+      const view = player.inventory[i];
+      if (!view) return;
+      view.item = slot?.item ?? "";
+      view.count = slot?.count ?? 0;
+    });
+  }
+
+  // O jogador escolhe o slot (tecla do número). O servidor confere o que há nele e aplica o efeito.
+  private handleUse(sessionId: string, message: unknown) {
+    const slot = parseSlotIndex(message);
+    const player = this.state.players.get(sessionId);
+    const inventory = this.inventories.get(sessionId);
+    const result = slot !== undefined && player && inventory && useSlot(inventory, slot, player.hunger);
+    if (!player || !result) return;
+    player.hunger = result.hunger;
+    this.setInventory(sessionId, player, result.inventory);
   }
 
   // Toda perda de vida de jogador passa por aqui, para a morte nunca ser esquecida em algum caminho.

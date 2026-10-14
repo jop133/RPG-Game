@@ -3,8 +3,12 @@ import { schema, t, type SchemaType } from "@colyseus/schema";
 // Tag de visão do dono: campos marcados com ela só vão para o próprio jogador. Tags precisam ser potência de 2.
 export const OWNER_TAG = 1;
 
+// Slot de inventário como o cliente vê. Vazio = item "" e count 0. A verdade fica no servidor (Inventory em shared).
+export const ItemSlotState = schema({ item: t.string(), count: t.number() }, "ItemSlotState");
+export type ItemSlotState = SchemaType<typeof ItemSlotState>;
+
 // attackSeq sobe a cada golpe; quem vê o jogador desenha o golpe quando o número muda, na direção attackAngle.
-// hunger é privada: os outros veem a sua vida, não a sua fome.
+// hunger e inventory são privados: os outros veem a sua vida, não a sua fome nem o que você carrega.
 export const PlayerState = schema(
   {
     x: t.number(),
@@ -13,6 +17,7 @@ export const PlayerState = schema(
     attackSeq: t.number(),
     attackAngle: t.number(),
     hunger: t.number().view(OWNER_TAG),
+    inventory: t.array(ItemSlotState).view(OWNER_TAG),
   },
   "PlayerState",
 );

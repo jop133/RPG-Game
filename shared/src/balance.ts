@@ -1,4 +1,5 @@
 import type { AreaConfig } from "./areas";
+import type { ItemStats } from "./inventory";
 import type { MobStats } from "./mobs";
 
 // Pixels por segundo.
@@ -15,6 +16,22 @@ export const HUNGER_DECAY_PER_SECOND = 1 / 3;
 
 // Com a fome zerada, o jogador perde esta vida por segundo até comer ou morrer.
 export const STARVATION_DAMAGE_PER_SECOND = 2;
+
+// Itens. Placeholders: nomes e números ainda não são o conteúdo de verdade.
+// maxStack: quantos cabem num slot. food: fome recuperada ao comer um (só itens comestíveis têm).
+export const ITEMS = {
+  racao: { name: "Ração", maxStack: 5, food: 40 },
+  pele_de_rato: { name: "Pele de rato", maxStack: 10 },
+  dente_de_goblin: { name: "Dente de goblin", maxStack: 10 },
+} satisfies Record<string, ItemStats>;
+
+export type ItemId = keyof typeof ITEMS;
+
+// Slots do inventário. Comida ocupa slot como qualquer item: mais comida = menos espaço para loot (GDD).
+export const INVENTORY_SLOTS = 12;
+
+// Com o que todo personagem novo entra. Provisório: quando houver loja (passo 9), a comida passa a ser comprada.
+export const STARTING_ITEMS: Partial<Record<ItemId, number>> = { racao: 3 };
 
 // Golpe do jogador: arma placeholder única até o passo 8 (maestria de armas).
 // range: alcance em pixels, contado da borda do alvo. arcDegrees: abertura do arco à frente.

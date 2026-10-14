@@ -4,7 +4,13 @@ Onde o projeto está agora. Atualizado ao fim de cada passo. O porquê das escol
 
 ## Agora
 
-**Passo 5 concluído: fome e morte** (sem linhagem: casa, baú, reputação e bestiário ficam para depois). Próximo: passo 6, loot e extração.
+**Passo 6 em andamento: loot e extração.** Dividido em três partes:
+
+- [x] **6a.** Inventário (12 slots com pilhas, privado) e comida: todo personagem entra com 3 rações; a tecla do slot (1–9, 0, -, =) come uma ração dali (+40 de fome), a qualquer momento.
+- [ ] **6b.** Loot: mob morto deixa pilha no chão (tabela de drop por tipo); quem morre deixa o inventário numa pilha; **F** pega.
+- [ ] **6c.** Extração: portais candidatos no Tiled, alguns ativos por run; ficar 5 s no portal extrai; tela "Você extraiu" com a lista.
+
+O passo 5 (fome, morte definitiva, desconexão) foi feito em 5a+5b e 5c. Sem linhagem: casa, baú, reputação e bestiário ficam para depois.
 
 - [x] **5a.** Fome: cai no tick do servidor (cheia → vazia em 5 min); zerada, tira 2 de vida por segundo. Fome é privada: só o dono recebe. Barra "Fome" no canto da tela.
 - [x] **5b.** Morte definitiva: vida 0 (por mob, outro jogador ou fome) tira o personagem da sala; tela "Você morreu" com a causa e botão "Novo personagem".
@@ -13,7 +19,7 @@ Onde o projeto está agora. Atualizado ao fim de cada passo. O porquê das escol
 O passo 4 (combate, pathfinding, perseguição, golpe telegrafado) foi feito em 4a, 4b+4c e 4d.
 
 **Limitações conhecidas agora:**
-- **Ainda não dá para comer** (decisão: comida chega com inventário no passo 6). Toda run termina em morte por fome em ~6 minutos.
+- Sem loja ainda: a comida de cada run são as 3 rações iniciais (`STARTING_ITEMS`). Sem mais comida, a run acaba em morte por fome.
 - Vários mobs perseguindo o mesmo jogador se sobrepõem: não há colisão entre mobs.
 - O aviso do golpe é desenhado no chão, por baixo dos quadrados: com o mob encostado, parte dele fica escondida sob o jogador. Rever quando houver arte.
 - "Novo personagem" só recarrega a página. Quando houver cidade (passo 9), leva para lá.
@@ -51,7 +57,7 @@ npm run dev:client   # Vite em http://localhost:5173
 npm test             # testes de shared/
 ```
 
-**Controles:** WASD anda. Clique esquerdo golpeia na direção do cursor (fogo amigo ligado: acerta outros jogadores também). Barra amarela no canto inferior esquerdo: sua fome.
+**Controles:** WASD anda. Clique esquerdo golpeia na direção do cursor (fogo amigo ligado: acerta outros jogadores também). As teclas **1–9, 0, - e =** usam o item do slot correspondente (ração: come uma). Barra amarela no canto superior esquerdo: sua fome. Embaixo, no centro: seu inventário.
 
 ## Como editar o mapa
 
@@ -85,3 +91,5 @@ O Tiled está instalado em `C:\Program Files\Tiled\tiled.exe`. Abra `assets/maps
 - **2026-10-14** — Passos 5a e 5b concluídos. Fome (`shared/src/hunger.ts`; 130 testes no total) e morte definitiva (causa em `shared/src/death.ts`). Verificado por script: fome cai ~1 a cada 3 s; cada jogador recebe só a própria fome (a vida dos outros continua visível); morte por fogo amigo e por rato chegam com a causa certa, o personagem some da sala e a conexão é fechada com código 4000. No navegador: barra de fome, tela "Você morreu / Morto por um rato." e "Novo personagem" entrando com personagem novo. Bug encontrado e corrigido no caminho: sem código de fechamento, o SDK tentava reconectar o morto.
 - **2026-10-14** — Morte por fome verificada de ponta a ponta (teste longo, ~6 min): fome zerou em 300,3 s; a vida caiu de 81,4 a 0 em 41 s (2/s); a morte chegou como "fome".
 - **2026-10-14** — Passo 5c concluído, e com ele o passo 5. Reconexão (`onDrop` + `allowReconnection` no servidor; token por aba no cliente). Verificado por script: com a conexão caída, o corpo fica no mundo, na mesma posição, visível aos outros (sem a fome); a volta pelo token devolve o mesmo personagem, com a fome tendo continuado a cair; morto enquanto desconectado, a volta é recusada. No navegador: recarregar a página voltou ao mesmo personagem, no mesmo lugar.
+- **2026-10-14** — Passo 6a concluído. Inventário (`shared/src/inventory.ts`; 143 testes no total) e comida. Verificado por script: entra com 3 rações, visíveis só para o dono; comer com a fome quase cheia não gasta ração. No navegador: barra de inventário embaixo ("Raç 3") e fome movida para o canto superior, para não sobrepor.
+- **2026-10-14** — Comida revista a pedido do dono do projeto: em vez de **E** com regra de desperdício, o jogador usa a tecla do slot onde está a ração e come a qualquer momento, com qualquer fome (o excesso se perde). Verificado por script (slot 1 gastou uma ração; slot vazio e pedidos maliciosos não fizeram nada) e no navegador (tecla 1: "Raç 3" → "Raç 2", fome cheia).
