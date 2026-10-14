@@ -7,6 +7,8 @@ export interface MobStats {
   size: number;
   speed: number;
   maxHp: number;
+  aggroRadius: number;
+  reach: number;
 }
 
 export interface MobSpawn {

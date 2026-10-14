@@ -25,9 +25,11 @@ export const VIEW_HYSTERESIS = 32;
 
 // Tipos de mob. Placeholders do mapa de teste: nomes e números ainda não são o bestiário de verdade.
 // size: lado da caixa de colisão em pixels (não pode passar do tamanho do tile). speed: pixels por segundo.
+// aggroRadius: distância em que o mob nota um jogador (precisa também de linha de visão).
+// reach: distância, de borda a borda, em que o mob para ao alcançar o alvo (e, no 4d, de onde ataca).
 export const MOB_KINDS = {
-  rato: { size: 16, speed: 90, maxHp: 20 },
-  goblin: { size: 22, speed: 70, maxHp: 40 },
+  rato: { size: 16, speed: 90, maxHp: 20, aggroRadius: 160, reach: 8 },
+  goblin: { size: 22, speed: 70, maxHp: 40, aggroRadius: 224, reach: 12 },
 } satisfies Record<string, MobStats>;
 
 export type MobKind = keyof typeof MOB_KINDS;
@@ -35,6 +37,10 @@ export type MobKind = keyof typeof MOB_KINDS;
 // Mobs vagando: alternam entre parados e andando numa direção aleatória. Durações em ms, sorteadas no intervalo.
 export const WANDER_IDLE_MS = { min: 500, max: 3000 };
 export const WANDER_WALK_MS = { min: 800, max: 2500 };
+
+// Perseguindo: sem ver o alvo por este tempo (ms), o mob desiste e volta para a própria área.
+// Enquanto persegue, enxerga até VIEW_RADIUS, a mesma distância dos jogadores.
+export const MOB_LOSE_TRACK_MS = 3000;
 
 // Uma entrada por área do mapa (camada "areas" no Tiled). Os nomes precisam bater com os do mapa.
 // mobs: quantos de cada tipo nascem na área quando a sala é criada.

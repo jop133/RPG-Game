@@ -330,3 +330,38 @@ Se uma das duas mudar, a outra tem que acompanhar.
 - Exige pathfinding de verdade (A* na grade de tiles) para o mob passar pelas portas entre salas. Vira uma parte própria do passo 4 (4b)
 - A regra de vagar (`stepWander`) exige que o mob esteja dentro da própria área. Um mob que desistiu longe de casa precisa voltar para a área antes de vagar de novo
 - Ficam a decidir antes de implementar a perseguição (4c): se o mob enxerga através de parede, a que distância nota o jogador e a que distância desiste
+
+---
+
+## 2026-10 — Pathfinding A* em 8 direções, sem cortar quina; linha de visão com a mesma regra
+
+**Decisão:** `findPath` (`shared/src/pathfinding.ts`) acha o caminho mais curto entre dois tiles, andando também na diagonal, mas só quando os dois vizinhos retos estão livres. `hasLineOfSight` (`shared/src/lineOfSight.ts`) percorre os tiles que a linha cruza; passando exatamente pela quina entre dois tiles, conta como bloqueada se qualquer um dos dois for parede.
+
+**Por quê:**
+- Diagonal deixa o movimento natural; sem ela, os mobs andariam em "escada"
+- Não cortar quina é a mesma regra física da colisão: um caminho que corta quina mandaria o mob para um lugar onde a caixa dele trava na parede
+- Linha de visão e caminho com a mesma regra de quina evitam o mob "ver" por uma fresta que não consegue atravessar
+
+**Limite conhecido (pathfinding):** o A* explora o mapa inteiro se precisar. No mapa de teste (1.200 tiles) é instantâneo. Num andar grande, com muitos mobs recalculando caminho, pode pesar; aí entra um limite de tiles explorados ou recálculo menos frequente.
+
+---
+
+## 2026-10 — Cabeça dos mobs: notar com linha de visão, desistir ao perder de vista
+
+**Decisão:** cada mob está em um de três modos (`stepMob` em `shared/src/mobAi.ts`). O modo fica só no servidor.
+
+- **Vagando:** nota o jogador mais próximo que esteja dentro do `aggroRadius` do tipo **e** com linha de visão. Notou, persegue.
+- **Perseguindo:** enquanto vê o alvo (até `VIEW_RADIUS`, com linha de visão), anda até ele pelo A* e para a `reach` de distância, de borda a borda. Sem ver, vai até onde o viu por último. Sem ver por `MOB_LOSE_TRACK_MS` (3 s), ou se o alvo sair da sala, desiste.
+- **Voltando:** anda pelo A* até o tile de chão mais próximo da própria área e volta a vagar. Se notar alguém no caminho, persegue de novo.
+
+**Por quê (escolhas do dono do projeto):**
+- Linha de visão para notar: esconder-se atrás de parede funciona, o que é planejamento, não reflexo (GDD). Prepara furtividade e escuridão
+- Raio de notar por tipo (`aggroRadius` em `MOB_KINDS`): abre espaço para variantes do bestiário com sentidos diferentes
+- Desistir ao perder de vista por um tempo: fugir funciona, mas exige quebrar a linha de visão, não só correr
+
+**Por quê (técnico):**
+- Perseguindo, o mob enxerga até `VIEW_RADIUS`, mais longe que o raio de notar: uma vez em perseguição, é mais difícil escapar do que passar despercebido
+- O caminho é recalculado só quando o tile do destino muda, não a cada tick
+- O mob precisa voltar para a própria área porque `stepWander` só funciona dentro dela
+
+**Limites conhecidos:** não há colisão entre mobs (vários perseguindo o mesmo jogador se sobrepõem). O caminho é recalculado conforme o alvo troca de tile; com muitos mobs perseguindo num andar grande, pode pesar (ver limite do pathfinding acima).

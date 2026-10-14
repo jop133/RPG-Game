@@ -20,12 +20,12 @@ import {
   planMobSpawns,
   shouldSee,
   startIdle,
-  stepWander,
+  stepMob,
   type Area,
   type MobKind,
+  type MobMind,
   type MoveInput,
   type Vec2,
-  type WanderState,
 } from "shared";
 import { loadLevel } from "./level";
 import { GameState, MobState, PlayerState } from "./state";
@@ -36,7 +36,8 @@ const level = loadLevel(new URL("../../assets/maps/test.json", import.meta.url))
 interface MobBrain {
   kind: MobKind;
   area: Area;
-  wander: WanderState;
+  homeCells: Vec2[];
+  mind: MobMind;
 }
 
 export class GameRoom extends Room<{ state: GameState }> {
@@ -127,7 +128,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       for (const { kind, position } of planMobSpawns(cells, counts, Math.random)) {
         const id = `mob-${nextId++}`;
         this.state.mobs.set(id, new MobState({ kind, ...position, hp: MOB_KINDS[kind].maxHp }));
-        this.mobBrains.set(id, { kind, area, wander: startIdle(Math.random) });
+        this.mobBrains.set(id, { kind, area, homeCells: cells, mind: { mode: "wander", wander: startIdle(Math.random) } });
       }
     }
   }
@@ -139,20 +140,16 @@ export class GameRoom extends Room<{ state: GameState }> {
   }
 
   private moveMobs(dtMs: number) {
+    const players = new Map<string, Vec2>();
+    this.state.players.forEach((player, sessionId) => players.set(sessionId, { x: player.x, y: player.y }));
     this.state.mobs.forEach((mob, id) => {
       const brain = this.mobBrains.get(id);
       if (!brain) return;
-      const next = stepWander(
-        { position: { x: mob.x, y: mob.y }, wander: brain.wander },
-        brain.area,
-        level.grid,
-        MOB_KINDS[brain.kind],
-        dtMs,
-        Math.random,
-      );
+      const world = { grid: level.grid, home: brain.area, homeCells: brain.homeCells, stats: MOB_KINDS[brain.kind], players };
+      const next = stepMob({ position: { x: mob.x, y: mob.y }, mind: brain.mind }, world, dtMs, Math.random);
       mob.x = next.position.x;
       mob.y = next.position.y;
-      brain.wander = next.wander;
+      brain.mind = next.mind;
     });
   }
 
