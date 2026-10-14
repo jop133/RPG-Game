@@ -1,4 +1,5 @@
 import type { CollisionGrid } from "./collision";
+import type { Vec2 } from "./movement";
 
 // Só os campos do JSON do Tiled que o jogo lê.
 export interface TiledProperty {
@@ -11,10 +12,18 @@ export interface TiledTileset {
   tiles?: { id: number; properties?: TiledProperty[] }[];
 }
 
+export interface TiledObject {
+  id: number;
+  x: number;
+  y: number;
+  point?: boolean;
+}
+
 export interface TiledLayer {
   type: string;
   name: string;
   data?: number[] | string;
+  objects?: TiledObject[];
 }
 
 export interface TiledMap {
@@ -61,4 +70,17 @@ export function parseCollisionGrid(map: TiledMap): CollisionGrid {
     });
   }
   return { width: map.width, height: map.height, tileSize: map.tilewidth, solid };
+}
+
+export const SPAWN_LAYER = "spawns";
+
+// Pontos de entrada: objetos do tipo ponto na camada de objetos "spawns".
+export function parseSpawnPoints(map: TiledMap): Vec2[] {
+  const layer = map.layers.find((l) => l.type === "objectgroup" && l.name === SPAWN_LAYER);
+  return (layer?.objects ?? []).map((object) => {
+    if (object.point !== true) {
+      throw new Error(`Objeto ${object.id} na camada "${SPAWN_LAYER}" não é um ponto. Use a ferramenta "Insert Point".`);
+    }
+    return { x: object.x, y: object.y };
+  });
 }

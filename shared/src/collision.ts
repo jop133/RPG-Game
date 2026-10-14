@@ -56,6 +56,16 @@ function anySolidInRow(grid: CollisionGrid, row: number, cols: [number, number])
   return false;
 }
 
+// A caixa (centro ± half) está inteira em chão?
+export function boxFits(grid: CollisionGrid, center: Vec2, half: number): boolean {
+  const [col0, col1] = cellSpan(center.x, half, grid.tileSize);
+  const [row0, row1] = cellSpan(center.y, half, grid.tileSize);
+  for (let col = col0; col <= col1; col++) {
+    if (anySolidInColumn(grid, col, [row0, row1])) return false;
+  }
+  return true;
+}
+
 // Move um eixo por vez (X, depois Y). Bater numa parede trava só aquele eixo, então o jogador desliza.
 export function moveWithCollision(grid: CollisionGrid, position: Vec2, delta: Vec2, half: number): Vec2 {
   const ts = grid.tileSize;

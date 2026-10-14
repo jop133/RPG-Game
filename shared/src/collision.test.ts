@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type CollisionGrid, isSolid, moveWithCollision } from "./collision";
+import { type CollisionGrid, boxFits, isSolid, moveWithCollision } from "./collision";
 
 const TILE = 32;
 const HALF = 12;
@@ -22,6 +22,23 @@ describe("isSolid", () => {
     expect(isSolid(grid, 2, 0)).toBe(true);
     expect(isSolid(grid, 0, 1)).toBe(true);
     expect(isSolid(grid, 0, 0)).toBe(false);
+  });
+});
+
+describe("boxFits", () => {
+  const grid = gridFrom(["...", ".#.", "..."]);
+
+  it("caixa inteira em chão cabe", () => {
+    expect(boxFits(grid, { x: 16, y: 16 }, HALF)).toBe(true);
+  });
+
+  it("caixa encostando num tile de parede não cabe", () => {
+    // x=40 ± 12 vai de 28 a 52: entra na coluna 1, que tem parede na linha 1.
+    expect(boxFits(grid, { x: 40, y: 48 }, HALF)).toBe(false);
+  });
+
+  it("caixa saindo do mapa não cabe", () => {
+    expect(boxFits(grid, { x: 4, y: 16 }, HALF)).toBe(false);
   });
 });
 

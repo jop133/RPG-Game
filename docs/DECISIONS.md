@@ -207,3 +207,16 @@ Se uma das duas mudar, a outra tem que acompanhar.
 - Verificar todas as células do caminho, e não só a de destino, impede atravessar parede num tick longo (lag no servidor)
 
 **Limite conhecido:** só caixas contra tiles. Empurrão entre jogadores ou mobs, se for desejado, é outro problema.
+
+---
+
+## 2026-10 — Pontos de spawn no mapa, validados ao subir o servidor
+
+**Decisão:** os pontos de entrada são objetos do tipo ponto numa camada de objetos `spawns` do Tiled. O servidor sorteia um a cada entrada. Ao subir, recusa o mapa se não houver pontos ou se algum deixar o jogador encostado em parede.
+
+**Por quê:**
+- O GDD pede ponto de entrada aleatório; marcar no mapa deixa quem desenha decidir onde, sem mexer em código
+- Erro de mapa descoberto ao subir o servidor custa segundos. Descoberto quando um jogador nasce preso numa parede, custa uma run, e com permadeath isso é grave
+- O sorteio recebe o número aleatório de fora (`pickSpawnPoint(points, random)`), então a regra continua pura e testável
+
+**Em aberto:** a "restrição de área" do GDD. Quando existirem áreas (passo 3), cada ponto vai precisar dizer a que área pertence.

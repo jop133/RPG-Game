@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type TiledMap, parseCollisionGrid } from "./tiledMap";
+import { type TiledMap, parseCollisionGrid, parseSpawnPoints } from "./tiledMap";
 
 // Tileset com 3 tiles: id 0 chão, id 1 parede (solid), id 2 com solid=false.
 function mapWith(layers: TiledMap["layers"], width = 3, height = 1): TiledMap {
@@ -65,5 +65,38 @@ describe("parseCollisionGrid", () => {
 
   it("tiles não quadrados dão erro", () => {
     expect(() => parseCollisionGrid({ ...mapWith([]), tileheight: 16 })).toThrow(/quadrados/);
+  });
+});
+
+describe("parseSpawnPoints", () => {
+  it("lê os pontos da camada 'spawns'", () => {
+    const map = mapWith([
+      {
+        type: "objectgroup",
+        name: "spawns",
+        objects: [
+          { id: 1, x: 10, y: 20, point: true },
+          { id: 2, x: 30, y: 40, point: true },
+        ],
+      },
+    ]);
+    expect(parseSpawnPoints(map)).toEqual([
+      { x: 10, y: 20 },
+      { x: 30, y: 40 },
+    ]);
+  });
+
+  it("ignora pontos em outras camadas de objetos", () => {
+    const map = mapWith([{ type: "objectgroup", name: "decor", objects: [{ id: 1, x: 10, y: 20, point: true }] }]);
+    expect(parseSpawnPoints(map)).toEqual([]);
+  });
+
+  it("mapa sem camada 'spawns' devolve lista vazia", () => {
+    expect(parseSpawnPoints(mapWith([]))).toEqual([]);
+  });
+
+  it("retângulo na camada 'spawns' dá erro dizendo qual objeto", () => {
+    const map = mapWith([{ type: "objectgroup", name: "spawns", objects: [{ id: 7, x: 0, y: 0 }] }]);
+    expect(() => parseSpawnPoints(map)).toThrow(/Objeto 7/);
   });
 });
