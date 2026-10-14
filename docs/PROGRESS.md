@@ -4,18 +4,18 @@ Onde o projeto está agora. Atualizado ao fim de cada passo. O porquê das escol
 
 ## Agora
 
-**Passo 4 em andamento: combate e vida.** Dividido em quatro partes, um commit cada:
+**Passo 4 concluído.** Próximo: passo 5, fome e morte.
+
+O passo 4 foi feito em quatro partes (4b e 4c num commit só):
 
 - [x] **4a.** Vida para jogadores e mobs; golpe do jogador mirado com o mouse (clique esquerdo), com fogo amigo. Mob a 0 some; jogador a 0 renasce na entrada (provisório até o passo 5).
 - [x] **4b.** Pathfinding e linha de visão em `shared/` (só funções puras e testes).
 - [x] **4c.** Mobs notam (raio por tipo + linha de visão), perseguem pelo mapa inteiro, desistem após 3 s sem ver e voltam para a própria área.
-- [ ] **4d.** Ataque de mob telegrafado (preparação visível, dá para esquivar).
-
-O passo 3 (áreas, mobs por área, mobs vagando) foi feito em três partes: 3a, 3b e 3c.
+- [x] **4d.** Ataque de mob telegrafado: o mob para, mostra um arco vermelho que enche no tempo da preparação e golpeia na direção travada. Dá para esquivar saindo do arco.
 
 **Limitações conhecidas agora:**
-- Mobs perseguem e param encostados, mas ainda não atacam (4d).
 - Vários mobs perseguindo o mesmo jogador se sobrepõem: não há colisão entre mobs.
+- O aviso do golpe é desenhado no chão, por baixo dos quadrados: com o mob encostado, parte dele fica escondida sob o jogador. Rever quando houver arte.
 - Jogador a 0 de vida só volta para a entrada com vida cheia. Provisório: o passo 5 traz a morte de verdade.
 - Mobs atravessam jogadores e uns aos outros. Colisão é só contra parede.
 - Mobs nascem só quando a sala é criada. **Respawn: decisão pendente do dono do projeto.**
@@ -29,7 +29,7 @@ O passo 3 (áreas, mobs por área, mobs vagando) foi feito em três partes: 3a, 
 - [x] 1. Dois jogadores se movendo numa sala, se vendo
 - [x] 2. Mapa do Tiled com colisão
 - [x] 3. Mobs com spawn por área
-- [ ] 4. Combate e vida
+- [x] 4. Combate e vida
 - [ ] 5. Fome e morte
 - [ ] 6. Loot e extração
 - [ ] 7. Essências e slots ← fim da fatia mínima jogável
@@ -80,3 +80,4 @@ O Tiled está instalado em `C:\Program Files\Tiled\tiled.exe`. Abra `assets/maps
 - **2026-10-14** — Passo 4a concluído. Vida e golpe do jogador (`shared/src/combat.ts`; 87 testes no total). Verificado por script: de 10 golpes em 1 s, só 2 aceitos (recarga de 500 ms); ângulo malicioso ignorado; rato morto em 2 golpes (20 → 10 → some); fogo amigo de 10 em 10 até 0, e o jogador volta com 100. No navegador: barras de vida em jogadores e mobs, sem erros no console. O leque do golpe (150 ms) não apareceu nas capturas de tela; conferir clicando.
 - **2026-10-14** — Passo 4b concluído. `findPath` (A* em 8 direções, sem cortar quina) e `hasLineOfSight` em `shared/` (105 testes no total). Ainda sem uso no jogo: base da perseguição do 4c. Testes de mutação: liberar o corte de quina derruba 3 testes do pathfinding; tirar a regra da quina derruba o teste correspondente da linha de visão.
 - **2026-10-14** — Passo 4c concluído. Cabeça dos mobs (`shared/src/mobAi.ts`: vagar / perseguir / voltar; 118 testes no total). Testes de mutação: notar sem linha de visão derruba 3 testes; tirar o pathfinding derruba o de contornar pela porta (o primeiro cenário desse teste não pegava isso e foi trocado). Verificado por script num servidor de teste: com linha de visão, um rato a 76 px veio e parou a 26,8 px (limite 28); afastando 1 s, ele seguiu e encostou de novo. Sem linha de visão (parede no meio), não perseguiu.
+- **2026-10-14** — Passo 4d concluído, e com ele o passo 4. Golpe de mob telegrafado (modos `windup` e `recover` em `stepMob`, arco genérico `isInArc`; 124 testes no total). Verificado por script num servidor de teste: parado ao lado de um rato, o aviso apareceu e o golpe tirou exatamente 6 (100 → 94); recuando ao ver o aviso, o golpe saiu sem tirar vida. No navegador: arcos vermelhos saindo dos ratos na direção do jogador, aparecendo na preparação e sumindo na recuperação.

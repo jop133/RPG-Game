@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PLAYER_ATTACK } from "./balance";
-import { applyDamage, isInSwing, isOffCooldown, parseAttackAngle } from "./combat";
+import { applyDamage, isInArc, isInSwing, isOffCooldown, parseAttackAngle } from "./combat";
 
 const origin = { x: 0, y: 0 };
 const HALF = 8;
@@ -77,5 +77,16 @@ describe("applyDamage", () => {
 
   it("nunca fica negativa", () => {
     expect(applyDamage(5, 10)).toBe(0);
+  });
+});
+
+describe("isInArc (arco genérico, usado pelo golpe dos mobs)", () => {
+  const arc = { range: 30, degrees: 90 };
+
+  it("usa o alcance e a abertura recebidos, não os do jogador", () => {
+    expect(isInArc(origin, RIGHT, arc, at(RIGHT, 35), 8)).toBe(true);
+    expect(isInArc(origin, RIGHT, arc, at(RIGHT, 39), 8)).toBe(false);
+    expect(isInArc(origin, RIGHT, arc, at(Math.PI / 4 - 0.01, 20), 8)).toBe(true);
+    expect(isInArc(origin, RIGHT, arc, at(Math.PI / 4 + 0.01, 20), 8)).toBe(false);
   });
 });

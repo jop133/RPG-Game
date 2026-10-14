@@ -5,7 +5,18 @@ import { type CollisionGrid, boxFits } from "./collision";
 import { type WanderingMob, startIdle, stepWander } from "./wander";
 
 const TILE = 32;
-const stats = { size: 16, speed: 100, maxHp: 10, aggroRadius: 100, reach: 8 };
+const stats = {
+  size: 16,
+  speed: 100,
+  maxHp: 10,
+  aggroRadius: 100,
+  reach: 8,
+  windupMs: 500,
+  attackDamage: 5,
+  attackReach: 20,
+  attackArcDegrees: 90,
+  recoverMs: 400,
+};
 
 function gridFrom(rows: string[]): CollisionGrid {
   return {

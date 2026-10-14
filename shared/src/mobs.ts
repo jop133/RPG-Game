@@ -9,6 +9,11 @@ export interface MobStats {
   maxHp: number;
   aggroRadius: number;
   reach: number;
+  windupMs: number;
+  attackDamage: number;
+  attackReach: number;
+  attackArcDegrees: number;
+  recoverMs: number;
 }
 
 export interface MobSpawn {

@@ -8,7 +8,11 @@ export const PlayerState = schema(
 export type PlayerState = SchemaType<typeof PlayerState>;
 
 // `kind` é uma chave de MOB_KINDS (shared/src/balance.ts); o cliente usa para saber tamanho, cor e vida máxima.
-export const MobState = schema({ kind: t.string(), x: t.number(), y: t.number(), hp: t.number() }, "MobState");
+// windup + attackAngle são o telegrafo: o cliente desenha onde o golpe vai cair enquanto o mob prepara.
+export const MobState = schema(
+  { kind: t.string(), x: t.number(), y: t.number(), hp: t.number(), windup: t.boolean(), attackAngle: t.number() },
+  "MobState",
+);
 export type MobState = SchemaType<typeof MobState>;
 
 // `.view()`: cada cliente só recebe o que o servidor adicionou à visão dele (regra 5).

@@ -5,6 +5,7 @@ import {
   PLAYER_ATTACK,
   PLAYER_MAX_HP,
   PLAYER_SIZE,
+  mobStrikeArc,
   type MobKind,
   type MoveInput,
   type Vec2,
@@ -21,6 +22,8 @@ interface PlayerView extends Vec2 {
 interface MobView extends Vec2 {
   kind: string;
   hp: number;
+  windup: boolean;
+  attackAngle: number;
 }
 interface ServerState {
   players: { forEach(callback: (player: PlayerView, sessionId: string) => void): void };
@@ -32,7 +35,8 @@ const SELF_COLOR = 0x4caf50;
 const OTHER_COLOR = 0xe53935;
 const MOB_COLORS: Record<MobKind, number> = { rato: 0x9e9e9e, goblin: 0xcddc39 };
 
-// Ordem de desenho: mobs por baixo dos jogadores, barras e golpes por cima de tudo.
+// Ordem de desenho: aviso de golpe no chão, mobs por baixo dos jogadores, barras e golpes por cima de tudo.
+const TELEGRAPH_DEPTH = 0.5;
 const MOB_DEPTH = 1;
 const PLAYER_DEPTH = 2;
 const OVERLAY_DEPTH = 3;
@@ -42,6 +46,7 @@ const HP_BAR_GAP = 4;
 const SWING_VISIBLE_MS = 150;
 const SWING_RADIUS = PLAYER_ATTACK.range + PLAYER_SIZE / 2;
 const SWING_HALF_ARC = (PLAYER_ATTACK.arcDegrees * Math.PI) / 180 / 2;
+const TELEGRAPH_COLOR = 0xff1744;
 
 type MoveKeys = Record<keyof MoveInput, Phaser.Input.Keyboard.Key>;
 
@@ -59,6 +64,9 @@ class GameScene extends Phaser.Scene {
   private mobSprites = new Map<string, Phaser.GameObjects.Rectangle>();
   private lastSentInput = "";
   private overlay?: Phaser.GameObjects.Graphics;
+  private telegraphs?: Phaser.GameObjects.Graphics;
+  // Quando este cliente viu cada mob começar a preparar: base para o aviso encher no ritmo certo.
+  private windupStartedAt = new Map<string, number>();
   private lastAttackSeq = new Map<string, number>();
   private swings: Swing[] = [];
 
@@ -70,6 +78,7 @@ class GameScene extends Phaser.Scene {
   async create() {
     this.createMap();
     this.overlay = this.add.graphics().setDepth(OVERLAY_DEPTH);
+    this.telegraphs = this.add.graphics().setDepth(TELEGRAPH_DEPTH);
     this.keys = this.input.keyboard?.addKeys({ up: "W", down: "S", left: "A", right: "D" }) as MoveKeys;
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => this.sendAttack(pointer));
     const room = await new Client(SERVER_URL).joinOrCreate<ServerState>("game");
@@ -80,12 +89,36 @@ class GameScene extends Phaser.Scene {
   }
 
   update(time: number) {
-    if (!this.room || !this.keys || !this.overlay) return;
+    if (!this.room || !this.keys || !this.overlay || !this.telegraphs) return;
     this.sendInputIfChanged(this.room, this.keys);
     this.syncPlayerSprites(this.room);
     this.syncMobSprites(this.room);
     this.collectSwings(this.room, time);
     this.drawOverlay(this.room, this.overlay, time);
+    this.drawTelegraphs(this.room, this.telegraphs, time);
+  }
+
+  // Aviso do golpe do mob: contorno = área atingida; preenchimento cresce até a borda no tempo da preparação.
+  private drawTelegraphs(room: Room<unknown, ServerState>, g: Phaser.GameObjects.Graphics, time: number) {
+    g.clear();
+    const preparing = new Set<string>();
+    room.state.mobs.forEach((mob, id) => {
+      if (!mob.windup) return;
+      preparing.add(id);
+      const startedAt = this.windupStartedAt.get(id) ?? time;
+      this.windupStartedAt.set(id, startedAt);
+      const stats = MOB_KINDS[mob.kind as MobKind];
+      const arc = mobStrikeArc(stats);
+      const half = (arc.degrees * Math.PI) / 180 / 2;
+      const progress = Math.min(1, (time - startedAt) / stats.windupMs);
+      g.lineStyle(2, TELEGRAPH_COLOR, 0.8);
+      g.slice(mob.x, mob.y, arc.range, mob.attackAngle - half, mob.attackAngle + half);
+      g.strokePath();
+      g.fillStyle(TELEGRAPH_COLOR, 0.35);
+      g.slice(mob.x, mob.y, arc.range * progress, mob.attackAngle - half, mob.attackAngle + half);
+      g.fillPath();
+    });
+    for (const id of this.windupStartedAt.keys()) if (!preparing.has(id)) this.windupStartedAt.delete(id);
   }
 
   // Só a direção do clique vai para o servidor; ele decide se o golpe saiu e quem foi atingido.

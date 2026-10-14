@@ -26,10 +26,35 @@ export const VIEW_HYSTERESIS = 32;
 // Tipos de mob. Placeholders do mapa de teste: nomes e números ainda não são o bestiário de verdade.
 // size: lado da caixa de colisão em pixels (não pode passar do tamanho do tile). speed: pixels por segundo.
 // aggroRadius: distância em que o mob nota um jogador (precisa também de linha de visão).
-// reach: distância, de borda a borda, em que o mob para ao alcançar o alvo (e, no 4d, de onde ataca).
+// reach: distância, de borda a borda, em que o mob para ao alcançar o alvo e começa a preparar o golpe.
+// Golpe (telegrafado): prepara por windupMs parado, com a direção travada; então acerta quem estiver no arco
+// (attackArcDegrees) até attackReach de borda a borda; depois fica parado por recoverMs.
+// attackReach > reach de propósito: para escapar é preciso sair do arco de verdade, não só dar um passo para trás.
 export const MOB_KINDS = {
-  rato: { size: 16, speed: 90, maxHp: 20, aggroRadius: 160, reach: 8 },
-  goblin: { size: 22, speed: 70, maxHp: 40, aggroRadius: 224, reach: 12 },
+  rato: {
+    size: 16,
+    speed: 90,
+    maxHp: 20,
+    aggroRadius: 160,
+    reach: 8,
+    windupMs: 500,
+    attackDamage: 6,
+    attackReach: 24,
+    attackArcDegrees: 90,
+    recoverMs: 600,
+  },
+  goblin: {
+    size: 22,
+    speed: 70,
+    maxHp: 40,
+    aggroRadius: 224,
+    reach: 12,
+    windupMs: 800,
+    attackDamage: 15,
+    attackReach: 32,
+    attackArcDegrees: 100,
+    recoverMs: 900,
+  },
 } satisfies Record<string, MobStats>;
 
 export type MobKind = keyof typeof MOB_KINDS;

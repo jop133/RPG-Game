@@ -10,8 +10,10 @@ import {
   TICK_RATE,
   VIEW_RADIUS,
   applyDamage,
+  isInArc,
   isInSwing,
   isOffCooldown,
+  mobStrikeArc,
   moveWithCollision,
   movementDelta,
   parseAttackAngle,
@@ -24,6 +26,7 @@ import {
   type Area,
   type MobKind,
   type MobMind,
+  type MobStats,
   type MoveInput,
   type Vec2,
 } from "shared";
@@ -127,7 +130,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       const counts = AREAS[area.name]?.mobs ?? {};
       for (const { kind, position } of planMobSpawns(cells, counts, Math.random)) {
         const id = `mob-${nextId++}`;
-        this.state.mobs.set(id, new MobState({ kind, ...position, hp: MOB_KINDS[kind].maxHp }));
+        this.state.mobs.set(id, new MobState({ kind, ...position, hp: MOB_KINDS[kind].maxHp, windup: false, attackAngle: 0 }));
         this.mobBrains.set(id, { kind, area, homeCells: cells, mind: { mode: "wander", wander: startIdle(Math.random) } });
       }
     }
@@ -145,11 +148,25 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.state.mobs.forEach((mob, id) => {
       const brain = this.mobBrains.get(id);
       if (!brain) return;
-      const world = { grid: level.grid, home: brain.area, homeCells: brain.homeCells, stats: MOB_KINDS[brain.kind], players };
+      const stats = MOB_KINDS[brain.kind];
+      const world = { grid: level.grid, home: brain.area, homeCells: brain.homeCells, stats, players };
       const next = stepMob({ position: { x: mob.x, y: mob.y }, mind: brain.mind }, world, dtMs, Math.random);
       mob.x = next.position.x;
       mob.y = next.position.y;
+      mob.windup = next.mind.mode === "windup";
+      if (next.mind.mode === "windup") mob.attackAngle = next.mind.angle;
       brain.mind = next.mind;
+      if (next.strike !== undefined) this.mobStrike(next.position, next.strike, stats);
+    });
+  }
+
+  // Golpe do mob: acerta todos os jogadores no arco travado, não só o alvo. Mob não fere mob.
+  private mobStrike(origin: Vec2, angle: number, stats: MobStats) {
+    const arc = mobStrikeArc(stats);
+    this.state.players.forEach((player) => {
+      if (!isInArc(origin, angle, arc, player, PLAYER_SIZE / 2)) return;
+      player.hp = applyDamage(player.hp, stats.attackDamage);
+      if (player.hp === 0) this.respawnPlayer(player);
     });
   }
 

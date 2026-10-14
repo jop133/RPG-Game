@@ -1,21 +1,34 @@
 import { type Area, areaAt } from "./areas";
 import { MOB_LOSE_TRACK_MS, PLAYER_SIZE, VIEW_RADIUS } from "./balance";
 import { type CollisionGrid, moveWithCollision } from "./collision";
+import type { Arc } from "./combat";
 import { hasLineOfSight } from "./lineOfSight";
 import type { MobStats } from "./mobs";
 import type { Vec2 } from "./movement";
 import { findPath } from "./pathfinding";
 import { type WanderState, startIdle, stepWander } from "./wander";
 
-// O que o mob está fazendo. Fica só no servidor: o cliente não recebe nada disso.
+// O que o mob está fazendo. Fica no servidor; do golpe, o cliente recebe só "preparando" e a direção (o telegrafo).
 export type MobMind =
   | { mode: "wander"; wander: WanderState }
   | { mode: "chase"; targetId: string; lastSeen: Vec2; lostMs: number; path: Vec2[] }
-  | { mode: "return"; path: Vec2[] };
+  | { mode: "return"; path: Vec2[] }
+  | { mode: "windup"; targetId: string; angle: number; remainingMs: number }
+  | { mode: "recover"; targetId: string; remainingMs: number };
 
 export interface ThinkingMob {
   position: Vec2;
   mind: MobMind;
+}
+
+// `strike`: no tick em que a preparação termina, a direção do golpe. O servidor aplica o dano.
+export interface MobStep extends ThinkingMob {
+  strike?: number;
+}
+
+// Arco do golpe do mob, do centro dele até a borda do alvo.
+export function mobStrikeArc(stats: MobStats): Arc {
+  return { range: stats.size / 2 + stats.attackReach, degrees: stats.attackArcDegrees };
 }
 
 // Tudo o que o mob precisa saber do mundo para decidir o próximo tick.
@@ -121,12 +134,38 @@ function stepChasing(
   if (lostMs >= MOB_LOSE_TRACK_MS) return { position: mob.position, mind: giveUp(mob.position, world, random) };
   const lastSeen = visible ? target : mind.lastSeen;
 
+  // Encostou no alvo à vista: para e começa a preparar o golpe, com a direção travada a partir de agora.
   const stopAt = world.stats.size / 2 + PLAYER_SIZE / 2 + world.stats.reach;
   if (visible && distance(mob.position, target) <= stopAt) {
-    return { position: mob.position, mind: { ...mind, lastSeen, lostMs, path: [] } };
+    const angle = Math.atan2(target.y - mob.position.y, target.x - mob.position.x);
+    return {
+      position: mob.position,
+      mind: { mode: "windup", targetId: mind.targetId, angle, remainingMs: world.stats.windupMs },
+    };
   }
   const moved = followPath(mob.position, pathTo(world.grid, mob.position, lastSeen, mind.path), lastSeen, world, dtMs);
   return { position: moved.position, mind: { ...mind, lastSeen, lostMs, path: moved.path } };
+}
+
+// Preparando: parado, direção travada. Não é interrompido por dano. Ao terminar, golpeia e passa a se recuperar.
+function stepWindup(mob: ThinkingMob, mind: Extract<MobMind, { mode: "windup" }>, world: MobWorld, dtMs: number): MobStep {
+  const remainingMs = mind.remainingMs - dtMs;
+  if (remainingMs > 0) return { position: mob.position, mind: { ...mind, remainingMs } };
+  return {
+    position: mob.position,
+    mind: { mode: "recover", targetId: mind.targetId, remainingMs: world.stats.recoverMs },
+    strike: mind.angle,
+  };
+}
+
+// Recuperando: parado. Depois volta a perseguir o mesmo alvo (ou desiste, se ele tiver saído da sala).
+function stepRecover(mob: ThinkingMob, mind: Extract<MobMind, { mode: "recover" }>, dtMs: number): ThinkingMob {
+  const remainingMs = mind.remainingMs - dtMs;
+  if (remainingMs > 0) return { position: mob.position, mind: { ...mind, remainingMs } };
+  return {
+    position: mob.position,
+    mind: { mode: "chase", targetId: mind.targetId, lastSeen: mob.position, lostMs: 0, path: [] },
+  };
 }
 
 function stepReturning(
@@ -144,8 +183,8 @@ function stepReturning(
   return { position: moved.position, mind: { mode: "return", path: moved.path } };
 }
 
-// Um tick da cabeça de um mob: vagar, perseguir ou voltar para casa. `random` vem de fora para ser testável.
-export function stepMob(mob: ThinkingMob, world: MobWorld, dtMs: number, random: () => number): ThinkingMob {
+// Um tick da cabeça de um mob: vagar, perseguir, golpear ou voltar para casa. `random` vem de fora para ser testável.
+export function stepMob(mob: ThinkingMob, world: MobWorld, dtMs: number, random: () => number): MobStep {
   switch (mob.mind.mode) {
     case "wander":
       return stepWandering(mob, mob.mind.wander, world, dtMs, random);
@@ -153,5 +192,9 @@ export function stepMob(mob: ThinkingMob, world: MobWorld, dtMs: number, random:
       return stepChasing(mob, mob.mind, world, dtMs, random);
     case "return":
       return stepReturning(mob, mob.mind.path, world, dtMs, random);
+    case "windup":
+      return stepWindup(mob, mob.mind, world, dtMs);
+    case "recover":
+      return stepRecover(mob, mob.mind, dtMs);
   }
 }

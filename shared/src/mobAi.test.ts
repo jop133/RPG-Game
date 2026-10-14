@@ -7,7 +7,18 @@ import type { Vec2 } from "./movement";
 import { startIdle } from "./wander";
 
 const TILE = 32;
-const stats = { size: 16, speed: 100, maxHp: 10, aggroRadius: 100, reach: 8 };
+const stats = {
+  size: 16,
+  speed: 100,
+  maxHp: 10,
+  aggroRadius: 100,
+  reach: 8,
+  windupMs: 500,
+  attackDamage: 5,
+  attackReach: 20,
+  attackArcDegrees: 90,
+  recoverMs: 400,
+};
 const STOP_AT = stats.size / 2 + PLAYER_SIZE / 2 + stats.reach;
 
 // Duas salas ligadas por uma porta de 1 tile em (5, 2). A casa do mob é a sala da esquerda.
@@ -133,5 +144,62 @@ describe("stepMob: perder de vista e voltar", () => {
 
   it("desistindo já dentro de casa, volta direto a vagar", () => {
     expect(stepMob(chasing(center(2, 2), center(2, 2)), world({}), 100, Math.random).mind.mode).toBe("wander");
+  });
+});
+
+describe("stepMob: golpe telegrafado", () => {
+  const nextTo = (target: Vec2): Vec2 => ({ x: target.x - (STOP_AT - 2), y: target.y });
+
+  it("encostado e vendo o alvo: para e começa a preparar, mirando o alvo", () => {
+    const target = center(3, 2);
+    const mob = chasing(nextTo(target), target);
+    const next = stepMob(mob, world({ p: target }), 100, Math.random);
+    expect(next.position).toEqual(mob.position);
+    expect(next.mind).toMatchObject({ mode: "windup", targetId: "p", remainingMs: stats.windupMs });
+    expect(next.mind.mode === "windup" && next.mind.angle).toBeCloseTo(0);
+    expect(next.strike).toBeUndefined();
+  });
+
+  it("preparando: fica parado e não golpeia antes do tempo, mesmo com o alvo indo embora", () => {
+    const mob: ThinkingMob = { position: center(2, 2), mind: { mode: "windup", targetId: "p", angle: 0, remainingMs: 300 } };
+    const next = stepMob(mob, world({ p: center(4, 3) }), 100, Math.random);
+    expect(next.position).toEqual(mob.position);
+    expect(next.mind).toMatchObject({ mode: "windup", angle: 0, remainingMs: 200 });
+    expect(next.strike).toBeUndefined();
+  });
+
+  it("fim da preparação: golpeia na direção travada, não na posição nova do alvo, e passa a se recuperar", () => {
+    const locked = Math.PI / 2;
+    const mob: ThinkingMob = { position: center(2, 2), mind: { mode: "windup", targetId: "p", angle: locked, remainingMs: 50 } };
+    const next = stepMob(mob, world({ p: center(4, 2) }), 100, Math.random);
+    expect(next.strike).toBe(locked);
+    expect(next.mind).toMatchObject({ mode: "recover", targetId: "p", remainingMs: stats.recoverMs });
+    expect(next.position).toEqual(mob.position);
+  });
+
+  it("recuperando: fica parado e depois volta a perseguir o mesmo alvo", () => {
+    const mob: ThinkingMob = { position: center(2, 2), mind: { mode: "recover", targetId: "p", remainingMs: 150 } };
+    const w = world({ p: center(4, 2) });
+    const still = stepMob(mob, w, 100, Math.random);
+    expect(still.position).toEqual(mob.position);
+    expect(still.mind.mode).toBe("recover");
+    expect(stepMob(still, w, 100, Math.random).mind).toMatchObject({ mode: "chase", targetId: "p" });
+  });
+
+  it("alvo parado ao lado: golpeia de novo a cada ciclo de preparação + recuperação", () => {
+    const target = center(3, 2);
+    let mob: ThinkingMob = chasing(nextTo(target), target);
+    const strikeTicks: number[] = [];
+    for (let tick = 0; tick < 40; tick++) {
+      const next = stepMob(mob, world({ p: target }), 100, Math.random);
+      if (next.strike !== undefined) strikeTicks.push(tick);
+      mob = next;
+    }
+    // Ciclo = 1 tick para começar a preparar + preparação + recuperação, em ticks de 100 ms.
+    const cycle = 1 + stats.windupMs / 100 + stats.recoverMs / 100;
+    expect(strikeTicks.length).toBeGreaterThanOrEqual(3);
+    for (let i = 1; i < strikeTicks.length; i++) {
+      expect((strikeTicks[i] ?? 0) - (strikeTicks[i - 1] ?? 0)).toBe(cycle);
+    }
   });
 });

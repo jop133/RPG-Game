@@ -365,3 +365,22 @@ Se uma das duas mudar, a outra tem que acompanhar.
 - O mob precisa voltar para a própria área porque `stepWander` só funciona dentro dela
 
 **Limites conhecidos:** não há colisão entre mobs (vários perseguindo o mesmo jogador se sobrepõem). O caminho é recalculado conforme o alvo troca de tile; com muitos mobs perseguindo num andar grande, pode pesar (ver limite do pathfinding acima).
+
+---
+
+## 2026-10 — Golpe de mob telegrafado: arco travado, não interrompível
+
+**Decisão:** ao encostar no alvo à vista (`reach`), o mob para e prepara o golpe por `windupMs`, com a direção **travada** no início. No fim, acerta todos os jogadores no arco (`attackArcDegrees`, até `attackReach` de borda a borda), não só o alvo, com `attackDamage`. Depois fica parado por `recoverMs` e volta a perseguir. Tudo por tipo em `MOB_KINDS`. Mob não fere mob.
+
+O cliente recebe `windup` e `attackAngle` e desenha o arco no chão: o contorno é a área atingida e o preenchimento cresce até a borda no tempo da preparação.
+
+**Por quê (escolhas do dono do projeto):**
+- **Arco travado:** dá para "ler" para onde o golpe vai e sair de lado. Premia posicionamento, e usa a mesma geometria do golpe do jogador (`isInArc`)
+- **Não interrompível:** a escolha do jogador é "bato e fico" ou "saio da área". Mantém o mob perigoso e evita que 4 jogadores travem um mob para sempre batendo nele. Interromper pode virar traço de variante depois
+
+**Por quê (técnico):**
+- `attackReach` maior que `reach`: o mob para mais perto do que o golpe alcança. Esquivar exige sair do arco de verdade, não só um passo para trás no último instante
+- O telegrafo é a única parte da cabeça do mob enviada ao cliente, e é de propósito: o GDD quer que morrer seja consequência de decisão, e para decidir o jogador precisa ver o aviso
+- O cliente cronometra o enchimento a partir de quando viu a preparação começar. A imprecisão (até um patch, ~50 ms) é só visual; o golpe sai na hora do servidor
+
+**Valores iniciais:** rato prepara 500 ms, tira 6, alcance 24, arco 90°, recupera 600 ms; goblin prepara 800 ms, tira 15, alcance 32, arco 100°, recupera 900 ms.
