@@ -2,6 +2,7 @@ import { StateView } from "@colyseus/schema";
 import { Room, type Client } from "colyseus";
 import {
   AREAS,
+  MOB_KINDS,
   NO_INPUT,
   PLAYER_SIZE,
   TICK_RATE,
@@ -12,13 +13,25 @@ import {
   pickSpawnPoint,
   planMobSpawns,
   shouldSee,
+  startIdle,
+  stepWander,
+  type Area,
+  type MobKind,
   type MoveInput,
   type Vec2,
+  type WanderState,
 } from "shared";
 import { loadLevel } from "./level";
 import { GameState, MobState, PlayerState } from "./state";
 
 const level = loadLevel(new URL("../../assets/maps/test.json", import.meta.url));
+
+// O que o servidor precisa saber de um mob para movê-lo, e que o cliente não precisa ver.
+interface MobBrain {
+  kind: MobKind;
+  area: Area;
+  wander: WanderState;
+}
 
 export class GameRoom extends Room<{ state: GameState }> {
   maxClients = 4;
@@ -26,6 +39,7 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   // Fora do state de propósito: teclas apertadas não são replicadas para os outros jogadores.
   private moveInputs = new Map<string, MoveInput>();
+  private mobBrains = new Map<string, MobBrain>();
 
   onCreate() {
     this.onMessage("input", (client, message) => {
@@ -51,17 +65,39 @@ export class GameRoom extends Room<{ state: GameState }> {
   // Uma vez, quando a sala nasce: cada área recebe os mobs de AREAS em tiles de chão sorteados.
   private spawnMobs() {
     let nextId = 1;
-    for (const [areaName, config] of Object.entries(AREAS)) {
-      const cells = level.floorCells.get(areaName) ?? [];
-      for (const { kind, position } of planMobSpawns(cells, config.mobs, Math.random)) {
-        this.state.mobs.set(`mob-${nextId++}`, new MobState({ kind, ...position }));
+    for (const area of level.areas) {
+      const cells = level.floorCells.get(area.name) ?? [];
+      const counts = AREAS[area.name]?.mobs ?? {};
+      for (const { kind, position } of planMobSpawns(cells, counts, Math.random)) {
+        const id = `mob-${nextId++}`;
+        this.state.mobs.set(id, new MobState({ kind, ...position }));
+        this.mobBrains.set(id, { kind, area, wander: startIdle(Math.random) });
       }
     }
   }
 
   private tick(dtMs: number) {
     this.movePlayers(dtMs);
+    this.moveMobs(dtMs);
     this.updateViews();
+  }
+
+  private moveMobs(dtMs: number) {
+    this.state.mobs.forEach((mob, id) => {
+      const brain = this.mobBrains.get(id);
+      if (!brain) return;
+      const next = stepWander(
+        { position: { x: mob.x, y: mob.y }, wander: brain.wander },
+        brain.area,
+        level.grid,
+        MOB_KINDS[brain.kind],
+        dtMs,
+        Math.random,
+      );
+      mob.x = next.position.x;
+      mob.y = next.position.y;
+      brain.wander = next.wander;
+    });
   }
 
   private movePlayers(dtMs: number) {

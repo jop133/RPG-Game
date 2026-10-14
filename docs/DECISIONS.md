@@ -280,3 +280,17 @@ Se uma das duas mudar, a outra tem que acompanhar.
 **Em aberto:** respawn. Hoje a população é fixa por run, o que combina com extraction game (o andar se esvazia conforme você mata), mas a regra fica para quando houver morte de mob (passo 4).
 
 **Regra de estilo aplicada:** no cliente, o código que sincroniza os desenhos de jogadores e o de mobs ficou duplicado de propósito (dois usos). Generaliza no terceiro, provavelmente o loot no passo 6.
+
+---
+
+## 2026-10 — Mobs vagam presos à própria área, sem perseguir (ainda)
+
+**Decisão:** no passo 3, cada mob alterna entre parado e andando numa direção aleatória, com durações sorteadas (`WANDER_IDLE_MS`, `WANDER_WALK_MS` no `balance.ts`). Se a parede ou a borda da área impedirem o próximo passo, ele para e a caminhada acaba. A regra é a função pura `stepWander` em `shared/src/wander.ts`. O estado da caminhada (direção, tempo restante) fica só no servidor e não é replicado.
+
+**Por quê:**
+- Exercita tick, colisão e visibilidade com muitas entidades se mexendo, antes de existir combate
+- Perseguir jogador fica para o passo 4: sem ataque, perseguir seria meia funcionalidade, e a distância de "aggro" teria que ser reajustada quando houvesse dano
+- Prender pelo centro do mob dentro da área deixa a área funcionar como limite invisível, sem precisar de parede no mapa
+- Não replicar direção e tempo restante: o cliente não precisa disso para desenhar, e mandar seria entregar ao jogador para onde o mob vai antes de ele ir
+
+**Em aberto:** respawn, a decidir pelo dono do projeto.

@@ -26,6 +26,10 @@ export const MOB_KINDS = {
 
 export type MobKind = keyof typeof MOB_KINDS;
 
+// Mobs vagando: alternam entre parados e andando numa direção aleatória. Durações em ms, sorteadas no intervalo.
+export const WANDER_IDLE_MS = { min: 500, max: 3000 };
+export const WANDER_WALK_MS = { min: 800, max: 2500 };
+
 // Uma entrada por área do mapa (camada "areas" no Tiled). Os nomes precisam bater com os do mapa.
 // mobs: quantos de cada tipo nascem na área quando a sala é criada.
 // Valores do mapa de teste (assets/maps/test.json).

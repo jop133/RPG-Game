@@ -4,17 +4,18 @@ Onde o projeto está agora. Atualizado ao fim de cada passo. O porquê das escol
 
 ## Agora
 
-**Passo 3 em andamento: mobs com spawn por área.** Dividido em três partes, um commit cada:
+**Passo 3 concluído.** Próximo: passo 4, combate e vida.
+
+O passo 3 foi feito em três partes, um commit cada:
 
 - [x] **3a.** Áreas no mapa (retângulos com nome no Tiled, configuração em `AREAS` no `balance.ts`). Jogador só entra por pontos em áreas com `playerEntry: true`.
 - [x] **3b.** Mobs nascem em posições aleatórias dentro de cada área, conforme `AREAS`; replicados por raio como os jogadores.
-- [ ] **3c.** Mobs vagam dentro da própria área.
-
-O passo 2 (mapa, colisão, spawn e interest management) foi feito em três partes: 2a, 2b e 2c.
+- [x] **3c.** Mobs vagam dentro da própria área, alternando parados e andando.
 
 **Limitações conhecidas agora:**
-- Mobs ainda ficam parados (3c resolve). Também não têm vida nem atacam: combate é o passo 4.
-- Mobs nascem só quando a sala é criada. Não há respawn: ainda não existe como morrer, e a regra de respawn não está decidida.
+- Mobs não têm vida, não atacam e não reagem a jogadores: combate e perseguição são o passo 4.
+- Mobs atravessam jogadores e uns aos outros. Colisão é só contra parede.
+- Mobs nascem só quando a sala é criada. **Respawn: decisão pendente do dono do projeto.**
 - Os dois tipos de mob (`rato`, `goblin`) e as quantidades por área são placeholders do mapa de teste.
 - O movimento dos outros deve parecer "em degraus" (o servidor atualiza 20× por segundo e o cliente desenha a 60). Se incomodar, a correção é interpolação, que é só visual.
 - O mapa é um placeholder de teste (`assets/maps/test.json`). O andar 1 de verdade ainda vai ser desenhado.
@@ -24,7 +25,7 @@ O passo 2 (mapa, colisão, spawn e interest management) foi feito em três parte
 - [x] 0. Fundação: repositório, workspaces (`client`, `server`, `shared`), cliente e servidor subindo vazios
 - [x] 1. Dois jogadores se movendo numa sala, se vendo
 - [x] 2. Mapa do Tiled com colisão
-- [ ] 3. Mobs com spawn por área
+- [x] 3. Mobs com spawn por área
 - [ ] 4. Combate e vida
 - [ ] 5. Fome e morte
 - [ ] 6. Loot e extração
@@ -70,3 +71,4 @@ O Tiled está instalado em `C:\Program Files\Tiled\tiled.exe`. Abra `assets/maps
 - **2026-10-13** — Passo 2c concluído, e com ele o passo 2. Interest management por raio (`shared/src/visibility.ts`, 42 testes no total) usando `StateView` do Colyseus. Verificado com dois clientes de script: 10 pares em spawns aleatórios, todos com visibilidade correta; aproximar faz aparecer, afastar faz sumir. Verificado na rede: com o outro jogador fora do raio e andando, o cliente recebe só patches vazios de 1 byte, nenhum dado sobre ele.
 - **2026-10-13** — Passo 3a concluído. Áreas no mapa (`shared/src/areas.ts`; 58 testes no total) e 4 áreas no mapa de teste (`salao`, `galeria`, `tuneis`, `toca`). Carregamento e validação do mapa movidos para `server/src/level.ts`. Verificado por script: 16 entradas caíram só em `salao` e `tuneis`. Com um mapa estragado de propósito, o servidor listou os três problemas juntos.
 - **2026-10-13** — Passo 3b concluído. Mobs por área (`shared/src/mobs.ts`; 66 testes no total), dois tipos placeholder em `MOB_KINDS`, replicados por raio como os jogadores. Verificado por script: um jogador em cada área de entrada, todos os mobs recebidos em tile de chão, na área certa, do tipo certo e dentro do raio; quem está no `salao` vê os 3 ratos dele. Com uma área encolhida de propósito, o servidor recusou subir. No navegador: mobs desenhados com cor por tipo.
+- **2026-10-13** — Passo 3c concluído, e com ele o passo 3. Mobs vagando (`shared/src/wander.ts`; 74 testes no total, incluindo uma simulação de 2.000 ticks que confere que nenhum mob sai da área nem entra em parede). Verificado por script: durante 10 s, os 8 mobs à vista se mexeram (ratos 195–474 px, goblins 116–202 px) e nenhum saiu da própria área. No navegador: mobs mudando de lugar entre capturas.
