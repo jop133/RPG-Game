@@ -1,6 +1,7 @@
 export * from "./areas";
 export * from "./balance";
 export * from "./collision";
+export * from "./combat";
 export * from "./mobs";
 export * from "./movement";
 export * from "./spawn";

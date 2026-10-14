@@ -4,16 +4,18 @@ Onde o projeto está agora. Atualizado ao fim de cada passo. O porquê das escol
 
 ## Agora
 
-**Passo 3 concluído.** Próximo: passo 4, combate e vida.
+**Passo 4 em andamento: combate e vida.** Dividido em quatro partes, um commit cada:
 
-O passo 3 foi feito em três partes, um commit cada:
+- [x] **4a.** Vida para jogadores e mobs; golpe do jogador mirado com o mouse (clique esquerdo), com fogo amigo. Mob a 0 some; jogador a 0 renasce na entrada (provisório até o passo 5).
+- [ ] **4b.** Pathfinding e linha de visão em `shared/` (só funções puras e testes).
+- [ ] **4c.** Mobs notam, perseguem pelo mapa inteiro, desistem e voltam. *Proposta de regras a confirmar antes de implementar.*
+- [ ] **4d.** Ataque de mob telegrafado (preparação visível, dá para esquivar).
 
-- [x] **3a.** Áreas no mapa (retângulos com nome no Tiled, configuração em `AREAS` no `balance.ts`). Jogador só entra por pontos em áreas com `playerEntry: true`.
-- [x] **3b.** Mobs nascem em posições aleatórias dentro de cada área, conforme `AREAS`; replicados por raio como os jogadores.
-- [x] **3c.** Mobs vagam dentro da própria área, alternando parados e andando.
+O passo 3 (áreas, mobs por área, mobs vagando) foi feito em três partes: 3a, 3b e 3c.
 
 **Limitações conhecidas agora:**
-- Mobs não têm vida, não atacam e não reagem a jogadores: combate e perseguição são o passo 4.
+- Mobs não reagem a jogadores nem atacam (4c e 4d).
+- Jogador a 0 de vida só volta para a entrada com vida cheia. Provisório: o passo 5 traz a morte de verdade.
 - Mobs atravessam jogadores e uns aos outros. Colisão é só contra parede.
 - Mobs nascem só quando a sala é criada. **Respawn: decisão pendente do dono do projeto.**
 - Os dois tipos de mob (`rato`, `goblin`) e as quantidades por área são placeholders do mapa de teste.
@@ -47,6 +49,8 @@ npm run dev:client   # Vite em http://localhost:5173
 npm test             # testes de shared/
 ```
 
+**Controles:** WASD anda. Clique esquerdo golpeia na direção do cursor (fogo amigo ligado: acerta outros jogadores também).
+
 ## Como editar o mapa
 
 O Tiled está instalado em `C:\Program Files\Tiled\tiled.exe`. Abra `assets/maps/test.json` direto nele.
@@ -72,3 +76,4 @@ O Tiled está instalado em `C:\Program Files\Tiled\tiled.exe`. Abra `assets/maps
 - **2026-10-13** — Passo 3a concluído. Áreas no mapa (`shared/src/areas.ts`; 58 testes no total) e 4 áreas no mapa de teste (`salao`, `galeria`, `tuneis`, `toca`). Carregamento e validação do mapa movidos para `server/src/level.ts`. Verificado por script: 16 entradas caíram só em `salao` e `tuneis`. Com um mapa estragado de propósito, o servidor listou os três problemas juntos.
 - **2026-10-13** — Passo 3b concluído. Mobs por área (`shared/src/mobs.ts`; 66 testes no total), dois tipos placeholder em `MOB_KINDS`, replicados por raio como os jogadores. Verificado por script: um jogador em cada área de entrada, todos os mobs recebidos em tile de chão, na área certa, do tipo certo e dentro do raio; quem está no `salao` vê os 3 ratos dele. Com uma área encolhida de propósito, o servidor recusou subir. No navegador: mobs desenhados com cor por tipo.
 - **2026-10-13** — Passo 3c concluído, e com ele o passo 3. Mobs vagando (`shared/src/wander.ts`; 74 testes no total, incluindo uma simulação de 2.000 ticks que confere que nenhum mob sai da área nem entra em parede). Verificado por script: durante 10 s, os 8 mobs à vista se mexeram (ratos 195–474 px, goblins 116–202 px) e nenhum saiu da própria área. No navegador: mobs mudando de lugar entre capturas.
+- **2026-10-14** — Passo 4a concluído. Vida e golpe do jogador (`shared/src/combat.ts`; 87 testes no total). Verificado por script: de 10 golpes em 1 s, só 2 aceitos (recarga de 500 ms); ângulo malicioso ignorado; rato morto em 2 golpes (20 → 10 → some); fogo amigo de 10 em 10 até 0, e o jogador volta com 100. No navegador: barras de vida em jogadores e mobs, sem erros no console. O leque do golpe (150 ms) não apareceu nas capturas de tela; conferir clicando.

@@ -294,3 +294,39 @@ Se uma das duas mudar, a outra tem que acompanhar.
 - Não replicar direção e tempo restante: o cliente não precisa disso para desenhar, e mandar seria entregar ao jogador para onde o mob vai antes de ele ir
 
 **Em aberto:** respawn, a decidir pelo dono do projeto.
+
+---
+
+## 2026-10 — Golpe do jogador: clique mirado, arco à frente, fogo amigo
+
+**Decisão:** clique esquerdo golpeia na direção do cursor. O cliente manda só o ângulo (`{ angle }`). O servidor confere a recarga (`PLAYER_ATTACK.cooldownMs`) e acerta tudo o que estiver no arco à frente (`arcDegrees`) dentro do alcance (`range`, contado da borda do alvo): mobs **e outros jogadores**. Só o próprio atacante fica de fora. Números em `PLAYER_ATTACK` e `PLAYER_MAX_HP`; vida dos mobs em `MOB_KINDS[...].maxHp`.
+
+**Por quê:**
+- Mirar com o mouse deixa WASD livre para andar enquanto mira, padrão de ARPG top-down (Hero Siege, referência do GDD)
+- O ângulo é a única coisa que o cliente escolhe: recarga, alcance, quem foi atingido e dano são do servidor (regra 1). Ângulo que não seja número finito é ignorado
+- Fogo amigo: escolha do dono do projeto. Mais tático e perigoso, combina com extraction game
+
+**Como o golpe aparece para os outros:** o jogador tem no estado um contador de golpes (`attackSeq`) e o ângulo do último (`attackAngle`). Quem vê o jogador desenha o golpe quando o contador muda. Como passa pelo mesmo filtro de visão, quem está longe não fica sabendo.
+
+**Limite conhecido:** o golpe não checa parede no meio. Com os números atuais isso não importa: dois corpos separados por uma parede de 1 tile ficam a pelo menos 52 px de centro a centro, e o maior alcance possível é 52 px (40 + metade de um jogador). Se o alcance subir, ou se paredes ficarem mais finas que um tile, o golpe passa a atravessar parede, e a linha de visão do 4b deve entrar aqui.
+
+---
+
+## 2026-10 — PROVISÓRIO: jogador a 0 de vida renasce na entrada
+
+**Decisão:** até o passo 5, vida zero só manda o jogador de volta a um ponto de entrada, com vida cheia.
+
+**Por quê:** a morte de verdade (permadeath, linhagem) é o passo 5. Até lá, renascer permite testar combate repetidamente. Fica marcado no código (`respawnPlayer` em `server/src/GameRoom.ts`) como provisório.
+
+**Remover em:** passo 5.
+
+---
+
+## 2026-10 — Mobs perseguem pelo mapa inteiro
+
+**Decisão do dono do projeto:** quando um mob nota um jogador, persegue-o para qualquer lugar do mapa, não só dentro da própria área.
+
+**Consequências técnicas:**
+- Exige pathfinding de verdade (A* na grade de tiles) para o mob passar pelas portas entre salas. Vira uma parte própria do passo 4 (4b)
+- A regra de vagar (`stepWander`) exige que o mob esteja dentro da própria área. Um mob que desistiu longe de casa precisa voltar para a área antes de vagar de novo
+- Ficam a decidir antes de implementar a perseguição (4c): se o mob enxerga através de parede, a que distância nota o jogador e a que distância desiste

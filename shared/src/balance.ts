@@ -7,6 +7,12 @@ export const PLAYER_SPEED = 160;
 // Lado da caixa de colisão do jogador, em pixels. Também é o tamanho desenhado.
 export const PLAYER_SIZE = 24;
 
+export const PLAYER_MAX_HP = 100;
+
+// Golpe do jogador: arma placeholder única até o passo 8 (maestria de armas).
+// range: alcance em pixels, contado da borda do alvo. arcDegrees: abertura do arco à frente.
+export const PLAYER_ATTACK = { damage: 10, range: 40, arcDegrees: 100, cooldownMs: 500 };
+
 // Ticks de simulação do servidor por segundo.
 export const TICK_RATE = 20;
 
@@ -20,8 +26,8 @@ export const VIEW_HYSTERESIS = 32;
 // Tipos de mob. Placeholders do mapa de teste: nomes e números ainda não são o bestiário de verdade.
 // size: lado da caixa de colisão em pixels (não pode passar do tamanho do tile). speed: pixels por segundo.
 export const MOB_KINDS = {
-  rato: { size: 16, speed: 90 },
-  goblin: { size: 22, speed: 70 },
+  rato: { size: 16, speed: 90, maxHp: 20 },
+  goblin: { size: 22, speed: 70, maxHp: 40 },
 } satisfies Record<string, MobStats>;
 
 export type MobKind = keyof typeof MOB_KINDS;

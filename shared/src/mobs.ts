@@ -6,6 +6,7 @@ import type { Vec2 } from "./movement";
 export interface MobStats {
   size: number;
   speed: number;
+  maxHp: number;
 }
 
 export interface MobSpawn {
