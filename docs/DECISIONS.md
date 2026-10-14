@@ -120,3 +120,23 @@ Ordem cronológica. Entradas novas vão no fim.
 **Por quê:** direito autoral protege expressão, não ideia (Lei 9.610/98, art. 8º). Classe bárbaro, elfo, dungeon de andares, fome e permadeath são vocabulário comum de RPG, anterior à obra em décadas.
 
 **Explicitamente não adotado:** a mecânica de "classe lixo" do manhwa. Funciona em narrativa com um protagonista; em multiplayer só esvaziaria uma das quatro vilas.
+
+---
+
+## 2026-10 — npm workspaces, `shared` consumido como fonte TypeScript
+
+**Decisão:** um `package.json` na raiz com workspaces `client`, `server` e `shared`. Cada dependência é declarada no pacote que a usa. `shared` não tem build: seu `package.json` aponta `main`/`types` direto para `src/index.ts`.
+
+**Por quê:**
+- `shared` é o lugar das regras puras; um passo de build no meio criaria a chance de cliente e servidor rodarem versões diferentes da mesma regra
+- Vite (cliente) e tsx (servidor) já transpilam TypeScript na hora, então o build seria custo sem ganho
+
+**Como a resolução funciona (duas camadas, precisam concordar):**
+- **Em execução:** o npm cria o symlink `node_modules/shared → shared/`, e Vite/tsx seguem o `main` até o `.ts`
+- **No type-check e no editor:** `paths` no `tsconfig.json` de `client` e `server` aponta `shared` para `../shared/src`
+
+Se uma das duas mudar, a outra tem que acompanhar.
+
+**Versões fixadas por major:** Phaser 3.x (a stack exige Phaser 3; o npm já está no 4), TypeScript 5.9, Vite 5.4, vitest 2.1, tsx 4, Colyseus 0.18, Node 24 (`.nvmrc`). Existem majors mais novas (TypeScript 7, Vite 8) que não foram avaliadas. Subir uma delas é decisão própria, não atualização de rotina.
+
+**Detalhe do Colyseus:** o transport é passado explicitamente (`WebSocketTransport` de `@colyseus/ws-transport`). Sem isso, o Colyseus tenta detectar o transport sozinho e quebra na inicialização se o pacote esperado não estiver instalado.
