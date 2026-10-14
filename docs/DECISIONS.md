@@ -540,3 +540,18 @@ O cliente recebe `windup` e `attackAngle` e desenha o arco no chão: o contorno 
 **Por quê:** jogo entre amigos; login com senha seria muito código para o problema de agora. O risco aceito é que qualquer um que digitar o seu nome entra como você.
 
 **Reavaliar quando:** o jogo sair do círculo de amigos.
+
+---
+
+## 2026-10 — Bestiário da linhagem, XP do personagem, crédito ao golpe final
+
+**Decisão:**
+- **Bestiário** (tabela `bestiary`): tipos de mob que alguém da linhagem já matou. Sobrevive à morte
+- **XP** (coluna `characters.xp` e tabela `character_kills`): a primeira morte de cada tipo **por personagem** dá `FIRST_KILL_XP`. O herdeiro reganha XP matando de novo cada tipo (escolha do dono do projeto)
+- **Nível** sai do XP pela tabela `LEVEL_XP` (`levelForXp` em `shared/src/progression.ts`). Nível = número de slots de essência (7c)
+- **Crédito:** quem dá o golpe final leva a primeira morte
+- **Aviso:** o servidor manda `firstKill` dizendo se o nível subiu. O cliente não compara com o estado, porque mensagem e patch de estado podem chegar em qualquer ordem
+
+**Por quê (crédito ao golpe final):** é o mais simples e sem ambiguidade. O custo é que, no co-op, o grupo precisa combinar quem finaliza cada tipo novo. Dividir o crédito entre quem participou fica para quando incomodar.
+
+**Valores iniciais:** 1 de XP por tipo novo; níveis 2 a 7 pedem 1, 2, 4, 7, 11 e 16 de XP no total. Com 2 tipos de mob, o máximo hoje é nível 3.

@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
-import type { DeathCause, ItemStack } from "shared";
+import { FIRST_KILL_XP, type DeathCause, type ItemStack, type MobKind } from "shared";
 
 export interface CharacterRecord {
   characterId: number;
@@ -34,6 +34,23 @@ const MIGRATIONS: string[] = [
     item TEXT NOT NULL,
     count INTEGER NOT NULL,
     PRIMARY KEY (lineage_id, item)
+  );
+  `,
+  `
+  ALTER TABLE characters ADD COLUMN xp INTEGER NOT NULL DEFAULT 0;
+  -- Primeiras mortes de cada tipo por personagem: o que dá XP. O herdeiro começa do zero.
+  CREATE TABLE character_kills (
+    character_id INTEGER NOT NULL REFERENCES characters(id),
+    mob_kind TEXT NOT NULL,
+    killed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (character_id, mob_kind)
+  );
+  -- Bestiário: tipos que alguém da linhagem já matou. Sobrevive à morte.
+  CREATE TABLE bestiary (
+    lineage_id INTEGER NOT NULL REFERENCES lineages(id),
+    mob_kind TEXT NOT NULL,
+    first_killed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (lineage_id, mob_kind)
   );
   `,
 ];
@@ -74,6 +91,29 @@ export class Store {
         living?.id ?? Number(this.db.prepare("INSERT INTO characters (lineage_id) VALUES (?)").run(lineage.id).lastInsertRowid);
       return { characterId, lineageId: lineage.id, name: lineage.name };
     })();
+  }
+
+  xp(characterId: number): number {
+    return (this.db.prepare("SELECT xp FROM characters WHERE id = ?").get(characterId) as { xp: number }).xp;
+  }
+
+  // Registra que o personagem matou um mob deste tipo. Primeira vez dele: ganha XP. Sempre entra no bestiário.
+  recordKill(record: CharacterRecord, kind: MobKind): { firstForCharacter: boolean; xp: number } {
+    return this.db.transaction(() => {
+      this.db.prepare("INSERT OR IGNORE INTO bestiary (lineage_id, mob_kind) VALUES (?, ?)").run(record.lineageId, kind);
+      const inserted = this.db
+        .prepare("INSERT OR IGNORE INTO character_kills (character_id, mob_kind) VALUES (?, ?)")
+        .run(record.characterId, kind).changes;
+      if (inserted > 0) {
+        this.db.prepare("UPDATE characters SET xp = xp + ? WHERE id = ?").run(FIRST_KILL_XP, record.characterId);
+      }
+      return { firstForCharacter: inserted > 0, xp: this.xp(record.characterId) };
+    })();
+  }
+
+  bestiary(lineageId: number): MobKind[] {
+    const rows = this.db.prepare("SELECT mob_kind FROM bestiary WHERE lineage_id = ? ORDER BY mob_kind").all(lineageId);
+    return (rows as { mob_kind: MobKind }[]).map((row) => row.mob_kind);
   }
 
   markDead(characterId: number, cause: DeathCause) {

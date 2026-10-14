@@ -20,6 +20,9 @@ export const PlayerState = schema(
     inventory: t.array(ItemSlotState).view(OWNER_TAG),
     // Quanto já ficou no portal (ms). Só o dono vê a própria contagem.
     extractMs: t.number().view(OWNER_TAG),
+    // Progressão do personagem (vem do banco). Nível = número de slots de essência.
+    xp: t.number().view(OWNER_TAG),
+    level: t.number().view(OWNER_TAG),
   },
   "PlayerState",
 );

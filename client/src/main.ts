@@ -11,8 +11,10 @@ import {
   PLAYER_MAX_HP,
   PLAYER_SIZE,
   mobStrikeArc,
+  xpForNextLevel,
   type DeathCause,
   type ExtractionResult,
+  type FirstKillMessage,
   type ItemId,
   type MobKind,
   type MoveInput,
@@ -29,6 +31,8 @@ interface PlayerView extends Vec2 {
   // Só chegam para o próprio jogador; para os outros ficam undefined.
   hunger?: number;
   extractMs?: number;
+  xp?: number;
+  level?: number;
   inventory?: { forEach(callback: (slot: { item: string; count: number }, index: number) => void): void };
 }
 interface MobView extends Vec2 {
@@ -68,6 +72,8 @@ const HUD_DEPTH = 10;
 const HUD_MARGIN = 16;
 const HUNGER_BAR = { width: 160, height: 10 };
 const HUNGER_COLOR = 0xffb300;
+const XP_COLOR = 0x7e57c2;
+const TOAST_MS = 2500;
 const LOOT_SIZE = 12;
 const LOOT_COLOR = 0x8d6e63;
 const EXIT_COLOR = 0x40c4ff;
@@ -121,6 +127,9 @@ class GameScene extends Phaser.Scene {
   private hud?: Phaser.GameObjects.Graphics;
   private exitsLayer?: Phaser.GameObjects.Graphics;
   private extractLabel?: Phaser.GameObjects.Text;
+  private levelLabel?: Phaser.GameObjects.Text;
+  private toast?: Phaser.GameObjects.Text;
+  private toastUntil = 0;
   private slotKeys: Phaser.Input.Keyboard.Key[] = [];
   private slotLabels: Phaser.GameObjects.Text[] = [];
   // Quando este cliente viu cada mob começar a preparar: base para o aviso encher no ritmo certo.
@@ -145,6 +154,15 @@ class GameScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(HUD_DEPTH);
     this.add.text(HUD_MARGIN, HUD_MARGIN, "Fome", { fontSize: "12px", color: "#ffffff" }).setScrollFactor(0).setDepth(HUD_DEPTH);
+    this.levelLabel = this.add
+      .text(HUD_MARGIN, HUD_MARGIN + 34, "", { fontSize: "12px", color: "#ffffff" })
+      .setScrollFactor(0)
+      .setDepth(HUD_DEPTH);
+    this.toast = this.add
+      .text(this.scale.width / 2, this.scale.height / 3, "", { fontSize: "18px", color: "#ffd54f", align: "center" })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(HUD_DEPTH);
     // Antes de registrar as teclas do jogo: o Phaser as captura e o campo de nome não conseguiria recebê-las.
     const room = await connect(new Client(SERVER_URL));
     if (!room) return;
@@ -170,6 +188,11 @@ class GameScene extends Phaser.Scene {
       sessionStorage.removeItem(RECONNECTION_TOKEN_KEY);
       showEndScreen("Você extraiu", describeLoot(result));
     });
+    room.onMessage("firstKill", (info: FirstKillMessage) => {
+      const levelUp = info.leveledUp ? `
+Subiu para o nível ${info.level}!` : "";
+      this.showToast(`Primeira morte: ${MOB_NAMES[info.mob]} (+XP)${levelUp}`);
+    });
     room.onMessage("death", (cause: DeathCause) => {
       this.room = undefined;
       sessionStorage.removeItem(RECONNECTION_TOKEN_KEY);
@@ -180,6 +203,14 @@ class GameScene extends Phaser.Scene {
       this.room = room;
     });
   }
+
+  // Aviso curto no centro da tela.
+  private showToast(text: string) {
+    this.lastToastText = text;
+    this.toastUntil = this.time.now + TOAST_MS;
+  }
+
+  private lastToastText = "";
 
   update(time: number) {
     if (!this.room || !this.keys || !this.overlay || !this.telegraphs || !this.hud) return;
@@ -222,6 +253,7 @@ class GameScene extends Phaser.Scene {
     });
     const label = extractMs > 0 ? `Extraindo… ${((EXTRACT_MS - extractMs) / 1000).toFixed(1)} s` : "";
     if (this.extractLabel && this.extractLabel.text !== label) this.extractLabel.setText(label);
+    this.drawProgress(room, g);
     if (hunger === undefined) return;
     const top = HUD_MARGIN + 16;
     g.fillStyle(0x000000, 0.6);
@@ -229,6 +261,27 @@ class GameScene extends Phaser.Scene {
     g.fillStyle(HUNGER_COLOR, 1);
     g.fillRect(HUD_MARGIN, top, HUNGER_BAR.width * (hunger / HUNGER_MAX), HUNGER_BAR.height);
     this.drawInventory(room, g);
+  }
+
+  // Nível e barra de XP até o próximo nível; e o aviso de primeira morte enquanto durar.
+  private drawProgress(room: Room<unknown, ServerState>, g: Phaser.GameObjects.Graphics) {
+    let xp = 0;
+    let level = 1;
+    room.state.players.forEach((player, sessionId) => {
+      if (sessionId !== room.sessionId) return;
+      xp = player.xp ?? 0;
+      level = player.level ?? 1;
+    });
+    const next = xpForNextLevel(level);
+    const levelText = next === undefined ? `Nível ${level} (máximo)` : `Nível ${level}  ·  XP ${xp}/${next}`;
+    if (this.levelLabel && this.levelLabel.text !== levelText) this.levelLabel.setText(levelText);
+    const top = HUD_MARGIN + 50;
+    g.fillStyle(0x000000, 0.6);
+    g.fillRect(HUD_MARGIN, top, HUNGER_BAR.width, 6);
+    g.fillStyle(XP_COLOR, 1);
+    g.fillRect(HUD_MARGIN, top, HUNGER_BAR.width * (next === undefined ? 1 : Math.min(1, xp / next)), 6);
+    const toastText = this.time.now < this.toastUntil ? this.lastToastText : "";
+    if (this.toast && this.toast.text !== toastText) this.toast.setText(toastText);
   }
 
   private drawInventory(room: Room<unknown, ServerState>, g: Phaser.GameObjects.Graphics) {

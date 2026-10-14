@@ -13,6 +13,7 @@ export * from "./mobAi";
 export * from "./mobs";
 export * from "./movement";
 export * from "./pathfinding";
+export * from "./progression";
 export * from "./spawn";
 export * from "./tiledMap";
 export * from "./visibility";

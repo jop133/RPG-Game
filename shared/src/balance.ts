@@ -47,6 +47,11 @@ export const MOB_DROPS: Record<MobKind, DropEntry[]> = {
 // Distância, de centro a centro, em que o jogador alcança uma pilha para pegar (tecla F).
 export const PICKUP_RADIUS = 40;
 
+// XP: cada tipo de mob dá FIRST_KILL_XP na primeira vez que o personagem o mata (quem dá o golpe final).
+export const FIRST_KILL_XP = 1;
+// XP total para chegar a cada nível a partir do 2 (índice 0 = nível 2). Nível = número de slots de essência.
+export const LEVEL_XP = [1, 2, 4, 7, 11, 16];
+
 // Extração: dos pontos candidatos da camada "exits" do mapa, quantos ficam ativos em cada run (sorteados).
 export const EXITS_ACTIVE = 2;
 // Raio do portal, em pixels, contado do centro: o centro do jogador precisa estar dentro.

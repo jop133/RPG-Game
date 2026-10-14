@@ -21,6 +21,7 @@ import {
   inventoryToPile,
   isInsideExit,
   isOffCooldown,
+  levelForXp,
   mobStrikeArc,
   moveWithCollision,
   movementDelta,
@@ -45,6 +46,7 @@ import {
   type Area,
   type DeathCause,
   type ExtractionResult,
+  type FirstKillMessage,
   type Inventory,
   type ItemStack,
   type MobKind,
@@ -121,7 +123,9 @@ export class GameRoom extends Room<{ state: GameState }> {
   }
 
   onJoin(client: Client) {
-    this.characters.set(client.sessionId, client.auth as CharacterRecord);
+    const record = client.auth as CharacterRecord;
+    this.characters.set(client.sessionId, record);
+    const xp = store.xp(record.characterId);
     const player = new PlayerState({
       ...this.entryPoint(),
       hp: PLAYER_MAX_HP,
@@ -129,6 +133,8 @@ export class GameRoom extends Room<{ state: GameState }> {
       attackAngle: 0,
       hunger: HUNGER_MAX,
       extractMs: 0,
+      xp,
+      level: levelForXp(xp),
     });
     for (let i = 0; i < INVENTORY_SLOTS; i++) player.inventory.push(new ItemSlotState({ item: "", count: 0 }));
     this.setInventory(client.sessionId, player, startingInventory(STARTING_ITEMS));
@@ -256,12 +262,12 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.lastAttackMs.set(sessionId, now);
     attacker.attackSeq += 1;
     attacker.attackAngle = angle;
-    this.hitMobs(attacker, angle);
+    this.hitMobs(sessionId, attacker, angle);
     this.hitPlayers(sessionId, attacker, angle);
     this.resolveDeaths();
   }
 
-  private hitMobs(attacker: Vec2, angle: number) {
+  private hitMobs(attackerId: string, attacker: PlayerState, angle: number) {
     const dead: string[] = [];
     this.state.mobs.forEach((mob, id) => {
       if (!isInSwing(attacker, angle, mob, MOB_KINDS[mob.kind as MobKind].size / 2)) return;
@@ -270,10 +276,26 @@ export class GameRoom extends Room<{ state: GameState }> {
     });
     for (const id of dead) {
       const mob = this.state.mobs.get(id);
-      if (mob) this.dropPile(mob, rollDrops(mob.kind as MobKind, Math.random));
+      if (mob) {
+        this.dropPile(mob, rollDrops(mob.kind as MobKind, Math.random));
+        this.creditKill(attackerId, attacker, mob.kind as MobKind);
+      }
       this.state.mobs.delete(id);
       this.mobBrains.delete(id);
     }
+  }
+
+  // Golpe final: registra no bestiário da linhagem e, se for o primeiro deste tipo do personagem, dá XP.
+  private creditKill(sessionId: string, player: PlayerState, kind: MobKind) {
+    const record = this.characters.get(sessionId);
+    if (!record) return;
+    const { firstForCharacter, xp } = store.recordKill(record, kind);
+    if (!firstForCharacter) return;
+    const levelBefore = player.level;
+    player.xp = xp;
+    player.level = levelForXp(xp);
+    const message: FirstKillMessage = { mob: kind, xp, level: player.level, leveledUp: player.level > levelBefore };
+    this.clients.getById(sessionId)?.send("firstKill", message);
   }
 
   private dropPile(at: Vec2, items: ItemStack[]) {
