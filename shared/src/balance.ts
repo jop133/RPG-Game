@@ -47,6 +47,13 @@ export const MOB_DROPS: Record<MobKind, DropEntry[]> = {
 // Distância, de centro a centro, em que o jogador alcança uma pilha para pegar (tecla F).
 export const PICKUP_RADIUS = 40;
 
+// Extração: dos pontos candidatos da camada "exits" do mapa, quantos ficam ativos em cada run (sorteados).
+export const EXITS_ACTIVE = 2;
+// Raio do portal, em pixels, contado do centro: o centro do jogador precisa estar dentro.
+export const EXIT_RADIUS = 28;
+// Tempo parado dentro do portal para extrair. Sair do portal zera; levar dano não.
+export const EXTRACT_MS = 5000;
+
 // Golpe do jogador: arma placeholder única até o passo 8 (maestria de armas).
 // range: alcance em pixels, contado da borda do alvo. arcDegrees: abertura do arco à frente.
 export const PLAYER_ATTACK = { damage: 10, range: 40, arcDegrees: 100, cooldownMs: 500 };

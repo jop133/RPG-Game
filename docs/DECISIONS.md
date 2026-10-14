@@ -481,3 +481,22 @@ O cliente recebe `windup` e `attackAngle` e desenha o arco no chão: o contorno 
 **Consequência descoberta em teste:** uma run dura enquanto houver alguém na sala. Quando a sala esvazia, o Colyseus a encerra, e as pilhas vão junto. Hoje isso é o comportamento desejado; quando houver persistência, decidir se algo do andar sobrevive.
 
 **Regra de estilo aplicada:** com as pilhas, o código de sincronizar desenhos no cliente chegou ao terceiro uso (jogadores, mobs, pilhas) e virou a função `syncSprites`, como manda o `CLAUDE.md`.
+
+---
+
+## 2026-10 — Extração: portais sorteados por run, 5 s parado dentro
+
+**Decisão (dono do projeto):** os pontos da camada `exits` do Tiled são candidatos; em cada run (sala), `EXITS_ACTIVE` deles são sorteados como ativos. Ficar com o centro dentro do raio do portal (`EXIT_RADIUS`) por `EXTRACT_MS` (5 s) extrai. Sair do portal zera a contagem; levar dano não. Ao extrair, o jogador sai da sala levando tudo, e vê "Você extraiu" com a lista. Ninguém deixa pilha ao extrair.
+
+**Como:**
+- Regras puras em `shared/src/extraction.ts` (`pickActiveExits`, `isInsideExit`, `stepExtraction`)
+- Portais ativos são entidades com posição (`ExitState`), filtradas pelo raio de visão como mobs e pilhas: não se sabe onde está a saída da run sem explorar
+- A contagem de cada jogador é privada (`extractMs` com `OWNER_TAG`)
+- Só conta para quem está conectado: um corpo largado num portal (desconexão, passo 5c) não extrai sozinho
+
+**Por quê:**
+- Portais sorteados entre candidatos: é o "portal de saída em posição variável entre locais possíveis" do GDD. Quem desenha o mapa escolhe os lugares; a run escolhe quais valem
+- Ficar 5 s parado cria o momento tenso de segurar posição com mob vindo, e é decisão, não reflexo
+- Dano não interrompe, coerente com o golpe de mob não interrompível
+
+**Em aberto:** para onde vão os itens extraídos. Hoje somem depois da tela; o baú (passo 9) é que guarda. Também em aberto: portal de **descida** para o próximo andar (o GDD fala em "saída/descida"); hoje todo portal é saída.

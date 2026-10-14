@@ -1,6 +1,8 @@
 import Phaser from "phaser";
 import { Client, type Room } from "@colyseus/sdk";
 import {
+  EXIT_RADIUS,
+  EXTRACT_MS,
   HUNGER_MAX,
   INVENTORY_SLOTS,
   ITEMS,
@@ -10,6 +12,7 @@ import {
   PLAYER_SIZE,
   mobStrikeArc,
   type DeathCause,
+  type ExtractionResult,
   type ItemId,
   type MobKind,
   type MoveInput,
@@ -25,6 +28,7 @@ interface PlayerView extends Vec2 {
   attackAngle: number;
   // Só chegam para o próprio jogador; para os outros ficam undefined.
   hunger?: number;
+  extractMs?: number;
   inventory?: { forEach(callback: (slot: { item: string; count: number }, index: number) => void): void };
 }
 interface MobView extends Vec2 {
@@ -37,6 +41,7 @@ interface ServerState {
   players: { forEach(callback: (player: PlayerView, sessionId: string) => void): void };
   mobs: { forEach(callback: (mob: MobView, id: string) => void): void };
   loot: { forEach(callback: (pile: Vec2, id: string) => void): void };
+  exits: { forEach(callback: (exit: Vec2, id: string) => void): void };
 }
 
 const SERVER_URL = `ws://${window.location.hostname}:2567`;
@@ -49,6 +54,7 @@ const MOB_COLORS: Record<MobKind, number> = { rato: 0x9e9e9e, goblin: 0xcddc39 }
 const MOB_NAMES: Record<MobKind, string> = { rato: "um rato", goblin: "um goblin" };
 
 // Ordem de desenho: aviso de golpe no chão, mobs por baixo dos jogadores, barras e golpes por cima de tudo.
+const EXIT_DEPTH = 0.4;
 const TELEGRAPH_DEPTH = 0.5;
 const LOOT_DEPTH = 0.8;
 const MOB_DEPTH = 1;
@@ -62,6 +68,7 @@ const HUNGER_BAR = { width: 160, height: 10 };
 const HUNGER_COLOR = 0xffb300;
 const LOOT_SIZE = 12;
 const LOOT_COLOR = 0x8d6e63;
+const EXIT_COLOR = 0x40c4ff;
 
 // Barra de inventário fixa, embaixo e no centro.
 const SLOT_SIZE = 36;
@@ -110,6 +117,8 @@ class GameScene extends Phaser.Scene {
   private overlay?: Phaser.GameObjects.Graphics;
   private telegraphs?: Phaser.GameObjects.Graphics;
   private hud?: Phaser.GameObjects.Graphics;
+  private exitsLayer?: Phaser.GameObjects.Graphics;
+  private extractLabel?: Phaser.GameObjects.Text;
   private slotKeys: Phaser.Input.Keyboard.Key[] = [];
   private slotLabels: Phaser.GameObjects.Text[] = [];
   // Quando este cliente viu cada mob começar a preparar: base para o aviso encher no ritmo certo.
@@ -127,6 +136,12 @@ class GameScene extends Phaser.Scene {
     this.overlay = this.add.graphics().setDepth(OVERLAY_DEPTH);
     this.telegraphs = this.add.graphics().setDepth(TELEGRAPH_DEPTH);
     this.hud = this.add.graphics().setDepth(HUD_DEPTH).setScrollFactor(0);
+    this.exitsLayer = this.add.graphics().setDepth(EXIT_DEPTH);
+    this.extractLabel = this.add
+      .text(this.scale.width / 2, HUD_MARGIN, "", { fontSize: "16px", color: "#40c4ff" })
+      .setOrigin(0.5, 0)
+      .setScrollFactor(0)
+      .setDepth(HUD_DEPTH);
     this.add.text(HUD_MARGIN, HUD_MARGIN, "Fome", { fontSize: "12px", color: "#ffffff" }).setScrollFactor(0).setDepth(HUD_DEPTH);
     this.keys = this.input.keyboard?.addKeys({ up: "W", down: "S", left: "A", right: "D" }) as MoveKeys;
     this.pickupKey = this.input.keyboard?.addKey("F");
@@ -147,6 +162,11 @@ class GameScene extends Phaser.Scene {
     sessionStorage.setItem(RECONNECTION_TOKEN_KEY, room.reconnectionToken);
     // O Colyseus troca o token a cada reconexão; o guardado precisa acompanhar.
     room.onReconnect(() => sessionStorage.setItem(RECONNECTION_TOKEN_KEY, room.reconnectionToken));
+    room.onMessage("extracted", (result: ExtractionResult) => {
+      this.room = undefined;
+      sessionStorage.removeItem(RECONNECTION_TOKEN_KEY);
+      showEndScreen("Você extraiu", describeLoot(result));
+    });
     room.onMessage("death", (cause: DeathCause) => {
       this.room = undefined;
       sessionStorage.removeItem(RECONNECTION_TOKEN_KEY);
@@ -173,6 +193,18 @@ class GameScene extends Phaser.Scene {
     this.drawOverlay(this.room, this.overlay, time);
     this.drawTelegraphs(this.room, this.telegraphs, time);
     this.drawHud(this.room, this.hud);
+    if (this.exitsLayer) this.drawExits(this.room, this.exitsLayer);
+  }
+
+  // Portal ativo: anel no chão do tamanho exato da área em que a extração conta.
+  private drawExits(room: Room<unknown, ServerState>, g: Phaser.GameObjects.Graphics) {
+    g.clear();
+    room.state.exits.forEach((exit) => {
+      g.fillStyle(EXIT_COLOR, 0.15);
+      g.fillCircle(exit.x, exit.y, EXIT_RADIUS);
+      g.lineStyle(2, EXIT_COLOR, 0.9);
+      g.strokeCircle(exit.x, exit.y, EXIT_RADIUS);
+    });
   }
 
   private drawHud(room: Room<unknown, ServerState>, g: Phaser.GameObjects.Graphics) {
@@ -181,6 +213,12 @@ class GameScene extends Phaser.Scene {
     room.state.players.forEach((player, sessionId) => {
       if (sessionId === room.sessionId) hunger = player.hunger;
     });
+    let extractMs = 0;
+    room.state.players.forEach((player, sessionId) => {
+      if (sessionId === room.sessionId) extractMs = player.extractMs ?? 0;
+    });
+    const label = extractMs > 0 ? `Extraindo… ${((EXTRACT_MS - extractMs) / 1000).toFixed(1)} s` : "";
+    if (this.extractLabel && this.extractLabel.text !== label) this.extractLabel.setText(label);
     if (hunger === undefined) return;
     const top = HUD_MARGIN + 16;
     g.fillStyle(0x000000, 0.6);
@@ -354,6 +392,11 @@ function slotPosition(screenWidth: number, screenHeight: number, index: number):
     x: (screenWidth - total) / 2 + index * (SLOT_SIZE + SLOT_GAP),
     y: screenHeight - HUD_MARGIN - SLOT_SIZE,
   };
+}
+
+function describeLoot(result: ExtractionResult): string {
+  if (result.items.length === 0) return "Saiu de mãos vazias.";
+  return "Levou: " + result.items.map((stack) => `${ITEMS[stack.item].name} ×${stack.count}`).join(", ") + ".";
 }
 
 function describeDeath(cause: DeathCause): string {

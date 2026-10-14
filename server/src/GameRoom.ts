@@ -2,6 +2,7 @@ import { StateView } from "@colyseus/schema";
 import { CloseCode, Room, type Client } from "colyseus";
 import {
   AREAS,
+  EXITS_ACTIVE,
   HUNGER_MAX,
   INVENTORY_SLOTS,
   MOB_KINDS,
@@ -17,6 +18,7 @@ import {
   isInArc,
   isInSwing,
   inventoryToPile,
+  isInsideExit,
   isOffCooldown,
   mobStrikeArc,
   moveWithCollision,
@@ -25,6 +27,7 @@ import {
   parseAttackAngle,
   parseMoveInput,
   parseSlotIndex,
+  pickActiveExits,
   pickSpawnPoint,
   planMobSpawns,
   rollDrops,
@@ -32,12 +35,14 @@ import {
   startIdle,
   startingInventory,
   starvationDamage,
+  stepExtraction,
   stepMob,
   takeFromPile,
   tickHunger,
   useSlot,
   type Area,
   type DeathCause,
+  type ExtractionResult,
   type Inventory,
   type ItemStack,
   type MobKind,
@@ -46,7 +51,7 @@ import {
   type Vec2,
 } from "shared";
 import { loadLevel } from "./level";
-import { GameState, ItemSlotState, LootState, MobState, OWNER_TAG, PlayerState } from "./state";
+import { ExitState, GameState, ItemSlotState, LootState, MobState, OWNER_TAG, PlayerState } from "./state";
 
 const level = loadLevel(new URL("../../assets/maps/test.json", import.meta.url));
 
@@ -70,6 +75,9 @@ export class GameRoom extends Room<{ state: GameState }> {
   // Conteúdo das pilhas no chão, por id. O cliente só recebe a posição (LootState).
   private lootPiles = new Map<string, ItemStack[]>();
   private nextLootId = 1;
+  // Portais ativos desta run (sorteados uma vez) e contagem de extração de cada jogador.
+  private activeExits: Vec2[] = [];
+  private extractProgress = new Map<string, number>();
   private mobBrains = new Map<string, MobBrain>();
   // Mortes do tick (ou do golpe) atual. Resolvidas depois dos laços, para não remover jogador no meio de um forEach.
   private deaths = new Map<string, DeathCause>();
@@ -84,6 +92,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.onMessage("use", (client, message) => this.handleUse(client.sessionId, message));
     this.onMessage("pickup", (client) => this.handlePickup(client.sessionId));
     this.spawnMobs();
+    this.openExits();
     this.setSimulationInterval((dtMs) => this.tick(dtMs), 1000 / TICK_RATE);
   }
 
@@ -94,6 +103,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       attackSeq: 0,
       attackAngle: 0,
       hunger: HUNGER_MAX,
+      extractMs: 0,
     });
     for (let i = 0; i < INVENTORY_SLOTS; i++) player.inventory.push(new ItemSlotState({ item: "", count: 0 }));
     this.setInventory(client.sessionId, player, startingInventory(STARTING_ITEMS));
@@ -123,6 +133,36 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.moveInputs.delete(sessionId);
     this.lastAttackMs.delete(sessionId);
     this.inventories.delete(sessionId);
+    this.extractProgress.delete(sessionId);
+  }
+
+  private openExits() {
+    this.activeExits = pickActiveExits(level.exitCandidates, EXITS_ACTIVE, Math.random);
+    this.activeExits.forEach((exit, i) => this.state.exits.set(`exit-${i + 1}`, new ExitState(exit)));
+  }
+
+  // Só conta para quem está conectado: um corpo largado num portal não extrai sozinho.
+  private updateExtraction(dtMs: number) {
+    const done: string[] = [];
+    this.state.players.forEach((player, sessionId) => {
+      const connected = this.clients.getById(sessionId) !== undefined;
+      const inside = connected && isInsideExit(player, this.activeExits);
+      const step = stepExtraction(this.extractProgress.get(sessionId) ?? 0, inside, dtMs);
+      this.extractProgress.set(sessionId, step.progressMs);
+      player.extractMs = step.progressMs;
+      if (step.done) done.push(sessionId);
+    });
+    for (const sessionId of done) this.extractPlayer(sessionId);
+  }
+
+  // Extraiu: sai da sala levando tudo o que carregava. Ninguém deixa pilha ao extrair.
+  private extractPlayer(sessionId: string) {
+    const client = this.clients.getById(sessionId);
+    const inventory = this.inventories.get(sessionId);
+    const result: ExtractionResult = { items: inventory ? inventoryToPile(inventory) : [] };
+    client?.send("extracted", result);
+    this.removePlayer(sessionId);
+    client?.leave(CloseCode.CONSENTED);
   }
 
   private setInventory(sessionId: string, player: PlayerState, inventory: Inventory) {
@@ -258,6 +298,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.starvePlayers(dtMs);
     this.moveMobs(dtMs);
     this.resolveDeaths();
+    this.updateExtraction(dtMs);
     this.updateViews();
   }
 
@@ -318,11 +359,12 @@ export class GameRoom extends Room<{ state: GameState }> {
       });
       this.state.mobs.forEach((mob) => updateVisibility(view, self, mob));
       this.state.loot.forEach((pile) => updateVisibility(view, self, pile));
+      this.state.exits.forEach((exit) => updateVisibility(view, self, exit));
     }
   }
 }
 
-function updateVisibility(view: StateView, observer: Vec2, entity: PlayerState | MobState | LootState) {
+function updateVisibility(view: StateView, observer: Vec2, entity: PlayerState | MobState | LootState | ExitState) {
   const seen = view.has(entity);
   const see = shouldSee(observer, entity, VIEW_RADIUS, seen);
   if (see && !seen) view.add(entity);

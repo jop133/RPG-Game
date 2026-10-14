@@ -83,20 +83,30 @@ export function parseCollisionGrid(map: TiledMap): CollisionGrid {
 
 export const SPAWN_LAYER = "spawns";
 export const AREA_LAYER = "areas";
+export const EXIT_LAYER = "exits";
 
 function objectsIn(map: TiledMap, layerName: string): TiledObject[] {
   const layer = map.layers.find((l) => l.type === "objectgroup" && l.name === layerName);
   return layer?.objects ?? [];
 }
 
-// Pontos de entrada: objetos do tipo ponto na camada de objetos "spawns".
-export function parseSpawnPoints(map: TiledMap): Vec2[] {
-  return objectsIn(map, SPAWN_LAYER).map((object) => {
+function pointsIn(map: TiledMap, layerName: string): Vec2[] {
+  return objectsIn(map, layerName).map((object) => {
     if (object.point !== true) {
-      throw new Error(`Objeto ${object.id} na camada "${SPAWN_LAYER}" não é um ponto. Use a ferramenta "Insert Point".`);
+      throw new Error(`Objeto ${object.id} na camada "${layerName}" não é um ponto. Use a ferramenta "Insert Point".`);
     }
     return { x: object.x, y: object.y };
   });
+}
+
+// Pontos de entrada: objetos do tipo ponto na camada de objetos "spawns".
+export function parseSpawnPoints(map: TiledMap): Vec2[] {
+  return pointsIn(map, SPAWN_LAYER);
+}
+
+// Candidatos a portal de saída: pontos na camada "exits". Alguns são sorteados como ativos em cada run.
+export function parseExitPoints(map: TiledMap): Vec2[] {
+  return pointsIn(map, EXIT_LAYER);
 }
 
 // No JSON do Tiled, ponto, elipse, polígono, texto e tile também têm x/y; retângulo é o que não tem marca nenhuma.

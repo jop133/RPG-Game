@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import {
   AREAS,
+  EXIT_LAYER,
   MOB_KINDS,
   PLAYER_SIZE,
   SPAWN_LAYER,
@@ -9,6 +10,7 @@ import {
   entrySpawnPoints,
   parseAreas,
   parseCollisionGrid,
+  parseExitPoints,
   parseSpawnPoints,
   validateAreas,
   type Area,
@@ -23,6 +25,8 @@ export interface Level {
   playerEntryPoints: Vec2[];
   // Tiles de chão de cada área, por nome: de onde os mobs são sorteados.
   floorCells: Map<string, Vec2[]>;
+  // Candidatos a portal de saída; os ativos são sorteados por sala (run).
+  exitCandidates: Vec2[];
 }
 
 // Qualquer erro de mapa aparece ao subir o servidor, não no meio de uma run.
@@ -31,12 +35,14 @@ export function loadLevel(file: URL): Level {
   const grid = parseCollisionGrid(map);
   const areas = parseAreas(map);
   const spawnPoints = parseSpawnPoints(map);
+  const exitCandidates = parseExitPoints(map);
   const floorCells = new Map(areas.map((area) => [area.name, areaFloorCells(area, grid)]));
 
   const errors = [
     ...validateAreas(areas, AREAS, spawnPoints),
     ...spawnErrors(grid, spawnPoints),
     ...mobErrors(grid, floorCells),
+    ...exitErrors(grid, exitCandidates),
   ];
   const playerEntryPoints = entrySpawnPoints(spawnPoints, areas, AREAS);
   if (spawnPoints.length > 0 && playerEntryPoints.length === 0) {
@@ -44,7 +50,14 @@ export function loadLevel(file: URL): Level {
   }
   if (errors.length > 0) throw new Error(`Mapa inválido (${file.pathname}):\n- ${errors.join("\n- ")}`);
 
-  return { grid, areas, playerEntryPoints, floorCells };
+  return { grid, areas, playerEntryPoints, floorCells, exitCandidates };
+}
+
+function exitErrors(grid: CollisionGrid, exits: Vec2[]): string[] {
+  if (exits.length === 0) return [`O mapa não tem saídas. Crie uma camada de objetos "${EXIT_LAYER}" com pontos.`];
+  return exits
+    .filter((p) => !boxFits(grid, p, PLAYER_SIZE / 2))
+    .map((p) => `A saída (${p.x}, ${p.y}) encosta em parede. O jogador não conseguiria ficar no portal.`);
 }
 
 function spawnErrors(grid: CollisionGrid, points: Vec2[]): string[] {

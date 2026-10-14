@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type TiledMap, parseAreas, parseCollisionGrid, parseSpawnPoints } from "./tiledMap";
+import { type TiledMap, parseAreas, parseCollisionGrid, parseExitPoints, parseSpawnPoints } from "./tiledMap";
 
 // Tileset com 3 tiles: id 0 chão, id 1 parede (solid), id 2 com solid=false.
 function mapWith(layers: TiledMap["layers"], width = 3, height = 1): TiledMap {
@@ -137,5 +137,20 @@ describe("parseAreas", () => {
 
   it("retângulo sem nome dá erro", () => {
     expect(() => parseAreas(areaLayer([{ id: 8, name: "", x: 0, y: 0, width: 10, height: 10 }]))).toThrow(/sem nome/);
+  });
+});
+
+describe("parseExitPoints", () => {
+  it("lê os pontos da camada 'exits', separada da de spawns", () => {
+    const map = mapWith([
+      { type: "objectgroup", name: "spawns", objects: [{ id: 1, x: 1, y: 1, point: true }] },
+      { type: "objectgroup", name: "exits", objects: [{ id: 2, x: 50, y: 60, point: true }] },
+    ]);
+    expect(parseExitPoints(map)).toEqual([{ x: 50, y: 60 }]);
+  });
+
+  it("retângulo na camada 'exits' dá erro dizendo a camada e o objeto", () => {
+    const map = mapWith([{ type: "objectgroup", name: "exits", objects: [{ id: 9, x: 0, y: 0 }] }]);
+    expect(() => parseExitPoints(map)).toThrow(/Objeto 9 na camada "exits"/);
   });
 });

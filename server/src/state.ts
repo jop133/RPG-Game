@@ -18,6 +18,8 @@ export const PlayerState = schema(
     attackAngle: t.number(),
     hunger: t.number().view(OWNER_TAG),
     inventory: t.array(ItemSlotState).view(OWNER_TAG),
+    // Quanto já ficou no portal (ms). Só o dono vê a própria contagem.
+    extractMs: t.number().view(OWNER_TAG),
   },
   "PlayerState",
 );
@@ -35,12 +37,17 @@ export type MobState = SchemaType<typeof MobState>;
 export const LootState = schema({ x: t.number(), y: t.number() }, "LootState");
 export type LootState = SchemaType<typeof LootState>;
 
+// Portal de saída ativo nesta run. Passa pelo filtro de visão: é preciso explorar para achar.
+export const ExitState = schema({ x: t.number(), y: t.number() }, "ExitState");
+export type ExitState = SchemaType<typeof ExitState>;
+
 // `.view()`: cada cliente só recebe o que o servidor adicionou à visão dele (regra 5).
 export const GameState = schema(
   {
     players: t.map(PlayerState).view(),
     mobs: t.map(MobState).view(),
     loot: t.map(LootState).view(),
+    exits: t.map(ExitState).view(),
   },
   "GameState",
 );

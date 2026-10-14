@@ -3,6 +3,7 @@ export * from "./balance";
 export * from "./collision";
 export * from "./combat";
 export * from "./death";
+export * from "./extraction";
 export * from "./hunger";
 export * from "./inventory";
 export * from "./lineOfSight";
