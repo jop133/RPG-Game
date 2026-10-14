@@ -312,7 +312,7 @@ Se uma das duas mudar, a outra tem que acompanhar.
 
 ---
 
-## 2026-10 — PROVISÓRIO: jogador a 0 de vida renasce na entrada
+## 2026-10 — ~~PROVISÓRIO: jogador a 0 de vida renasce na entrada~~ (removido no passo 5b)
 
 **Decisão:** até o passo 5, vida zero só manda o jogador de volta a um ponto de entrada, com vida cheia.
 
@@ -384,3 +384,37 @@ O cliente recebe `windup` e `attackAngle` e desenha o arco no chão: o contorno 
 - O cliente cronometra o enchimento a partir de quando viu a preparação começar. A imprecisão (até um patch, ~50 ms) é só visual; o golpe sai na hora do servidor
 
 **Valores iniciais:** rato prepara 500 ms, tira 6, alcance 24, arco 90°, recupera 600 ms; goblin prepara 800 ms, tira 15, alcance 32, arco 100°, recupera 900 ms.
+
+---
+
+## 2026-10 — Passo 5 sem linhagem: nada é guardado entre sessões, por enquanto
+
+**Decisão do dono do projeto:** o passo 5 traz fome e morte definitiva, mas não a linhagem (casa, baú, reputação, bestiário). Essas coisas chegam depois, junto com a cidade.
+
+**Consequência:** ainda não existe persistência. Um personagem existe só enquanto a sala existe. A escolha de onde guardar dados (arquivo, SQLite, outro) fica para quando houver algo que precise sobreviver a uma sessão.
+
+---
+
+## 2026-10 — Fome: cai sempre, zerada tira vida, é privada
+
+**Decisão:**
+- A fome começa em `HUNGER_MAX` e cai `HUNGER_DECAY_PER_SECOND` no tick do servidor (regra 6). Com os valores iniciais, esvazia em 5 minutos
+- Zerada, tira `STARVATION_DAMAGE_PER_SECOND` de vida (2 por segundo) até comer ou morrer
+- Ainda não dá para comer: comida chega como item, com inventário, no passo 6 (escolha do dono do projeto)
+- Só o dono recebe a própria fome: o campo é marcado com `.view(OWNER_TAG)`, e só a visão do próprio jogador é criada com essa tag. Os outros veem a vida, não a fome
+
+**Por quê:**
+- Perder vida aos poucos (em vez de morrer na hora) dá uma janela para reagir, o que é decisão, não reflexo (GDD)
+- Fome privada: o cliente só recebe o que precisa. Saber quem do grupo está faminto pode virar mecânica (ou habilidade) depois, mas não de graça
+
+---
+
+## 2026-10 — Morte definitiva: sai da sala, tela com a causa
+
+**Decisão:** toda perda de vida de jogador passa por `damagePlayer`, que registra a causa (`DeathCause` em `shared/src/death.ts`: fome, mob de tal tipo, outro jogador). No fim do tick (ou do golpe), `resolveDeaths` manda a mensagem `death` com a causa, tira o personagem da sala e fecha a conexão com `CloseCode.CONSENTED`. O cliente mostra "Você morreu", a causa e o botão "Novo personagem", que por enquanto só recarrega a página e entra de novo.
+
+**Por quê:**
+- Um caminho único para dano evita que alguma fonte nova de dano "esqueça" de matar
+- Mortes resolvidas depois dos laços: remover jogador de dentro de um `forEach` sobre os próprios jogadores é pedir bug
+- `CONSENTED` (4000) é obrigatório: fechando sem código, o SDK entende queda de rede e tenta reconectar o personagem morto. Foi encontrado em teste
+- Recarregar a página é o jeito mais simples e seguro de zerar o cliente. Quando houver cidade (passo 9), o botão leva para lá

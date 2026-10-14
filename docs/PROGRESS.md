@@ -4,19 +4,19 @@ Onde o projeto está agora. Atualizado ao fim de cada passo. O porquê das escol
 
 ## Agora
 
-**Passo 4 concluído.** Próximo: passo 5, fome e morte.
+**Passo 5 em andamento: fome e morte** (sem linhagem: casa, baú, reputação e bestiário ficam para depois).
 
-O passo 4 foi feito em quatro partes (4b e 4c num commit só):
+- [x] **5a.** Fome: cai no tick do servidor (cheia → vazia em 5 min); zerada, tira 2 de vida por segundo. Fome é privada: só o dono recebe. Barra "Fome" no canto da tela.
+- [x] **5b.** Morte definitiva: vida 0 (por mob, outro jogador ou fome) tira o personagem da sala; tela "Você morreu" com a causa e botão "Novo personagem".
+- [ ] **5c.** Desconexão: o personagem fica no mundo, a fome continua, e o jogador pode reconectar.
 
-- [x] **4a.** Vida para jogadores e mobs; golpe do jogador mirado com o mouse (clique esquerdo), com fogo amigo. Mob a 0 some; jogador a 0 renasce na entrada (provisório até o passo 5).
-- [x] **4b.** Pathfinding e linha de visão em `shared/` (só funções puras e testes).
-- [x] **4c.** Mobs notam (raio por tipo + linha de visão), perseguem pelo mapa inteiro, desistem após 3 s sem ver e voltam para a própria área.
-- [x] **4d.** Ataque de mob telegrafado: o mob para, mostra um arco vermelho que enche no tempo da preparação e golpeia na direção travada. Dá para esquivar saindo do arco.
+O passo 4 (combate, pathfinding, perseguição, golpe telegrafado) foi feito em 4a, 4b+4c e 4d.
 
 **Limitações conhecidas agora:**
+- **Ainda não dá para comer** (decisão: comida chega com inventário no passo 6). Toda run termina em morte por fome em ~6 minutos.
 - Vários mobs perseguindo o mesmo jogador se sobrepõem: não há colisão entre mobs.
 - O aviso do golpe é desenhado no chão, por baixo dos quadrados: com o mob encostado, parte dele fica escondida sob o jogador. Rever quando houver arte.
-- Jogador a 0 de vida só volta para a entrada com vida cheia. Provisório: o passo 5 traz a morte de verdade.
+- "Novo personagem" só recarrega a página. Quando houver cidade (passo 9), leva para lá.
 - Mobs atravessam jogadores e uns aos outros. Colisão é só contra parede.
 - Mobs nascem só quando a sala é criada. **Respawn: decisão pendente do dono do projeto.**
 - Os dois tipos de mob (`rato`, `goblin`) e as quantidades por área são placeholders do mapa de teste.
@@ -50,7 +50,7 @@ npm run dev:client   # Vite em http://localhost:5173
 npm test             # testes de shared/
 ```
 
-**Controles:** WASD anda. Clique esquerdo golpeia na direção do cursor (fogo amigo ligado: acerta outros jogadores também).
+**Controles:** WASD anda. Clique esquerdo golpeia na direção do cursor (fogo amigo ligado: acerta outros jogadores também). Barra amarela no canto inferior esquerdo: sua fome.
 
 ## Como editar o mapa
 
@@ -81,3 +81,4 @@ O Tiled está instalado em `C:\Program Files\Tiled\tiled.exe`. Abra `assets/maps
 - **2026-10-14** — Passo 4b concluído. `findPath` (A* em 8 direções, sem cortar quina) e `hasLineOfSight` em `shared/` (105 testes no total). Ainda sem uso no jogo: base da perseguição do 4c. Testes de mutação: liberar o corte de quina derruba 3 testes do pathfinding; tirar a regra da quina derruba o teste correspondente da linha de visão.
 - **2026-10-14** — Passo 4c concluído. Cabeça dos mobs (`shared/src/mobAi.ts`: vagar / perseguir / voltar; 118 testes no total). Testes de mutação: notar sem linha de visão derruba 3 testes; tirar o pathfinding derruba o de contornar pela porta (o primeiro cenário desse teste não pegava isso e foi trocado). Verificado por script num servidor de teste: com linha de visão, um rato a 76 px veio e parou a 26,8 px (limite 28); afastando 1 s, ele seguiu e encostou de novo. Sem linha de visão (parede no meio), não perseguiu.
 - **2026-10-14** — Passo 4d concluído, e com ele o passo 4. Golpe de mob telegrafado (modos `windup` e `recover` em `stepMob`, arco genérico `isInArc`; 124 testes no total). Verificado por script num servidor de teste: parado ao lado de um rato, o aviso apareceu e o golpe tirou exatamente 6 (100 → 94); recuando ao ver o aviso, o golpe saiu sem tirar vida. No navegador: arcos vermelhos saindo dos ratos na direção do jogador, aparecendo na preparação e sumindo na recuperação.
+- **2026-10-14** — Passos 5a e 5b concluídos. Fome (`shared/src/hunger.ts`; 130 testes no total) e morte definitiva (causa em `shared/src/death.ts`). Verificado por script: fome cai ~1 a cada 3 s; cada jogador recebe só a própria fome (a vida dos outros continua visível); morte por fogo amigo e por rato chegam com a causa certa, o personagem some da sala e a conexão é fechada com código 4000. No navegador: barra de fome, tela "Você morreu / Morto por um rato." e "Novo personagem" entrando com personagem novo. Bug encontrado e corrigido no caminho: sem código de fechamento, o SDK tentava reconectar o morto.

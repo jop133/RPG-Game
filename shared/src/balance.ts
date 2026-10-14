@@ -9,6 +9,13 @@ export const PLAYER_SIZE = 24;
 
 export const PLAYER_MAX_HP = 100;
 
+// Fome: começa cheia e cai continuamente no tick do servidor (regra 6). Com 1/3 por segundo, esvazia em 5 minutos.
+export const HUNGER_MAX = 100;
+export const HUNGER_DECAY_PER_SECOND = 1 / 3;
+
+// Com a fome zerada, o jogador perde esta vida por segundo até comer ou morrer.
+export const STARVATION_DAMAGE_PER_SECOND = 2;
+
 // Golpe do jogador: arma placeholder única até o passo 8 (maestria de armas).
 // range: alcance em pixels, contado da borda do alvo. arcDegrees: abertura do arco à frente.
 export const PLAYER_ATTACK = { damage: 10, range: 40, arcDegrees: 100, cooldownMs: 500 };

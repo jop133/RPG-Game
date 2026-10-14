@@ -1,7 +1,8 @@
 import { StateView } from "@colyseus/schema";
-import { Room, type Client } from "colyseus";
+import { CloseCode, Room, type Client } from "colyseus";
 import {
   AREAS,
+  HUNGER_MAX,
   MOB_KINDS,
   NO_INPUT,
   PLAYER_ATTACK,
@@ -22,16 +23,18 @@ import {
   planMobSpawns,
   shouldSee,
   startIdle,
+  starvationDamage,
   stepMob,
+  tickHunger,
   type Area,
+  type DeathCause,
   type MobKind,
   type MobMind,
-  type MobStats,
   type MoveInput,
   type Vec2,
 } from "shared";
 import { loadLevel } from "./level";
-import { GameState, MobState, PlayerState } from "./state";
+import { GameState, MobState, OWNER_TAG, PlayerState } from "./state";
 
 const level = loadLevel(new URL("../../assets/maps/test.json", import.meta.url));
 
@@ -51,6 +54,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   private moveInputs = new Map<string, MoveInput>();
   private lastAttackMs = new Map<string, number>();
   private mobBrains = new Map<string, MobBrain>();
+  // Mortes do tick (ou do golpe) atual. Resolvidas depois dos laços, para não remover jogador no meio de um forEach.
+  private deaths = new Map<string, DeathCause>();
 
   onCreate() {
     this.onMessage("input", (client, message) => {
@@ -62,17 +67,47 @@ export class GameRoom extends Room<{ state: GameState }> {
   }
 
   onJoin(client: Client) {
-    const player = new PlayerState({ ...this.entryPoint(), hp: PLAYER_MAX_HP, attackSeq: 0, attackAngle: 0 });
+    const player = new PlayerState({
+      ...this.entryPoint(),
+      hp: PLAYER_MAX_HP,
+      attackSeq: 0,
+      attackAngle: 0,
+      hunger: HUNGER_MAX,
+    });
     this.state.players.set(client.sessionId, player);
     this.moveInputs.set(client.sessionId, NO_INPUT);
     client.view = new StateView();
-    client.view.add(player);
+    // Com OWNER_TAG: o próprio jogador recebe também os campos privados (a fome).
+    client.view.add(player, OWNER_TAG);
   }
 
   onLeave(client: Client) {
-    this.state.players.delete(client.sessionId);
-    this.moveInputs.delete(client.sessionId);
-    this.lastAttackMs.delete(client.sessionId);
+    this.removePlayer(client.sessionId);
+  }
+
+  private removePlayer(sessionId: string) {
+    this.state.players.delete(sessionId);
+    this.moveInputs.delete(sessionId);
+    this.lastAttackMs.delete(sessionId);
+  }
+
+  // Toda perda de vida de jogador passa por aqui, para a morte nunca ser esquecida em algum caminho.
+  private damagePlayer(sessionId: string, player: PlayerState, amount: number, cause: DeathCause) {
+    if (player.hp === 0) return;
+    player.hp = applyDamage(player.hp, amount);
+    if (player.hp === 0) this.deaths.set(sessionId, cause);
+  }
+
+  // Morte definitiva: avisa o jogador com a causa, tira o personagem da sala e desconecta.
+  private resolveDeaths() {
+    for (const [sessionId, cause] of this.deaths) {
+      const client = this.clients.getById(sessionId);
+      client?.send("death", cause);
+      this.removePlayer(sessionId);
+      // CONSENTED: saída intencional. Sem código, o SDK trataria como queda de rede e tentaria reconectar o morto.
+      client?.leave(CloseCode.CONSENTED);
+    }
+    this.deaths.clear();
   }
 
   private entryPoint(): Vec2 {
@@ -90,6 +125,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     attacker.attackAngle = angle;
     this.hitMobs(attacker, angle);
     this.hitPlayers(sessionId, attacker, angle);
+    this.resolveDeaths();
   }
 
   private hitMobs(attacker: Vec2, angle: number) {
@@ -109,17 +145,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   private hitPlayers(attackerId: string, attacker: Vec2, angle: number) {
     this.state.players.forEach((player, sessionId) => {
       if (sessionId === attackerId || !isInSwing(attacker, angle, player, PLAYER_SIZE / 2)) return;
-      player.hp = applyDamage(player.hp, PLAYER_ATTACK.damage);
-      if (player.hp === 0) this.respawnPlayer(player);
+      this.damagePlayer(sessionId, player, PLAYER_ATTACK.damage, { kind: "player" });
     });
-  }
-
-  // PROVISÓRIO até o passo 5 (morte de verdade): vida zero só manda o jogador de volta à entrada.
-  private respawnPlayer(player: PlayerState) {
-    const point = this.entryPoint();
-    player.x = point.x;
-    player.y = point.y;
-    player.hp = PLAYER_MAX_HP;
   }
 
   // Uma vez, quando a sala nasce: cada área recebe os mobs de AREAS em tiles de chão sorteados.
@@ -138,7 +165,9 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   private tick(dtMs: number) {
     this.movePlayers(dtMs);
+    this.starvePlayers(dtMs);
     this.moveMobs(dtMs);
+    this.resolveDeaths();
     this.updateViews();
   }
 
@@ -156,17 +185,26 @@ export class GameRoom extends Room<{ state: GameState }> {
       mob.windup = next.mind.mode === "windup";
       if (next.mind.mode === "windup") mob.attackAngle = next.mind.angle;
       brain.mind = next.mind;
-      if (next.strike !== undefined) this.mobStrike(next.position, next.strike, stats);
+      if (next.strike !== undefined) this.mobStrike(next.position, next.strike, brain.kind);
     });
   }
 
   // Golpe do mob: acerta todos os jogadores no arco travado, não só o alvo. Mob não fere mob.
-  private mobStrike(origin: Vec2, angle: number, stats: MobStats) {
+  private mobStrike(origin: Vec2, angle: number, kind: MobKind) {
+    const stats = MOB_KINDS[kind];
     const arc = mobStrikeArc(stats);
-    this.state.players.forEach((player) => {
+    this.state.players.forEach((player, sessionId) => {
       if (!isInArc(origin, angle, arc, player, PLAYER_SIZE / 2)) return;
-      player.hp = applyDamage(player.hp, stats.attackDamage);
-      if (player.hp === 0) this.respawnPlayer(player);
+      this.damagePlayer(sessionId, player, stats.attackDamage, { kind: "mob", mob: kind });
+    });
+  }
+
+  // Fome é tick do servidor (regra 6): cai para todos, e quem está zerado perde vida.
+  private starvePlayers(dtMs: number) {
+    this.state.players.forEach((player, sessionId) => {
+      player.hunger = tickHunger(player.hunger, dtMs);
+      const damage = starvationDamage(player.hunger, dtMs);
+      if (damage > 0) this.damagePlayer(sessionId, player, damage, { kind: "starvation" });
     });
   }
 

@@ -1,8 +1,19 @@
 import { schema, t, type SchemaType } from "@colyseus/schema";
 
+// Tag de visão do dono: campos marcados com ela só vão para o próprio jogador. Tags precisam ser potência de 2.
+export const OWNER_TAG = 1;
+
 // attackSeq sobe a cada golpe; quem vê o jogador desenha o golpe quando o número muda, na direção attackAngle.
+// hunger é privada: os outros veem a sua vida, não a sua fome.
 export const PlayerState = schema(
-  { x: t.number(), y: t.number(), hp: t.number(), attackSeq: t.number(), attackAngle: t.number() },
+  {
+    x: t.number(),
+    y: t.number(),
+    hp: t.number(),
+    attackSeq: t.number(),
+    attackAngle: t.number(),
+    hunger: t.number().view(OWNER_TAG),
+  },
   "PlayerState",
 );
 export type PlayerState = SchemaType<typeof PlayerState>;

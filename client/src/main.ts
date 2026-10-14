@@ -1,11 +1,13 @@
 import Phaser from "phaser";
 import { Client, type Room } from "@colyseus/sdk";
 import {
+  HUNGER_MAX,
   MOB_KINDS,
   PLAYER_ATTACK,
   PLAYER_MAX_HP,
   PLAYER_SIZE,
   mobStrikeArc,
+  type DeathCause,
   type MobKind,
   type MoveInput,
   type Vec2,
@@ -18,6 +20,8 @@ interface PlayerView extends Vec2 {
   hp: number;
   attackSeq: number;
   attackAngle: number;
+  // Só chega para o próprio jogador; para os outros fica undefined.
+  hunger?: number;
 }
 interface MobView extends Vec2 {
   kind: string;
@@ -34,12 +38,19 @@ const SERVER_URL = `ws://${window.location.hostname}:2567`;
 const SELF_COLOR = 0x4caf50;
 const OTHER_COLOR = 0xe53935;
 const MOB_COLORS: Record<MobKind, number> = { rato: 0x9e9e9e, goblin: 0xcddc39 };
+const MOB_NAMES: Record<MobKind, string> = { rato: "um rato", goblin: "um goblin" };
 
 // Ordem de desenho: aviso de golpe no chão, mobs por baixo dos jogadores, barras e golpes por cima de tudo.
 const TELEGRAPH_DEPTH = 0.5;
 const MOB_DEPTH = 1;
 const PLAYER_DEPTH = 2;
 const OVERLAY_DEPTH = 3;
+const HUD_DEPTH = 10;
+
+// Barra de fome fixa na tela (não acompanha a câmera).
+const HUD_MARGIN = 16;
+const HUNGER_BAR = { width: 160, height: 10 };
+const HUNGER_COLOR = 0xffb300;
 
 const HP_BAR_HEIGHT = 3;
 const HP_BAR_GAP = 4;
@@ -65,6 +76,7 @@ class GameScene extends Phaser.Scene {
   private lastSentInput = "";
   private overlay?: Phaser.GameObjects.Graphics;
   private telegraphs?: Phaser.GameObjects.Graphics;
+  private hud?: Phaser.GameObjects.Graphics;
   // Quando este cliente viu cada mob começar a preparar: base para o aviso encher no ritmo certo.
   private windupStartedAt = new Map<string, number>();
   private lastAttackSeq = new Map<string, number>();
@@ -79,9 +91,16 @@ class GameScene extends Phaser.Scene {
     this.createMap();
     this.overlay = this.add.graphics().setDepth(OVERLAY_DEPTH);
     this.telegraphs = this.add.graphics().setDepth(TELEGRAPH_DEPTH);
+    this.hud = this.add.graphics().setDepth(HUD_DEPTH).setScrollFactor(0);
+    const hungerLabelY = this.scale.height - HUD_MARGIN - HUNGER_BAR.height - 16;
+    this.add.text(HUD_MARGIN, hungerLabelY, "Fome", { fontSize: "12px", color: "#ffffff" }).setScrollFactor(0).setDepth(HUD_DEPTH);
     this.keys = this.input.keyboard?.addKeys({ up: "W", down: "S", left: "A", right: "D" }) as MoveKeys;
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => this.sendAttack(pointer));
     const room = await new Client(SERVER_URL).joinOrCreate<ServerState>("game");
+    room.onMessage("death", (cause: DeathCause) => {
+      this.room = undefined;
+      showDeathScreen(cause);
+    });
     // O join resolve antes do primeiro estado chegar; até lá, `players` não existe.
     room.onStateChange.once(() => {
       this.room = room;
@@ -89,13 +108,28 @@ class GameScene extends Phaser.Scene {
   }
 
   update(time: number) {
-    if (!this.room || !this.keys || !this.overlay || !this.telegraphs) return;
+    if (!this.room || !this.keys || !this.overlay || !this.telegraphs || !this.hud) return;
     this.sendInputIfChanged(this.room, this.keys);
     this.syncPlayerSprites(this.room);
     this.syncMobSprites(this.room);
     this.collectSwings(this.room, time);
     this.drawOverlay(this.room, this.overlay, time);
     this.drawTelegraphs(this.room, this.telegraphs, time);
+    this.drawHud(this.room, this.hud);
+  }
+
+  private drawHud(room: Room<unknown, ServerState>, g: Phaser.GameObjects.Graphics) {
+    g.clear();
+    let hunger: number | undefined;
+    room.state.players.forEach((player, sessionId) => {
+      if (sessionId === room.sessionId) hunger = player.hunger;
+    });
+    if (hunger === undefined) return;
+    const top = this.scale.height - HUD_MARGIN - HUNGER_BAR.height;
+    g.fillStyle(0x000000, 0.6);
+    g.fillRect(HUD_MARGIN, top, HUNGER_BAR.width, HUNGER_BAR.height);
+    g.fillStyle(HUNGER_COLOR, 1);
+    g.fillRect(HUD_MARGIN, top, HUNGER_BAR.width * (hunger / HUNGER_MAX), HUNGER_BAR.height);
   }
 
   // Aviso do golpe do mob: contorno = área atingida; preenchimento cresce até a borda no tempo da preparação.
@@ -222,6 +256,32 @@ class GameScene extends Phaser.Scene {
     this.mobSprites.set(id, sprite);
     return sprite;
   }
+}
+
+function describeDeath(cause: DeathCause): string {
+  if (cause.kind === "starvation") return "Morreu de fome.";
+  if (cause.kind === "mob") return `Morto por ${MOB_NAMES[cause.mob]}.`;
+  return "Morto por outro jogador.";
+}
+
+// Permadeath: o personagem acabou. Sem cidade ainda (passo 9), "novo personagem" só recarrega e entra de novo.
+function showDeathScreen(cause: DeathCause) {
+  const screen = document.createElement("div");
+  screen.style.cssText =
+    "position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;" +
+    "gap:12px;background:rgba(0,0,0,0.8);color:#fff;font-family:sans-serif;";
+  const title = document.createElement("h1");
+  title.textContent = "Você morreu";
+  title.style.margin = "0";
+  const reason = document.createElement("p");
+  reason.textContent = describeDeath(cause);
+  reason.style.margin = "0";
+  const again = document.createElement("button");
+  again.textContent = "Novo personagem";
+  again.style.cssText = "padding:8px 16px;font-size:16px;cursor:pointer;";
+  again.addEventListener("click", () => window.location.reload());
+  screen.append(title, reason, again);
+  document.body.append(screen);
 }
 
 function drawHpBar(g: Phaser.GameObjects.Graphics, at: Vec2, width: number, fraction: number) {

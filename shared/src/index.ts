@@ -2,6 +2,8 @@ export * from "./areas";
 export * from "./balance";
 export * from "./collision";
 export * from "./combat";
+export * from "./death";
+export * from "./hunger";
 export * from "./lineOfSight";
 export * from "./mobAi";
 export * from "./mobs";
