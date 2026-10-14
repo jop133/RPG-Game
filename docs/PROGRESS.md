@@ -4,11 +4,11 @@ Onde o projeto está agora. Atualizado ao fim de cada passo. O porquê das escol
 
 ## Agora
 
-**Passo 5 em andamento: fome e morte** (sem linhagem: casa, baú, reputação e bestiário ficam para depois).
+**Passo 5 concluído: fome e morte** (sem linhagem: casa, baú, reputação e bestiário ficam para depois). Próximo: passo 6, loot e extração.
 
 - [x] **5a.** Fome: cai no tick do servidor (cheia → vazia em 5 min); zerada, tira 2 de vida por segundo. Fome é privada: só o dono recebe. Barra "Fome" no canto da tela.
 - [x] **5b.** Morte definitiva: vida 0 (por mob, outro jogador ou fome) tira o personagem da sala; tela "Você morreu" com a causa e botão "Novo personagem".
-- [ ] **5c.** Desconexão: o personagem fica no mundo, a fome continua, e o jogador pode reconectar.
+- [x] **5c.** Desconexão: o personagem fica parado no mundo, vulnerável, e a fome continua. Recarregar a página (ou uma queda de rede) devolve o mesmo personagem; se ele morreu enquanto você estava fora, aparece "Seu personagem se foi".
 
 O passo 4 (combate, pathfinding, perseguição, golpe telegrafado) foi feito em 4a, 4b+4c e 4d.
 
@@ -17,6 +17,7 @@ O passo 4 (combate, pathfinding, perseguição, golpe telegrafado) foi feito em 
 - Vários mobs perseguindo o mesmo jogador se sobrepõem: não há colisão entre mobs.
 - O aviso do golpe é desenhado no chão, por baixo dos quadrados: com o mob encostado, parte dele fica escondida sob o jogador. Rever quando houver arte.
 - "Novo personagem" só recarrega a página. Quando houver cidade (passo 9), leva para lá.
+- Fechar a aba perde o vínculo com o personagem (o token fica guardado por aba). Ele fica no mundo e morre de fome.
 - Mobs atravessam jogadores e uns aos outros. Colisão é só contra parede.
 - Mobs nascem só quando a sala é criada. **Respawn: decisão pendente do dono do projeto.**
 - Os dois tipos de mob (`rato`, `goblin`) e as quantidades por área são placeholders do mapa de teste.
@@ -30,7 +31,7 @@ O passo 4 (combate, pathfinding, perseguição, golpe telegrafado) foi feito em 
 - [x] 2. Mapa do Tiled com colisão
 - [x] 3. Mobs com spawn por área
 - [x] 4. Combate e vida
-- [ ] 5. Fome e morte
+- [x] 5. Fome e morte
 - [ ] 6. Loot e extração
 - [ ] 7. Essências e slots ← fim da fatia mínima jogável
 - [ ] 8. Maestria de armas
@@ -82,3 +83,5 @@ O Tiled está instalado em `C:\Program Files\Tiled\tiled.exe`. Abra `assets/maps
 - **2026-10-14** — Passo 4c concluído. Cabeça dos mobs (`shared/src/mobAi.ts`: vagar / perseguir / voltar; 118 testes no total). Testes de mutação: notar sem linha de visão derruba 3 testes; tirar o pathfinding derruba o de contornar pela porta (o primeiro cenário desse teste não pegava isso e foi trocado). Verificado por script num servidor de teste: com linha de visão, um rato a 76 px veio e parou a 26,8 px (limite 28); afastando 1 s, ele seguiu e encostou de novo. Sem linha de visão (parede no meio), não perseguiu.
 - **2026-10-14** — Passo 4d concluído, e com ele o passo 4. Golpe de mob telegrafado (modos `windup` e `recover` em `stepMob`, arco genérico `isInArc`; 124 testes no total). Verificado por script num servidor de teste: parado ao lado de um rato, o aviso apareceu e o golpe tirou exatamente 6 (100 → 94); recuando ao ver o aviso, o golpe saiu sem tirar vida. No navegador: arcos vermelhos saindo dos ratos na direção do jogador, aparecendo na preparação e sumindo na recuperação.
 - **2026-10-14** — Passos 5a e 5b concluídos. Fome (`shared/src/hunger.ts`; 130 testes no total) e morte definitiva (causa em `shared/src/death.ts`). Verificado por script: fome cai ~1 a cada 3 s; cada jogador recebe só a própria fome (a vida dos outros continua visível); morte por fogo amigo e por rato chegam com a causa certa, o personagem some da sala e a conexão é fechada com código 4000. No navegador: barra de fome, tela "Você morreu / Morto por um rato." e "Novo personagem" entrando com personagem novo. Bug encontrado e corrigido no caminho: sem código de fechamento, o SDK tentava reconectar o morto.
+- **2026-10-14** — Morte por fome verificada de ponta a ponta (teste longo, ~6 min): fome zerou em 300,3 s; a vida caiu de 81,4 a 0 em 41 s (2/s); a morte chegou como "fome".
+- **2026-10-14** — Passo 5c concluído, e com ele o passo 5. Reconexão (`onDrop` + `allowReconnection` no servidor; token por aba no cliente). Verificado por script: com a conexão caída, o corpo fica no mundo, na mesma posição, visível aos outros (sem a fome); a volta pelo token devolve o mesmo personagem, com a fome tendo continuado a cair; morto enquanto desconectado, a volta é recusada. No navegador: recarregar a página voltou ao mesmo personagem, no mesmo lugar.

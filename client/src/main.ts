@@ -35,6 +35,9 @@ interface ServerState {
 }
 
 const SERVER_URL = `ws://${window.location.hostname}:2567`;
+
+// Por aba (sessionStorage): sobrevive a recarregar a página, não a fechar a aba. Duas abas = dois jogadores.
+const RECONNECTION_TOKEN_KEY = "rpg-extracao:reconnectionToken";
 const SELF_COLOR = 0x4caf50;
 const OTHER_COLOR = 0xe53935;
 const MOB_COLORS: Record<MobKind, number> = { rato: 0x9e9e9e, goblin: 0xcddc39 };
@@ -96,10 +99,15 @@ class GameScene extends Phaser.Scene {
     this.add.text(HUD_MARGIN, hungerLabelY, "Fome", { fontSize: "12px", color: "#ffffff" }).setScrollFactor(0).setDepth(HUD_DEPTH);
     this.keys = this.input.keyboard?.addKeys({ up: "W", down: "S", left: "A", right: "D" }) as MoveKeys;
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => this.sendAttack(pointer));
-    const room = await new Client(SERVER_URL).joinOrCreate<ServerState>("game");
+    const room = await connect(new Client(SERVER_URL));
+    if (!room) return;
+    sessionStorage.setItem(RECONNECTION_TOKEN_KEY, room.reconnectionToken);
+    // O Colyseus troca o token a cada reconexão; o guardado precisa acompanhar.
+    room.onReconnect(() => sessionStorage.setItem(RECONNECTION_TOKEN_KEY, room.reconnectionToken));
     room.onMessage("death", (cause: DeathCause) => {
       this.room = undefined;
-      showDeathScreen(cause);
+      sessionStorage.removeItem(RECONNECTION_TOKEN_KEY);
+      showEndScreen("Você morreu", describeDeath(cause));
     });
     // O join resolve antes do primeiro estado chegar; até lá, `players` não existe.
     room.onStateChange.once(() => {
@@ -258,23 +266,37 @@ class GameScene extends Phaser.Scene {
   }
 }
 
+// Volta ao personagem desta aba, se houver um; senão entra com um novo.
+// Se a volta falhar (morreu enquanto estava fora, ou a sala acabou), avisa em vez de começar outro calado.
+async function connect(client: Client): Promise<Room<unknown, ServerState> | undefined> {
+  const token = sessionStorage.getItem(RECONNECTION_TOKEN_KEY);
+  if (!token) return client.joinOrCreate<ServerState>("game");
+  try {
+    return await client.reconnect<ServerState>(token);
+  } catch {
+    sessionStorage.removeItem(RECONNECTION_TOKEN_KEY);
+    showEndScreen("Seu personagem se foi", "Ele morreu ou a partida acabou enquanto você estava fora.");
+    return undefined;
+  }
+}
+
 function describeDeath(cause: DeathCause): string {
   if (cause.kind === "starvation") return "Morreu de fome.";
   if (cause.kind === "mob") return `Morto por ${MOB_NAMES[cause.mob]}.`;
   return "Morto por outro jogador.";
 }
 
-// Permadeath: o personagem acabou. Sem cidade ainda (passo 9), "novo personagem" só recarrega e entra de novo.
-function showDeathScreen(cause: DeathCause) {
+// O personagem acabou. Sem cidade ainda (passo 9), "novo personagem" só recarrega e entra de novo.
+function showEndScreen(heading: string, detail: string) {
   const screen = document.createElement("div");
   screen.style.cssText =
     "position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;" +
     "gap:12px;background:rgba(0,0,0,0.8);color:#fff;font-family:sans-serif;";
   const title = document.createElement("h1");
-  title.textContent = "Você morreu";
+  title.textContent = heading;
   title.style.margin = "0";
   const reason = document.createElement("p");
-  reason.textContent = describeDeath(cause);
+  reason.textContent = detail;
   reason.style.margin = "0";
   const again = document.createElement("button");
   again.textContent = "Novo personagem";

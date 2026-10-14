@@ -418,3 +418,20 @@ O cliente recebe `windup` e `attackAngle` e desenha o arco no chão: o contorno 
 - Mortes resolvidas depois dos laços: remover jogador de dentro de um `forEach` sobre os próprios jogadores é pedir bug
 - `CONSENTED` (4000) é obrigatório: fechando sem código, o SDK entende queda de rede e tenta reconectar o personagem morto. Foi encontrado em teste
 - Recarregar a página é o jeito mais simples e seguro de zerar o cliente. Quando houver cidade (passo 9), o botão leva para lá
+
+---
+
+## 2026-10 — Desconexão: o personagem fica no mundo, sem prazo; volta por token guardado na aba
+
+**Decisão (dono do projeto):** se a conexão cai, o personagem fica parado onde estava, vulnerável a mobs e a outros jogadores, e a fome continua (regra 6). O jogador pode voltar ao mesmo personagem. A volta funciona ao recarregar a página e em quedas de rede, não ao fechar a aba.
+
+**Como:**
+- Servidor: `onDrop` chama `allowReconnection(client, "manual")`, sem prazo. Se o personagem morre enquanto está fora, `resolveDeaths` cancela essa espera, e a tentativa de voltar é recusada
+- Cliente: o token de reconexão fica no `sessionStorage` (por aba) e é atualizado a cada reconexão, porque o Colyseus o troca. Ao abrir, se há token, tenta `client.reconnect`; se falhar, mostra "Seu personagem se foi" em vez de criar outro calado. Ao morrer, o token é apagado
+
+**Por quê:**
+- Extraction game: sair não pode ser rota de fuga. Fechar o jogo para não morrer deixa o corpo exposto
+- Sem prazo de espera não prende a sala para sempre: sem comer, a fome mata o personagem em poucos minutos, e a morte encerra a espera
+- Token por aba (escolha do dono do projeto): duas abas no mesmo navegador continuam sendo dois jogadores, como nos testes. O custo é que fechar a aba perde o personagem
+
+**Reavaliar quando:** houver contas ou login. Aí o vínculo jogador-personagem passa a ser a conta, não a aba.

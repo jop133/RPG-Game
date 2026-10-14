@@ -56,6 +56,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   private mobBrains = new Map<string, MobBrain>();
   // Mortes do tick (ou do golpe) atual. Resolvidas depois dos laços, para não remover jogador no meio de um forEach.
   private deaths = new Map<string, DeathCause>();
+  // Jogadores com a conexão caída: o personagem continua no mundo esperando eles voltarem.
+  private reconnections = new Map<string, ReturnType<Room["allowReconnection"]>>();
 
   onCreate() {
     this.onMessage("input", (client, message) => {
@@ -79,6 +81,16 @@ export class GameRoom extends Room<{ state: GameState }> {
     client.view = new StateView();
     // Com OWNER_TAG: o próprio jogador recebe também os campos privados (a fome).
     client.view.add(player, OWNER_TAG);
+  }
+
+  // Queda de conexão (não intencional): o personagem fica parado no mundo, vulnerável, e a fome continua (regra 6).
+  // Sem prazo: sem comida, a fome mata o personagem em poucos minutos, e a morte cancela a espera.
+  onDrop(client: Client) {
+    this.moveInputs.set(client.sessionId, NO_INPUT);
+    const reconnection = this.allowReconnection(client, "manual");
+    this.reconnections.set(client.sessionId, reconnection);
+    const forget = () => this.reconnections.delete(client.sessionId);
+    reconnection.then(forget, forget);
   }
 
   onLeave(client: Client) {
@@ -106,6 +118,8 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.removePlayer(sessionId);
       // CONSENTED: saída intencional. Sem código, o SDK trataria como queda de rede e tentaria reconectar o morto.
       client?.leave(CloseCode.CONSENTED);
+      // Morreu desconectado: cancela a espera; ele não volta para um personagem morto.
+      this.reconnections.get(sessionId)?.reject(new Error("morreu"));
     }
     this.deaths.clear();
   }
