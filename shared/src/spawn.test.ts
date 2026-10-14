@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pickSpawnPoint } from "./spawn";
+import { entrySpawnPoints, pickSpawnPoint } from "./spawn";
 
 const points = [
   { x: 1, y: 1 },
@@ -24,5 +24,29 @@ describe("pickSpawnPoint", () => {
 
   it("lista vazia dá erro", () => {
     expect(() => pickSpawnPoint([], 0.5)).toThrow();
+  });
+});
+
+describe("entrySpawnPoints", () => {
+  const areas = [
+    { name: "salao", rects: [{ x: 0, y: 0, width: 100, height: 100 }] },
+    { name: "toca", rects: [{ x: 100, y: 0, width: 100, height: 100 }] },
+  ];
+  const configs = { salao: { playerEntry: true }, toca: { playerEntry: false } };
+
+  it("só ficam os pontos em áreas que aceitam entrada", () => {
+    const points = [
+      { x: 50, y: 50 },
+      { x: 150, y: 50 },
+      { x: 10, y: 10 },
+    ];
+    expect(entrySpawnPoints(points, areas, configs)).toEqual([
+      { x: 50, y: 50 },
+      { x: 10, y: 10 },
+    ]);
+  });
+
+  it("ponto fora de qualquer área não serve de entrada", () => {
+    expect(entrySpawnPoints([{ x: 500, y: 500 }], areas, configs)).toEqual([]);
   });
 });

@@ -1,3 +1,4 @@
+export * from "./areas";
 export * from "./balance";
 export * from "./collision";
 export * from "./movement";

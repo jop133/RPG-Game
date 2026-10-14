@@ -1,3 +1,4 @@
+import type { Area, Rect } from "./areas";
 import type { CollisionGrid } from "./collision";
 import type { Vec2 } from "./movement";
 
@@ -14,9 +15,17 @@ export interface TiledTileset {
 
 export interface TiledObject {
   id: number;
+  name?: string;
   x: number;
   y: number;
+  width?: number;
+  height?: number;
   point?: boolean;
+  ellipse?: boolean;
+  polygon?: unknown;
+  polyline?: unknown;
+  text?: unknown;
+  gid?: number;
 }
 
 export interface TiledLayer {
@@ -73,14 +82,42 @@ export function parseCollisionGrid(map: TiledMap): CollisionGrid {
 }
 
 export const SPAWN_LAYER = "spawns";
+export const AREA_LAYER = "areas";
+
+function objectsIn(map: TiledMap, layerName: string): TiledObject[] {
+  const layer = map.layers.find((l) => l.type === "objectgroup" && l.name === layerName);
+  return layer?.objects ?? [];
+}
 
 // Pontos de entrada: objetos do tipo ponto na camada de objetos "spawns".
 export function parseSpawnPoints(map: TiledMap): Vec2[] {
-  const layer = map.layers.find((l) => l.type === "objectgroup" && l.name === SPAWN_LAYER);
-  return (layer?.objects ?? []).map((object) => {
+  return objectsIn(map, SPAWN_LAYER).map((object) => {
     if (object.point !== true) {
       throw new Error(`Objeto ${object.id} na camada "${SPAWN_LAYER}" não é um ponto. Use a ferramenta "Insert Point".`);
     }
     return { x: object.x, y: object.y };
   });
+}
+
+// No JSON do Tiled, ponto, elipse, polígono, texto e tile também têm x/y; retângulo é o que não tem marca nenhuma.
+function isRectangle(object: TiledObject): boolean {
+  const marked = object.point || object.ellipse || object.polygon || object.polyline || object.text || object.gid;
+  return !marked && (object.width ?? 0) > 0 && (object.height ?? 0) > 0;
+}
+
+function toRect(object: TiledObject): Rect {
+  return { x: object.x, y: object.y, width: object.width ?? 0, height: object.height ?? 0 };
+}
+
+// Áreas: retângulos com nome na camada "areas". Retângulos de mesmo nome formam uma área só.
+export function parseAreas(map: TiledMap): Area[] {
+  const byName = new Map<string, Rect[]>();
+  for (const object of objectsIn(map, AREA_LAYER)) {
+    if (!isRectangle(object)) {
+      throw new Error(`Objeto ${object.id} na camada "${AREA_LAYER}" não é um retângulo. Use a ferramenta "Insert Rectangle".`);
+    }
+    if (!object.name) throw new Error(`Retângulo ${object.id} na camada "${AREA_LAYER}" está sem nome.`);
+    byName.set(object.name, [...(byName.get(object.name) ?? []), toRect(object)]);
+  }
+  return [...byName].map(([name, rects]) => ({ name, rects }));
 }

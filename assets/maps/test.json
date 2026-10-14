@@ -10,8 +10,8 @@
  "type": "map",
  "version": "1.10",
  "tiledversion": "1.12.2",
- "nextlayerid": 3,
- "nextobjectid": 5,
+ "nextlayerid": 4,
+ "nextobjectid": 9,
  "layers": [
   {
    "id": 1,
@@ -1278,6 +1278,62 @@
      "width": 0,
      "x": 1072,
      "y": 656
+    }
+   ],
+   "opacity": 1,
+   "type": "objectgroup",
+   "visible": true,
+   "x": 0,
+   "y": 0
+  },
+  {
+   "draworder": "topdown",
+   "id": 3,
+   "name": "areas",
+   "objects": [
+    {
+     "height": 416,
+     "id": 5,
+     "name": "salao",
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 608,
+     "x": 32,
+     "y": 32
+    },
+    {
+     "height": 416,
+     "id": 6,
+     "name": "galeria",
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 576,
+     "x": 672,
+     "y": 32
+    },
+    {
+     "height": 448,
+     "id": 7,
+     "name": "tuneis",
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 800,
+     "x": 32,
+     "y": 480
+    },
+    {
+     "height": 448,
+     "id": 8,
+     "name": "toca",
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 384,
+     "x": 864,
+     "y": 480
     }
    ],
    "opacity": 1,

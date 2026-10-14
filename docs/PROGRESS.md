@@ -4,16 +4,15 @@ Onde o projeto está agora. Atualizado ao fim de cada passo. O porquê das escol
 
 ## Agora
 
-**Passo 2 concluído.** Próximo: passo 3, mobs com spawn por área.
+**Passo 3 em andamento: mobs com spawn por área.** Dividido em três partes, um commit cada:
 
-O passo 2 foi feito em três partes, um commit cada:
+- [x] **3a.** Áreas no mapa (retângulos com nome no Tiled, configuração em `AREAS` no `balance.ts`). Jogador só entra por pontos em áreas com `playerEntry: true`.
+- [ ] **3b.** Mobs nascem em posições aleatórias dentro de cada área, conforme `AREAS`; replicados por raio como os jogadores.
+- [ ] **3c.** Mobs vagam dentro da própria área.
 
-- [x] **2a.** Mapa e colisão: o servidor carrega o mapa do Tiled e bloqueia paredes; o cliente desenha o mapa e a câmera segue o jogador.
-- [x] **2b.** Spawn vindo do mapa (pontos marcados no Tiled, servidor sorteia).
-- [x] **2c.** Interest management por raio: cada jogador só recebe o que está a até 520 px dele.
+O passo 2 (mapa, colisão, spawn e interest management) foi feito em três partes: 2a, 2b e 2c.
 
 **Limitações conhecidas agora:**
-- O sorteio de spawn é entre todos os pontos do mapa. A restrição por área do GDD entra quando houver áreas (passo 3).
 - O movimento dos outros deve parecer "em degraus" (o servidor atualiza 20× por segundo e o cliente desenha a 60). Se incomodar, a correção é interpolação, que é só visual.
 - O mapa é um placeholder de teste (`assets/maps/test.json`). O andar 1 de verdade ainda vai ser desenhado.
 
@@ -51,7 +50,10 @@ O Tiled está instalado em `C:\Program Files\Tiled\tiled.exe`. Abra `assets/maps
 - **Parede** é qualquer tile cuja propriedade `solid` (booleana) esteja marcada no tileset. No placeholder, o tile marrom.
 - **O tileset precisa ficar embutido no mapa.** O Phaser não carrega tilesets externos (`.tsx`). Ao criar um tileset novo no Tiled, marque "Embed in map".
 - **Pontos de entrada** ficam na camada de objetos `spawns`, criados com a ferramenta "Insert Point" (atalho `I`). Retângulos nessa camada são recusados. O jogador nasce centrado no ponto, e cada ponto precisa ter espaço para a caixa dele (24×24 px) sem encostar em parede.
-- **O servidor valida o mapa ao subir.** Sem pontos de spawn, ou com um ponto encostando em parede, ele não sobe e diz qual ponto está errado.
+- **Áreas** ficam na camada de objetos `areas`: retângulos ("Insert Rectangle", atalho `R`) com nome. Vários retângulos com o mesmo nome formam uma área de formato irregular. Outros formatos (elipse, polígono) são recusados.
+- **Toda área do mapa precisa de uma entrada com o mesmo nome em `AREAS`** (`shared/src/balance.ts`), e vice-versa. É lá que se diz se jogadores podem entrar por ela (`playerEntry`) e, a partir do 3b, quais mobs nascem nela.
+- **Todo ponto de spawn precisa estar dentro de uma área.** Só os pontos em áreas com `playerEntry: true` são usados para jogadores.
+- **O servidor valida o mapa ao subir** e lista todos os problemas de uma vez: área sem configuração (ou o contrário), ponto de spawn fora de área ou encostando em parede, nenhuma área com entrada.
 - **Formato da camada: CSV.** Se for comprimido (Base64/zlib), o servidor recusa o mapa com um erro dizendo isso.
 - **Depois de salvar o mapa, reinicie o servidor.** O modo watch recarrega quando o código muda, mas não quando o mapa muda. O cliente recarrega sozinho.
 
@@ -62,3 +64,4 @@ O Tiled está instalado em `C:\Program Files\Tiled\tiled.exe`. Abra `assets/maps
 - **2026-10-13** — Passo 2a concluído. Colisão contra tiles `solid` (`shared/src/collision.ts`, `shared/src/tiledMap.ts`, 25 testes no total). Mapa placeholder 40×30 gerado e conferido no Tiled 1.12.2 (abre e exporta igual). Verificado por script: o jogador para exatamente encostado na parede, desliza na diagonal e não sai pela borda. No navegador: mapa desenhado e câmera seguindo.
 - **2026-10-13** — Passo 2b concluído. Spawn sorteado entre os pontos da camada `spawns` do mapa (`shared/src/spawn.ts`; 36 testes no total). Verificado por script: 12 entradas caíram só nos 4 pontos do mapa, usando todos. O servidor recusa subir com um ponto em cima de parede ou sem pontos, com mensagem dizendo qual.
 - **2026-10-13** — Passo 2c concluído, e com ele o passo 2. Interest management por raio (`shared/src/visibility.ts`, 42 testes no total) usando `StateView` do Colyseus. Verificado com dois clientes de script: 10 pares em spawns aleatórios, todos com visibilidade correta; aproximar faz aparecer, afastar faz sumir. Verificado na rede: com o outro jogador fora do raio e andando, o cliente recebe só patches vazios de 1 byte, nenhum dado sobre ele.
+- **2026-10-13** — Passo 3a concluído. Áreas no mapa (`shared/src/areas.ts`; 58 testes no total) e 4 áreas no mapa de teste (`salao`, `galeria`, `tuneis`, `toca`). Carregamento e validação do mapa movidos para `server/src/level.ts`. Verificado por script: 16 entradas caíram só em `salao` e `tuneis`. Com um mapa estragado de propósito, o servidor listou os três problemas juntos.

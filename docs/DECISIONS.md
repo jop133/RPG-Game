@@ -242,3 +242,26 @@ Se uma das duas mudar, a outra tem que acompanhar.
 **Encerra:** a exceção temporária à regra 5 aberta no passo 1.
 
 **Reavaliar se:** o número de entidades ou de observadores crescer a ponto de a checagem por tick pesar. Aí entra uma grade como otimização *por baixo* do raio, sem mudar a regra.
+
+---
+
+## 2026-10 — Áreas: o Tiled desenha, o `balance.ts` configura
+
+**Decisão:** áreas são retângulos com nome na camada `areas` do Tiled. Vários retângulos com o mesmo nome formam uma área só. Tudo o que o jogo sabe de cada área além do formato (se aceita entrada de jogador e, no passo 3b, quais mobs e quantos) fica em `AREAS`, no `shared/src/balance.ts`, indexado pelo nome.
+
+**Por quê:**
+- Retângulos tornam "este ponto está nesta área?" trivial e sem casos de borda; formas irregulares saem de vários retângulos
+- Quantidade de mobs é número de balanceamento: pela regra 3, fica no `balance.ts`, ajustável sem abrir o Tiled
+- O nome é a ponte entre os dois. O servidor recusa subir se os nomes não baterem nos dois sentidos, então um erro de digitação aparece na hora
+
+**Descartado:** polígonos (mais código e casos de borda) e configuração nas propriedades do Tiled (espalharia números de balanceamento fora do `balance.ts`).
+
+---
+
+## 2026-10 — "Restrição de área" na entrada = só algumas áreas aceitam jogadores
+
+**Decisão:** cada área diz se jogadores podem nascer nela (`playerEntry`). O sorteio de entrada usa só os pontos de spawn dessas áreas.
+
+**Por quê:** o GDD dizia "ponto de entrada aleatório, com restrição de área" sem definir a restrição. A interpretação escolhida permite, por exemplo, que ninguém nasça dentro da zona escura dos goblins.
+
+**Não adotado (por enquanto):** fazer o grupo todo entrar na mesma área. Cada jogador sorteia o próprio ponto.

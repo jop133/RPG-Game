@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type TiledMap, parseCollisionGrid, parseSpawnPoints } from "./tiledMap";
+import { type TiledMap, parseAreas, parseCollisionGrid, parseSpawnPoints } from "./tiledMap";
 
 // Tileset com 3 tiles: id 0 chão, id 1 parede (solid), id 2 com solid=false.
 function mapWith(layers: TiledMap["layers"], width = 3, height = 1): TiledMap {
@@ -98,5 +98,44 @@ describe("parseSpawnPoints", () => {
   it("retângulo na camada 'spawns' dá erro dizendo qual objeto", () => {
     const map = mapWith([{ type: "objectgroup", name: "spawns", objects: [{ id: 7, x: 0, y: 0 }] }]);
     expect(() => parseSpawnPoints(map)).toThrow(/Objeto 7/);
+  });
+});
+
+describe("parseAreas", () => {
+  const areaLayer = (objects: TiledMap["layers"][number]["objects"]) =>
+    mapWith([{ type: "objectgroup", name: "areas", objects }]);
+
+  it("retângulos de mesmo nome viram uma área só", () => {
+    const map = areaLayer([
+      { id: 1, name: "salao", x: 0, y: 0, width: 10, height: 10 },
+      { id: 2, name: "tuneis", x: 20, y: 0, width: 5, height: 5 },
+      { id: 3, name: "salao", x: 0, y: 10, width: 10, height: 10 },
+    ]);
+    expect(parseAreas(map)).toEqual([
+      {
+        name: "salao",
+        rects: [
+          { x: 0, y: 0, width: 10, height: 10 },
+          { x: 0, y: 10, width: 10, height: 10 },
+        ],
+      },
+      { name: "tuneis", rects: [{ x: 20, y: 0, width: 5, height: 5 }] },
+    ]);
+  });
+
+  it("mapa sem camada 'areas' não tem áreas", () => {
+    expect(parseAreas(mapWith([]))).toEqual([]);
+  });
+
+  it("elipse, polígono ou ponto na camada dão erro dizendo qual objeto", () => {
+    expect(() => parseAreas(areaLayer([{ id: 4, name: "a", x: 0, y: 0, width: 10, height: 10, ellipse: true }]))).toThrow(
+      /Objeto 4/,
+    );
+    expect(() => parseAreas(areaLayer([{ id: 5, name: "a", x: 0, y: 0, polygon: [] }]))).toThrow(/Objeto 5/);
+    expect(() => parseAreas(areaLayer([{ id: 6, name: "a", x: 0, y: 0, point: true }]))).toThrow(/Objeto 6/);
+  });
+
+  it("retângulo sem nome dá erro", () => {
+    expect(() => parseAreas(areaLayer([{ id: 8, name: "", x: 0, y: 0, width: 10, height: 10 }]))).toThrow(/sem nome/);
   });
 });

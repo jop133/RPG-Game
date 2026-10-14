@@ -1,3 +1,5 @@
+import type { AreaConfig } from "./areas";
+
 // Pixels por segundo.
 export const PLAYER_SPEED = 160;
 
@@ -13,3 +15,12 @@ export const VIEW_RADIUS = 520;
 
 // Folga para deixar de ver: quem já é visto só some além de VIEW_RADIUS + isto. Evita piscar na borda.
 export const VIEW_HYSTERESIS = 32;
+
+// Uma entrada por área do mapa (camada "areas" no Tiled). Os nomes precisam bater com os do mapa.
+// Valores do mapa de teste (assets/maps/test.json).
+export const AREAS: Record<string, AreaConfig> = {
+  salao: { playerEntry: true },
+  galeria: { playerEntry: false },
+  tuneis: { playerEntry: true },
+  toca: { playerEntry: false },
+};
