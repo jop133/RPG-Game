@@ -20,10 +20,15 @@ export const STARVATION_DAMAGE_PER_SECOND = 2;
 
 // Itens. Placeholders: nomes e números ainda não são o conteúdo de verdade.
 // maxStack: quantos cabem num slot. food: fome recuperada ao comer um (só itens comestíveis têm).
+// essence: efeito ao consumir a essência, que passa a ocupar um slot de essência do personagem (até o nível).
+// Efeitos de essências iguais se somam. speedPercent: % de velocidade; damage: dano a mais no golpe; maxHp: vida máxima a mais.
 export const ITEMS = {
   racao: { name: "Ração", maxStack: 5, food: 40 },
   pele_de_rato: { name: "Pele de rato", maxStack: 10 },
   dente_de_goblin: { name: "Dente de goblin", maxStack: 10 },
+  essencia_rato: { name: "Essência de rato", maxStack: 3, essence: { speedPercent: 15 } },
+  essencia_goblin: { name: "Essência de goblin", maxStack: 3, essence: { damage: 4 } },
+  essencia_goblin_rara: { name: "Essência rara de goblin", maxStack: 3, essence: { maxHp: 25 } },
 } satisfies Record<string, ItemStats>;
 
 export type ItemId = keyof typeof ITEMS;
@@ -37,10 +42,15 @@ export const STARTING_ITEMS: Partial<Record<ItemId, number>> = { racao: 3 };
 // O que cada tipo de mob larga ao morrer. Cada linha é sorteada à parte: com chance `chance` (0 a 1),
 // cai uma quantidade entre `min` e `max`. Goblins às vezes carregam comida: fonte de ração dentro do labirinto.
 export const MOB_DROPS: Record<MobKind, DropEntry[]> = {
-  rato: [{ item: "pele_de_rato", chance: 0.8, min: 1, max: 1 }],
+  rato: [
+    { item: "pele_de_rato", chance: 0.8, min: 1, max: 1 },
+    { item: "essencia_rato", chance: 0.15, min: 1, max: 1 },
+  ],
   goblin: [
     { item: "dente_de_goblin", chance: 1, min: 1, max: 2 },
     { item: "racao", chance: 0.25, min: 1, max: 1 },
+    { item: "essencia_goblin", chance: 0.2, min: 1, max: 1 },
+    { item: "essencia_goblin_rara", chance: 0.05, min: 1, max: 1 },
   ],
 };
 

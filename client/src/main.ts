@@ -26,6 +26,7 @@ import tilesetUrl from "../../assets/tilesets/placeholder.png";
 // Só o que o cliente lê do estado do servidor. O formato real está em server/src/state.ts.
 interface PlayerView extends Vec2 {
   hp: number;
+  maxHp: number;
   attackSeq: number;
   attackAngle: number;
   // Só chegam para o próprio jogador; para os outros ficam undefined.
@@ -33,6 +34,7 @@ interface PlayerView extends Vec2 {
   extractMs?: number;
   xp?: number;
   level?: number;
+  essences?: { forEach(callback: (item: string) => void): void };
   inventory?: { forEach(callback: (slot: { item: string; count: number }, index: number) => void): void };
 }
 interface MobView extends Vec2 {
@@ -81,7 +83,14 @@ const EXIT_COLOR = 0x40c4ff;
 // Barra de inventário fixa, embaixo e no centro.
 const SLOT_SIZE = 36;
 const SLOT_GAP = 4;
-const ITEM_COLORS: Record<ItemId, number> = { racao: 0xc8a165, pele_de_rato: 0x8d8d8d, dente_de_goblin: 0xf5f5dc };
+const ITEM_COLORS: Record<ItemId, number> = {
+  racao: 0xc8a165,
+  pele_de_rato: 0x8d8d8d,
+  dente_de_goblin: 0xf5f5dc,
+  essencia_rato: 0xb39ddb,
+  essencia_goblin: 0x9ccc65,
+  essencia_goblin_rara: 0xffd54f,
+};
 // Tecla de cada slot, na ordem: 1–9, 0, - e = (12 slots, só 10 teclas de número).
 const SLOT_KEYS = [
   { code: Phaser.Input.Keyboard.KeyCodes.ONE, label: "1" },
@@ -128,6 +137,7 @@ class GameScene extends Phaser.Scene {
   private exitsLayer?: Phaser.GameObjects.Graphics;
   private extractLabel?: Phaser.GameObjects.Text;
   private levelLabel?: Phaser.GameObjects.Text;
+  private essenceLabel?: Phaser.GameObjects.Text;
   private toast?: Phaser.GameObjects.Text;
   private toastUntil = 0;
   private slotKeys: Phaser.Input.Keyboard.Key[] = [];
@@ -156,6 +166,10 @@ class GameScene extends Phaser.Scene {
     this.add.text(HUD_MARGIN, HUD_MARGIN, "Fome", { fontSize: "12px", color: "#ffffff" }).setScrollFactor(0).setDepth(HUD_DEPTH);
     this.levelLabel = this.add
       .text(HUD_MARGIN, HUD_MARGIN + 34, "", { fontSize: "12px", color: "#ffffff" })
+      .setScrollFactor(0)
+      .setDepth(HUD_DEPTH);
+    this.essenceLabel = this.add
+      .text(HUD_MARGIN, HUD_MARGIN + 62, "", { fontSize: "12px", color: "#ffffff" })
       .setScrollFactor(0)
       .setDepth(HUD_DEPTH);
     this.toast = this.add
@@ -193,6 +207,7 @@ class GameScene extends Phaser.Scene {
 Subiu para o nível ${info.level}!` : "";
       this.showToast(`Primeira morte: ${MOB_NAMES[info.mob]} (+XP)${levelUp}`);
     });
+    room.onMessage("notice", (notice: { text: string }) => this.showToast(notice.text));
     room.onMessage("death", (cause: DeathCause) => {
       this.room = undefined;
       sessionStorage.removeItem(RECONNECTION_TOKEN_KEY);
@@ -281,6 +296,12 @@ Subiu para o nível ${info.level}!` : "";
     g.fillStyle(XP_COLOR, 1);
     g.fillRect(HUD_MARGIN, top, HUNGER_BAR.width * (next === undefined ? 1 : Math.min(1, xp / next)), 6);
     const toastText = this.time.now < this.toastUntil ? this.lastToastText : "";
+    const names: string[] = [];
+    room.state.players.forEach((player, sessionId) => {
+      if (sessionId === room.sessionId) player.essences?.forEach((item) => names.push(ITEMS[item as ItemId].name.replace("Essência ", "")));
+    });
+    const essenceText = `Essências (${names.length}/${level})${names.length > 0 ? ": " + names.join(", ") : ""}`;
+    if (this.essenceLabel && this.essenceLabel.text !== essenceText) this.essenceLabel.setText(essenceText);
     if (this.toast && this.toast.text !== toastText) this.toast.setText(toastText);
   }
 
@@ -355,7 +376,7 @@ ${slot.count}` : "";
       g.slice(swing.x, swing.y, SWING_RADIUS, swing.angle - SWING_HALF_ARC, swing.angle + SWING_HALF_ARC);
       g.fillPath();
     }
-    room.state.players.forEach((player) => drawHpBar(g, player, PLAYER_SIZE, player.hp / PLAYER_MAX_HP));
+    room.state.players.forEach((player) => drawHpBar(g, player, PLAYER_SIZE, player.hp / (player.maxHp || PLAYER_MAX_HP)));
     room.state.mobs.forEach((mob) => {
       const stats = MOB_KINDS[mob.kind as MobKind];
       drawHpBar(g, mob, stats.size, mob.hp / stats.maxHp);

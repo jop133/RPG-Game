@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HUNGER_MAX, INVENTORY_SLOTS, ITEMS } from "./balance";
+import { HUNGER_MAX, INVENTORY_SLOTS, ITEMS, type ItemId } from "./balance";
 import {
   type Inventory,
   addItems,
@@ -81,34 +81,56 @@ describe("startingInventory", () => {
 });
 
 describe("useSlot", () => {
+  const ctx = (hunger: number, essences: ItemId[] = [], essenceSlots = 1) => ({ hunger, essences, essenceSlots });
+
   it("ração no slot escolhido: gasta uma e recupera a fome dela", () => {
-    const inv = startingInventory({ racao: 3 });
-    const result = useSlot(inv, 0, 10);
-    expect(result && countItem(result.inventory, "racao")).toBe(2);
-    expect(result?.hunger).toBe(10 + ITEMS.racao.food);
+    const result = useSlot(startingInventory({ racao: 3 }), 0, ctx(10));
+    expect(result.kind).toBe("used");
+    if (result.kind !== "used") return;
+    expect(countItem(result.inventory, "racao")).toBe(2);
+    expect(result.hunger).toBe(10 + ITEMS.racao.food);
   });
 
   it("come a qualquer momento, mesmo com a fome cheia; o excesso se perde", () => {
-    const result = useSlot(startingInventory({ racao: 1 }), 0, HUNGER_MAX);
-    expect(result?.hunger).toBe(HUNGER_MAX);
-    expect(result && countItem(result.inventory, "racao")).toBe(0);
+    const result = useSlot(startingInventory({ racao: 1 }), 0, ctx(HUNGER_MAX));
+    expect(result.kind === "used" && result.hunger).toBe(HUNGER_MAX);
+    expect(result.kind === "used" && countItem(result.inventory, "racao")).toBe(0);
   });
 
   it("tira do slot escolhido, não de outro", () => {
     const inv = addItems(startingInventory({ pele_de_rato: 1 }), "racao", ITEMS.racao.maxStack + 1).inventory;
     // slot 0: pele, slot 1: pilha cheia de ração, slot 2: 1 ração
-    const result = useSlot(inv, 1, 10);
-    expect(result?.inventory[1]).toEqual({ item: "racao", count: ITEMS.racao.maxStack - 1 });
-    expect(result?.inventory[2]).toEqual({ item: "racao", count: 1 });
+    const result = useSlot(inv, 1, ctx(10));
+    expect(result.kind === "used" && result.inventory[1]).toEqual({ item: "racao", count: ITEMS.racao.maxStack - 1 });
+    expect(result.kind === "used" && result.inventory[2]).toEqual({ item: "racao", count: 1 });
   });
 
   it("última unidade: o slot fica vazio", () => {
-    expect(useSlot(startingInventory({ racao: 1 }), 0, 10)?.inventory[0]).toBeNull();
+    const result = useSlot(startingInventory({ racao: 1 }), 0, ctx(10));
+    expect(result.kind === "used" && result.inventory[0]).toBeNull();
   });
 
-  it("slot vazio ou item que não é comida: nada acontece", () => {
-    expect(useSlot(emptyInventory(), 0, 10)).toBeUndefined();
-    expect(useSlot(startingInventory({ pele_de_rato: 2 }), 0, 10)).toBeUndefined();
+  it("slot vazio ou item sem uso: nada acontece", () => {
+    expect(useSlot(emptyInventory(), 0, ctx(10)).kind).toBe("nothing");
+    expect(useSlot(startingInventory({ pele_de_rato: 2 }), 0, ctx(10)).kind).toBe("nothing");
+  });
+
+  it("essência com slot livre: gasta uma e ela passa a ocupar um slot", () => {
+    const result = useSlot(startingInventory({ essencia_rato: 2 }), 0, ctx(50, [], 2));
+    expect(result.kind).toBe("used");
+    if (result.kind !== "used") return;
+    expect(result.essences).toEqual(["essencia_rato"]);
+    expect(countItem(result.inventory, "essencia_rato")).toBe(1);
+    expect(result.hunger).toBe(50);
+  });
+
+  it("essências se acumulam até o número de slots", () => {
+    const result = useSlot(startingInventory({ essencia_goblin: 1 }), 0, ctx(50, ["essencia_rato"], 2));
+    expect(result.kind === "used" && result.essences).toEqual(["essencia_rato", "essencia_goblin"]);
+  });
+
+  it("sem slot de essência livre: recusa e não gasta nada", () => {
+    expect(useSlot(startingInventory({ essencia_rato: 1 }), 0, ctx(50, ["essencia_goblin"], 1)).kind).toBe("noEssenceSlot");
   });
 });
 

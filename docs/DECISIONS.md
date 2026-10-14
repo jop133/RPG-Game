@@ -555,3 +555,18 @@ O cliente recebe `windup` e `attackAngle` e desenha o arco no chão: o contorno 
 **Por quê (crédito ao golpe final):** é o mais simples e sem ambiguidade. O custo é que, no co-op, o grupo precisa combinar quem finaliza cada tipo novo. Dividir o crédito entre quem participou fica para quando incomodar.
 
 **Valores iniciais:** 1 de XP por tipo novo; níveis 2 a 7 pedem 1, 2, 4, 7, 11 e 16 de XP no total. Com 2 tipos de mob, o máximo hoje é nível 3.
+
+---
+
+## 2026-10 — Essências: efeitos de status somados, aplicados pelo servidor, equipadas no banco
+
+**Decisão:**
+- Três essências placeholder (proposta aprovada pelo dono do projeto), como itens em `ITEMS` com um campo `essence`: rato +15% de velocidade; goblin +4 de dano; goblin rara +25 de vida máxima. Caem dos mobs por `MOB_DROPS` (rato 15%; goblin 20%; rara 5%)
+- Consumir pela tecla do slot (`useSlot`, mesmo caminho da comida) ocupa um slot de essência se houver livre (slots = nível); senão é recusado com aviso e nada é gasto
+- Efeitos iguais se somam (porcentagens somam, não multiplicam). `playerStats` em `shared/src/essences.ts` calcula velocidade, dano e vida máxima; o servidor aplica no movimento, no golpe (contra mob e contra jogador) e na vida
+- Consumir a de vida aumenta a vida máxima e a atual na mesma quantidade
+- Equipadas ficam no personagem, no banco (migração 3). Sobrevivem à extração; somem com a morte. Essências não consumidas, no inventário, viram crédito ao extrair, como qualquer item
+
+**Por quê:** um único caminho de "usar o slot" para comida e essência; a regra de recusa vive numa função pura testável; o cliente não calcula nada disso (regra 1), só mostra.
+
+**Em aberto:** habilidades únicas e afinidade de área (GDD) entram quando houver escuridão e mais mobs; tirar essência vem com o NPC de purificação.

@@ -34,9 +34,9 @@ export function inputToDirection(input: MoveInput): Vec2 {
   return { x: x / length, y: y / length };
 }
 
-// Deslocamento desejado, ainda sem considerar paredes.
-export function movementDelta(input: MoveInput, dtMs: number): Vec2 {
+// Deslocamento desejado, ainda sem considerar paredes. `speed` muda com essências (pixels por segundo).
+export function movementDelta(input: MoveInput, dtMs: number, speed: number = PLAYER_SPEED): Vec2 {
   const direction = inputToDirection(input);
-  const distance = (PLAYER_SPEED * dtMs) / 1000;
+  const distance = (speed * dtMs) / 1000;
   return { x: direction.x * distance, y: direction.y * distance };
 }

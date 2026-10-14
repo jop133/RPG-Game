@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
-import { FIRST_KILL_XP, type DeathCause, type ItemStack, type MobKind } from "shared";
+import { FIRST_KILL_XP, type DeathCause, type ItemId, type ItemStack, type MobKind } from "shared";
 
 export interface CharacterRecord {
   characterId: number;
@@ -52,6 +52,10 @@ const MIGRATIONS: string[] = [
     first_killed_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (lineage_id, mob_kind)
   );
+  `,
+  `
+  -- Essências equipadas do personagem (JSON com ids de item). Somem com ele na morte.
+  ALTER TABLE characters ADD COLUMN essences TEXT NOT NULL DEFAULT '[]';
   `,
 ];
 
@@ -114,6 +118,15 @@ export class Store {
   bestiary(lineageId: number): MobKind[] {
     const rows = this.db.prepare("SELECT mob_kind FROM bestiary WHERE lineage_id = ? ORDER BY mob_kind").all(lineageId);
     return (rows as { mob_kind: MobKind }[]).map((row) => row.mob_kind);
+  }
+
+  essences(characterId: number): ItemId[] {
+    const row = this.db.prepare("SELECT essences FROM characters WHERE id = ?").get(characterId) as { essences: string };
+    return JSON.parse(row.essences) as ItemId[];
+  }
+
+  setEssences(characterId: number, essences: readonly ItemId[]) {
+    this.db.prepare("UPDATE characters SET essences = ? WHERE id = ?").run(JSON.stringify(essences), characterId);
   }
 
   markDead(characterId: number, cause: DeathCause) {

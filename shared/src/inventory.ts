@@ -1,9 +1,11 @@
 import { HUNGER_MAX, INVENTORY_SLOTS, ITEMS, type ItemId } from "./balance";
+import type { EssenceEffect } from "./essences";
 
 export interface ItemStats {
   name: string;
   maxStack: number;
   food?: number;
+  essence?: EssenceEffect;
 }
 
 export interface ItemStack {
@@ -76,17 +78,37 @@ export function parseSlotIndex(raw: unknown): number | undefined {
     : undefined;
 }
 
-// Usa um item do slot escolhido pelo jogador. Comida: gasta uma e recupera a fome dela, a qualquer momento;
-// o que passar do máximo se perde (a escolha é do jogador). undefined se o slot está vazio ou o item não é usável.
-export function useSlot(
-  inventory: Inventory,
-  slotIndex: number,
-  hunger: number,
-): { inventory: Inventory; hunger: number } | undefined {
+// O que o uso de um slot pode mudar no personagem.
+export interface UseContext {
+  hunger: number;
+  essences: readonly ItemId[];
+  // Slots de essência = nível.
+  essenceSlots: number;
+}
+
+export type UseOutcome =
+  | { kind: "used"; inventory: Inventory; hunger: number; essences: ItemId[] }
+  // Essência sem slot livre: nada é gasto. Tirar essência só com NPC (mais à frente).
+  | { kind: "noEssenceSlot" }
+  // Slot vazio ou item sem uso (pele, dente).
+  | { kind: "nothing" };
+
+// Usa um item do slot escolhido pelo jogador, a qualquer momento e em qualquer lugar.
+// Comida: gasta uma e recupera a fome dela; o excesso se perde.
+// Essência: gasta uma e ela passa a ocupar um slot de essência, se houver slot livre.
+export function useSlot(inventory: Inventory, slotIndex: number, context: UseContext): UseOutcome {
   const slot = inventory[slotIndex];
-  const food = slot ? (ITEMS[slot.item] as ItemStats).food : undefined;
-  if (!slot || food === undefined) return undefined;
-  const slots = [...inventory];
-  slots[slotIndex] = slot.count > 1 ? { item: slot.item, count: slot.count - 1 } : null;
-  return { inventory: slots, hunger: Math.min(HUNGER_MAX, hunger + food) };
+  if (!slot) return { kind: "nothing" };
+  const stats = ITEMS[slot.item] as ItemStats;
+  const spent = [...inventory];
+  spent[slotIndex] = slot.count > 1 ? { item: slot.item, count: slot.count - 1 } : null;
+  if (stats.food !== undefined) {
+    const hunger = Math.min(HUNGER_MAX, context.hunger + stats.food);
+    return { kind: "used", inventory: spent, hunger, essences: [...context.essences] };
+  }
+  if (stats.essence !== undefined) {
+    if (context.essences.length >= context.essenceSlots) return { kind: "noEssenceSlot" };
+    return { kind: "used", inventory: spent, hunger: context.hunger, essences: [...context.essences, slot.item] };
+  }
+  return { kind: "nothing" };
 }

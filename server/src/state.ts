@@ -14,6 +14,8 @@ export const PlayerState = schema(
     x: t.number(),
     y: t.number(),
     hp: t.number(),
+    // Pública: a barra de vida dos outros precisa dela (essência de vida aumenta).
+    maxHp: t.number(),
     attackSeq: t.number(),
     attackAngle: t.number(),
     hunger: t.number().view(OWNER_TAG),
@@ -23,6 +25,8 @@ export const PlayerState = schema(
     // Progressão do personagem (vem do banco). Nível = número de slots de essência.
     xp: t.number().view(OWNER_TAG),
     level: t.number().view(OWNER_TAG),
+    // Essências equipadas (ids de item). Ocupam os slots; tirar só com NPC, mais à frente.
+    essences: t.array("string").view(OWNER_TAG),
   },
   "PlayerState",
 );

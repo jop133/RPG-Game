@@ -10,17 +10,17 @@ function sequence(...values: number[]): () => number {
 
 describe("rollDrops", () => {
   it("sorteio abaixo da chance: cai o item, na quantidade sorteada", () => {
-    // goblin: dente (chance 1, 1–2) e ração (chance 0.25). Sorteios: dente cai (0), quantidade alta (0.99);
-    // ração cai (0.1 < 0.25), quantidade (0).
-    expect(rollDrops("goblin", sequence(0, 0.99, 0.1, 0))).toEqual([
+    // goblin, na ordem da tabela: dente (chance 1, 1–2), ração (0.25), essência (0.2), essência rara (0.05).
+    // Sorteios: dente cai (0) com quantidade alta (0.99); ração cai (0.1) com quantidade (0); essências não (0.9, 0.9).
+    expect(rollDrops("goblin", sequence(0, 0.99, 0.1, 0, 0.9, 0.9))).toEqual([
       { item: "dente_de_goblin", count: 2 },
       { item: "racao", count: 1 },
     ]);
   });
 
   it("sorteio acima da chance: o item não cai", () => {
-    // dente sempre cai; ração com 0.9 >= 0.25 não cai.
-    expect(rollDrops("goblin", sequence(0, 0, 0.9))).toEqual([{ item: "dente_de_goblin", count: 1 }]);
+    // dente sempre cai; ração e as duas essências com 0.9 (acima das chances) não caem.
+    expect(rollDrops("goblin", sequence(0, 0, 0.9, 0.9, 0.9))).toEqual([{ item: "dente_de_goblin", count: 1 }]);
   });
 
   it("quantidade sempre dentro de [min, max], para qualquer sorteio", () => {

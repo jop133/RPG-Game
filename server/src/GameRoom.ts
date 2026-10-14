@@ -10,7 +10,6 @@ import {
   NO_INPUT,
   PICKUP_RADIUS,
   PLAYER_ATTACK,
-  PLAYER_MAX_HP,
   PLAYER_SIZE,
   STARTING_ITEMS,
   TICK_RATE,
@@ -30,6 +29,7 @@ import {
   parseMoveInput,
   parsePlayerName,
   parseSlotIndex,
+  playerStats,
   pickActiveExits,
   pickSpawnPoint,
   planMobSpawns,
@@ -48,7 +48,9 @@ import {
   type ExtractionResult,
   type FirstKillMessage,
   type Inventory,
+  type ItemId,
   type ItemStack,
+  type PlayerStats,
   type MobKind,
   type MobMind,
   type MoveInput,
@@ -92,6 +94,9 @@ export class GameRoom extends Room<{ state: GameState }> {
   private extractProgress = new Map<string, number>();
   // Quem é cada sessão no banco.
   private characters = new Map<string, CharacterRecord>();
+  // Essências equipadas e os status que resultam delas (velocidade, dano, vida máxima).
+  private essences = new Map<string, ItemId[]>();
+  private stats = new Map<string, PlayerStats>();
   private mobBrains = new Map<string, MobBrain>();
   // Mortes do tick (ou do golpe) atual. Resolvidas depois dos laços, para não remover jogador no meio de um forEach.
   private deaths = new Map<string, DeathCause>();
@@ -126,9 +131,14 @@ export class GameRoom extends Room<{ state: GameState }> {
     const record = client.auth as CharacterRecord;
     this.characters.set(client.sessionId, record);
     const xp = store.xp(record.characterId);
+    const essences = store.essences(record.characterId);
+    const stats = playerStats(essences);
+    this.essences.set(client.sessionId, essences);
+    this.stats.set(client.sessionId, stats);
     const player = new PlayerState({
       ...this.entryPoint(),
-      hp: PLAYER_MAX_HP,
+      hp: stats.maxHp,
+      maxHp: stats.maxHp,
       attackSeq: 0,
       attackAngle: 0,
       hunger: HUNGER_MAX,
@@ -137,6 +147,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       level: levelForXp(xp),
     });
     for (let i = 0; i < INVENTORY_SLOTS; i++) player.inventory.push(new ItemSlotState({ item: "", count: 0 }));
+    for (const essence of essences) player.essences.push(essence);
     this.setInventory(client.sessionId, player, startingInventory(STARTING_ITEMS));
     this.state.players.set(client.sessionId, player);
     this.moveInputs.set(client.sessionId, NO_INPUT);
@@ -168,6 +179,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     const record = this.characters.get(sessionId);
     if (record) charactersInside.delete(record.characterId);
     this.characters.delete(sessionId);
+    this.essences.delete(sessionId);
+    this.stats.delete(sessionId);
   }
 
   private openExits() {
@@ -216,10 +229,31 @@ export class GameRoom extends Room<{ state: GameState }> {
     const slot = parseSlotIndex(message);
     const player = this.state.players.get(sessionId);
     const inventory = this.inventories.get(sessionId);
-    const result = slot !== undefined && player && inventory && useSlot(inventory, slot, player.hunger);
-    if (!player || !result) return;
-    player.hunger = result.hunger;
-    this.setInventory(sessionId, player, result.inventory);
+    if (slot === undefined || !player || !inventory) return;
+    const essences = this.essences.get(sessionId) ?? [];
+    const outcome = useSlot(inventory, slot, { hunger: player.hunger, essences, essenceSlots: player.level });
+    if (outcome.kind === "noEssenceSlot") {
+      const text = `Sem slot de essência livre (nível ${player.level} = ${player.level} slots).`;
+      this.clients.getById(sessionId)?.send("notice", { text });
+      return;
+    }
+    if (outcome.kind !== "used") return;
+    player.hunger = outcome.hunger;
+    this.setInventory(sessionId, player, outcome.inventory);
+    if (outcome.essences.length !== essences.length) this.equipEssences(sessionId, player, outcome.essences);
+  }
+
+  // Essência consumida: grava no banco e recalcula os status. Vida máxima a mais sobe a vida atual junto.
+  private equipEssences(sessionId: string, player: PlayerState, essences: ItemId[]) {
+    const record = this.characters.get(sessionId);
+    if (record) store.setEssences(record.characterId, essences);
+    const before = this.stats.get(sessionId) ?? playerStats([]);
+    const after = playerStats(essences);
+    this.essences.set(sessionId, essences);
+    this.stats.set(sessionId, after);
+    player.essences.push(essences[essences.length - 1] as ItemId);
+    player.maxHp = after.maxHp;
+    player.hp = Math.min(after.maxHp, player.hp + (after.maxHp - before.maxHp));
   }
 
   // Toda perda de vida de jogador passa por aqui, para a morte nunca ser esquecida em algum caminho.
@@ -271,7 +305,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     const dead: string[] = [];
     this.state.mobs.forEach((mob, id) => {
       if (!isInSwing(attacker, angle, mob, MOB_KINDS[mob.kind as MobKind].size / 2)) return;
-      mob.hp = applyDamage(mob.hp, PLAYER_ATTACK.damage);
+      mob.hp = applyDamage(mob.hp, this.stats.get(attackerId)?.damage ?? PLAYER_ATTACK.damage);
       if (mob.hp === 0) dead.push(id);
     });
     for (const id of dead) {
@@ -329,7 +363,7 @@ export class GameRoom extends Room<{ state: GameState }> {
   private hitPlayers(attackerId: string, attacker: Vec2, angle: number) {
     this.state.players.forEach((player, sessionId) => {
       if (sessionId === attackerId || !isInSwing(attacker, angle, player, PLAYER_SIZE / 2)) return;
-      this.damagePlayer(sessionId, player, PLAYER_ATTACK.damage, { kind: "player" });
+      this.damagePlayer(sessionId, player, this.stats.get(attackerId)?.damage ?? PLAYER_ATTACK.damage, { kind: "player" });
     });
   }
 
@@ -395,7 +429,8 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   private movePlayers(dtMs: number) {
     this.state.players.forEach((player, sessionId) => {
-      const delta = movementDelta(this.moveInputs.get(sessionId) ?? NO_INPUT, dtMs);
+      const speed = this.stats.get(sessionId)?.speed;
+      const delta = movementDelta(this.moveInputs.get(sessionId) ?? NO_INPUT, dtMs, speed);
       const next = moveWithCollision(level.grid, player, delta, PLAYER_SIZE / 2);
       player.x = next.x;
       player.y = next.y;

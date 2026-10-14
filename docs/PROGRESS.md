@@ -4,11 +4,13 @@ Onde o projeto está agora. Atualizado ao fim de cada passo. O porquê das escol
 
 ## Agora
 
-**Passo 7 em andamento: essências e slots** (último da fatia mínima jogável). Dividido em três partes:
+**Passo 7 concluído: a fatia mínima jogável (passos 1 a 7) está completa.** Próximo: passo 8, maestria de armas.
+
+O passo 7 foi feito em três partes:
 
 - [x] **7a.** Persistência (SQLite) e identidade por nome: a linhagem e o personagem sobrevivem entre runs. Tela de nome ao entrar; um personagem vivo por linhagem; morreu, o próximo é herdeiro; extraído vira crédito da linhagem.
 - [x] **7b.** Bestiário (da linhagem) e XP pela 1ª kill de cada tipo (por personagem, para quem dá o golpe final); nível = número de slots. HUD com nível e barra de XP; aviso de primeira morte.
-- [ ] **7c.** Essências: drop dos mobs; consumir (tecla do slot) ocupa um slot de essência, em qualquer lugar; efeito de status. Tirar só com NPC, mais à frente.
+- [x] **7c.** Essências: drop dos mobs; consumir (tecla do slot) ocupa um slot de essência, em qualquer lugar; efeito de status (velocidade, dano, vida máxima) aplicado pelo servidor; equipadas ficam no banco. Tirar só com NPC, mais à frente.
 
 O passo 6 (inventário, loot, extração) foi feito em 6a, 6b e 6c.
 
@@ -20,6 +22,9 @@ O passo 6 (inventário, loot, extração) foi feito em 6a, 6b e 6c.
 - Identidade é só o nome, sem senha: quem digitar o seu nome entra como você. Serve para jogar entre amigos.
 - Com só 2 tipos de mob, o nível máximo alcançável hoje é 3. Variantes e feitos (GDD) aumentam isso depois. O bestiário é registrado, mas ainda não tem tela.
 - No co-op, o XP da primeira morte vai só para quem deu o golpe final.
+- Ainda não dá para tirar essência (NPC de purificação vem com a cidade). Com os slots cheios, a essência fica no inventário e é recusada com aviso.
+- As três essências são placeholders só de status. Habilidades únicas e afinidade de área (GDD) vêm com mais mobs e com a escuridão.
+- A fatia do GDD pede "um andar, duas áreas, 3–4 mobs, duas armas e três essências": temos um andar de teste com 4 áreas, 2 tipos de mob, 1 arma e 3 essências. Faltam mobs e a segunda arma (que pertence ao passo 8).
 - Vários mobs perseguindo o mesmo jogador se sobrepõem: não há colisão entre mobs.
 - O aviso do golpe é desenhado no chão, por baixo dos quadrados: com o mob encostado, parte dele fica escondida sob o jogador. Rever quando houver arte.
 - "Novo personagem" só recarrega a página. Quando houver cidade (passo 9), leva para lá.
@@ -39,7 +44,7 @@ O passo 6 (inventário, loot, extração) foi feito em 6a, 6b e 6c.
 - [x] 4. Combate e vida
 - [x] 5. Fome e morte
 - [x] 6. Loot e extração
-- [ ] 7. Essências e slots ← fim da fatia mínima jogável
+- [x] 7. Essências e slots ← fim da fatia mínima jogável
 - [ ] 8. Maestria de armas
 - [ ] 9. Cidade, loja, baú
 - [ ] 10. Classes e vilas
@@ -61,7 +66,7 @@ O banco fica em `data/rpg-extracao.db` (fora do git). Para usar outro arquivo, d
 
 **Ao abrir:** digite o nome da sua linhagem. O mesmo nome volta ao mesmo personagem (se vivo) ou entra um herdeiro (se o anterior morreu).
 
-**Controles:** WASD anda. Clique esquerdo golpeia na direção do cursor (fogo amigo ligado: acerta outros jogadores também). As teclas **1–9, 0, - e =** usam o item do slot correspondente (ração: come uma). **F** pega a pilha de loot mais próxima. Anel azul no chão: portal de saída; fique dentro dele 5 s para extrair. Barra amarela no canto superior esquerdo: sua fome. Embaixo, no centro: seu inventário.
+**Controles:** WASD anda. Clique esquerdo golpeia na direção do cursor (fogo amigo ligado: acerta outros jogadores também). As teclas **1–9, 0, - e =** usam o item do slot correspondente (ração: come uma; essência: consome e ocupa um slot de essência). **F** pega a pilha de loot mais próxima. Anel azul no chão: portal de saída; fique dentro dele 5 s para extrair. Barra amarela no canto superior esquerdo: sua fome. Embaixo, no centro: seu inventário.
 
 ## Como editar o mapa
 
@@ -102,3 +107,4 @@ O Tiled está instalado em `C:\Program Files\Tiled\tiled.exe`. Abra `assets/maps
 - **2026-10-14** — Passo 6c concluído, e com ele o passo 6. Extração (`shared/src/extraction.ts`; 165 testes no total). Verificado por script num servidor de teste (andando até o portal com o `findPath` do jogo): 1,7 s dentro do portal → contagem 1743 ms; saiu → 0; voltou e ficou → "extracted" com a lista certa e conexão fechada com 4000. O servidor recusa um mapa sem saídas. **Não verificado no navegador:** na sala aberta, nenhum portal ativo caiu perto do spawn; o anel, a contagem na tela e a tela "Você extraiu" ficam para conferência manual.
 - **2026-10-14** — Passo 7a concluído. SQLite com `better-sqlite3` e migrações numeradas (`server/src/db.ts`), nome validado em `shared/src/identity.ts` (170 testes no total). Verificado com banco descartável: nome inválido ou ausente recusado com mensagem; o mesmo nome em duas conexões recusado ("Teste já está no labirinto."); morte marca o personagem como morto e a próxima entrada cria um herdeiro na mesma linhagem; extrair soma o inventário no crédito da linhagem e o personagem segue vivo (voltar com o mesmo nome reencontra o mesmo personagem). No navegador: tela de nome, digitação de W/A/S/D no campo e mensagem de erro do servidor (sem entrar, para não sujar o banco do dono do projeto).
 - **2026-10-14** — Passo 7b concluído. Bestiário e XP (migração 2 em `server/src/db.ts`; `shared/src/progression.ts`; 175 testes no total). Migração testada sobre um banco da versão 1: dados preservados, versão 2 aplicada. Verificado com banco descartável: entrar no nível 1; primeiro rato → aviso "subiu para o nível 2"; segundo rato → nada; sair e entrar de novo → nível 2 e 1 de XP vindos do banco; herdeiro começa com 0 de XP, mas o bestiário da linhagem continua. **Não verificado no navegador** (entrar exige nome e criaria linhagem no banco do dono do projeto): conferir o "Nível N · XP" e o aviso de primeira morte.
+- **2026-10-14** — Passo 7c concluído, e com ele a fatia mínima jogável. Essências (`shared/src/essences.ts`, `useSlot` com resultados; migração 3; 182 testes no total). Verificado com banco descartável: personagem semeado com as 3 essências entrou com vida 125/125, andou 192 px em ~1 s (184 esperado; sem essência, 160) e um golpe deixou um rato de 20 com 6 (dano 14); essência caída de rato foi pega e consumida, equipada e gravada no banco (duas iguais se somam); com 3/3 slots, a próxima foi recusada com aviso e ficou no inventário. **Não verificado no navegador** (mesmo motivo): conferir a linha "Essências (n/slots)" e as cores das essências no inventário.
