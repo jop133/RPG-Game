@@ -38,7 +38,7 @@ assets/    Tilesets, sprites, mapas .tmx/.json
 
 4. **Escuridão é raio de replicação, não efeito visual.** Áreas escuras são implementadas reduzindo o que o servidor envia ao cliente. Não desenhe uma máscara preta por cima de dados que o cliente já recebeu.
 
-5. **Interest management sempre.** Andares são grandes. O servidor divide o mapa em grade e envia a cada jogador apenas as entidades próximas. Nunca replicar estado de andar inteiro.
+5. **Interest management sempre.** Andares são grandes. O servidor envia a cada jogador apenas as entidades dentro do raio de visão dele (`VIEW_RADIUS`, via `shouldSee` em `shared/`). Nunca replicar estado de andar inteiro.
 
 6. **Fome é tick do servidor**, não loop do cliente. Temporizador por sala, decremento periódico, sobrevive a desconexão.
 

@@ -4,15 +4,16 @@ Onde o projeto está agora. Atualizado ao fim de cada passo. O porquê das escol
 
 ## Agora
 
-**Passo 2 em andamento.** Dividido em três partes, um commit cada:
+**Passo 2 concluído.** Próximo: passo 3, mobs com spawn por área.
+
+O passo 2 foi feito em três partes, um commit cada:
 
 - [x] **2a.** Mapa e colisão: o servidor carrega o mapa do Tiled e bloqueia paredes; o cliente desenha o mapa e a câmera segue o jogador.
 - [x] **2b.** Spawn vindo do mapa (pontos marcados no Tiled, servidor sorteia).
-- [ ] **2c.** Interest management por grade (exceção à regra 5 aberta no passo 1).
+- [x] **2c.** Interest management por raio: cada jogador só recebe o que está a até 520 px dele.
 
 **Limitações conhecidas agora:**
 - O sorteio de spawn é entre todos os pontos do mapa. A restrição por área do GDD entra quando houver áreas (passo 3).
-- O servidor replica todos os jogadores para todos. Resolve no 2c.
 - O movimento dos outros deve parecer "em degraus" (o servidor atualiza 20× por segundo e o cliente desenha a 60). Se incomodar, a correção é interpolação, que é só visual.
 - O mapa é um placeholder de teste (`assets/maps/test.json`). O andar 1 de verdade ainda vai ser desenhado.
 
@@ -20,7 +21,7 @@ Onde o projeto está agora. Atualizado ao fim de cada passo. O porquê das escol
 
 - [x] 0. Fundação: repositório, workspaces (`client`, `server`, `shared`), cliente e servidor subindo vazios
 - [x] 1. Dois jogadores se movendo numa sala, se vendo
-- [ ] 2. Mapa do Tiled com colisão
+- [x] 2. Mapa do Tiled com colisão
 - [ ] 3. Mobs com spawn por área
 - [ ] 4. Combate e vida
 - [ ] 5. Fome e morte
@@ -60,3 +61,4 @@ O Tiled está instalado em `C:\Program Files\Tiled\tiled.exe`. Abra `assets/maps
 - **2026-10-13** — Passo 1 concluído. Movimento WASD autoritativo no servidor (`shared/src/movement.ts`, 8 testes). Verificado com duas abas: cada uma vê a outra andar, e o quadrado de quem sai some. Verificado também por script: 160 px/s medidos no servidor, input malicioso ignorado.
 - **2026-10-13** — Passo 2a concluído. Colisão contra tiles `solid` (`shared/src/collision.ts`, `shared/src/tiledMap.ts`, 25 testes no total). Mapa placeholder 40×30 gerado e conferido no Tiled 1.12.2 (abre e exporta igual). Verificado por script: o jogador para exatamente encostado na parede, desliza na diagonal e não sai pela borda. No navegador: mapa desenhado e câmera seguindo.
 - **2026-10-13** — Passo 2b concluído. Spawn sorteado entre os pontos da camada `spawns` do mapa (`shared/src/spawn.ts`; 36 testes no total). Verificado por script: 12 entradas caíram só nos 4 pontos do mapa, usando todos. O servidor recusa subir com um ponto em cima de parede ou sem pontos, com mensagem dizendo qual.
+- **2026-10-13** — Passo 2c concluído, e com ele o passo 2. Interest management por raio (`shared/src/visibility.ts`, 42 testes no total) usando `StateView` do Colyseus. Verificado com dois clientes de script: 10 pares em spawns aleatórios, todos com visibilidade correta; aproximar faz aparecer, afastar faz sumir. Verificado na rede: com o outro jogador fora do raio e andando, o cliente recebe só patches vazios de 1 byte, nenhum dado sobre ele.

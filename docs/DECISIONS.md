@@ -220,3 +220,25 @@ Se uma das duas mudar, a outra tem que acompanhar.
 - O sorteio recebe o número aleatório de fora (`pickSpawnPoint(points, random)`), então a regra continua pura e testável
 
 **Em aberto:** a "restrição de área" do GDD. Quando existirem áreas (passo 3), cada ponto vai precisar dizer a que área pertence.
+
+---
+
+## 2026-10 — Interest management por raio, não por grade
+
+**Contraria:** a palavra "grade" da regra 5 do `CLAUDE.md`. A intenção da regra, mandar a cada jogador só o que está perto, continua valendo.
+
+**Decisão:** cada jogador recebe as entidades a até `VIEW_RADIUS` (520 px) dele. A distância é medida em círculo, com a função pura `shouldSee` em `shared/src/visibility.ts`. O servidor usa o `StateView` do Colyseus: a coleção `players` é marcada com `.view()`, e a cada tick o servidor adiciona ou remove os outros jogadores da visão de cada cliente. Quem está fora da visão não é enviado; o cliente recebe só um patch vazio.
+
+**Por quê:**
+- A regra 4 define escuridão como "raio de replicação menor". Com raio, escuridão é só passar um número menor para `shouldSee`, que já recebe o raio como parâmetro
+- Uma grade de células de ~400 px seria grossa demais para uma tocha de ~150 px; precisaria de um raio por cima de qualquer jeito
+- Com ~4 jogadores, checar distância contra centenas de entidades por tick é barato. Grade é otimização para muitos observadores, problema que o jogo não tem
+
+**Detalhes:**
+- 520 px passa da meia-diagonal da tela (500 px): em área iluminada, nada surge do nada dentro da tela
+- Histerese de 32 px (`VIEW_HYSTERESIS`): quem já é visto só some além de 552 px. Sem isso, alguém parado na borda piscaria a cada tick
+- O próprio jogador entra na visão ao conectar e nunca sai
+
+**Encerra:** a exceção temporária à regra 5 aberta no passo 1.
+
+**Reavaliar se:** o número de entidades ou de observadores crescer a ponto de a checagem por tick pesar. Aí entra uma grade como otimização *por baixo* do raio, sem mudar a regra.
