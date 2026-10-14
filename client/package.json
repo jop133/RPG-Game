@@ -8,6 +8,7 @@
     "build": "vite build"
   },
   "dependencies": {
+    "@colyseus/sdk": "^0.18.5",
     "phaser": "^3.90.0",
     "shared": "*"
   },

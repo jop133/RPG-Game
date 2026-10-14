@@ -140,3 +140,45 @@ Se uma das duas mudar, a outra tem que acompanhar.
 **Versões fixadas por major:** Phaser 3.x (a stack exige Phaser 3; o npm já está no 4), TypeScript 5.9, Vite 5.4, vitest 2.1, tsx 4, Colyseus 0.18, Node 24 (`.nvmrc`). Existem majors mais novas (TypeScript 7, Vite 8) que não foram avaliadas. Subir uma delas é decisão própria, não atualização de rotina.
 
 **Detalhe do Colyseus:** o transport é passado explicitamente (`WebSocketTransport` de `@colyseus/ws-transport`). Sem isso, o Colyseus tenta detectar o transport sozinho e quebra na inicialização se o pacote esperado não estiver instalado.
+
+---
+
+## 2026-10 — Movimento por WASD, cliente envia só as teclas
+
+**Decisão:** o cliente envia quais teclas de direção estão apertadas (`up/down/left/right`), só quando mudam. O servidor aplica a velocidade a cada tick com `stepPosition` do `shared`.
+
+**Por quê:** a única coisa que o cliente controla é "qual tecla". Velocidade, distância e posição são do servidor, então não há o que trapacear. O input é validado na entrada (`parseMoveInput`): qualquer valor que não seja exatamente `true` vira `false`.
+
+**Descartado:** clicar para mover. Exige pathfinding pelo mapa, que só existe a partir do passo 2.
+
+---
+
+## 2026-10 — Sem previsão no cliente (por enquanto)
+
+**Decisão:** o cliente só desenha o que o servidor manda. O próprio jogador responde com atraso igual ao ping.
+
+**Por quê:** em localhost o atraso é ~0, e previsão com correção é o código mais difícil de depurar de um jogo em rede. O jogo premia planejamento, não reflexo (GDD), o que tolera um pouco de atraso.
+
+**Reavaliar quando:** jogar pela internet com amigos começar a incomodar. Como `stepPosition` é pura e está no `shared`, o cliente poderá rodar a mesma função para prever.
+
+---
+
+## 2026-10 — Exceção temporária à regra 5 (interest management)
+
+**Contraria:** a regra 5 do `CLAUDE.md`, "interest management sempre".
+
+**Decisão:** no passo 1, o servidor replica todos os jogadores para todos.
+
+**Por quê:** sem mapa, não há distância que faça sentido filtrar, e o filtro não teria como ser testado (os jogadores estariam sempre "perto"). Implementar agora seria código sem verificação.
+
+**Prazo:** entra no passo 2, junto com o mapa, usando o `StateView` do Colyseus.
+
+---
+
+## 2026-10 — Estado do Colyseus fica no `server`, não no `shared`
+
+**Decisão:** as classes de estado sincronizado (`schema()` do `@colyseus/schema`) ficam em `server/src/state.ts`. O `shared` usa tipos simples (`Vec2`, `MoveInput`). O cliente declara só o formato mínimo que lê (`ServerState` em `client/src/main.ts`).
+
+**Por quê:** a regra 2 proíbe o `shared` de depender do Colyseus. Tipos simples bastam para as funções puras, e `PlayerState` tem `x`/`y`, então é aceito onde se espera um `Vec2`.
+
+**Custo aceito:** o `ServerState` do cliente é uma cópia manual do formato. Se o estado no servidor mudar, o cliente precisa acompanhar à mão.

@@ -7,13 +7,14 @@
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
-    "colyseus": "^0.18.0",
+    "@colyseus/schema": "^5.0.39",
     "@colyseus/ws-transport": "^0.18.0",
+    "colyseus": "^0.18.0",
     "shared": "*"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
-    "typescript": "^5.9.0",
-    "tsx": "^4.19.0"
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.0"
   }
 }
