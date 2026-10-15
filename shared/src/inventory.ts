@@ -80,13 +80,11 @@ export function restoreInventory(saved: Inventory | null): Inventory {
   return Array.from({ length: INVENTORY_SLOTS }, (_, i) => saved[i] ?? null);
 }
 
-// Vem do cliente: só aceita { slot: inteiro de 0 a INVENTORY_SLOTS - 1 }.
-export function parseSlotIndex(raw: unknown): number | undefined {
+// Vem do cliente: só aceita { slot: inteiro de 0 a slots - 1 } (inventário, ou o baú com STASH_SLOTS).
+export function parseSlotIndex(raw: unknown, slots = INVENTORY_SLOTS): number | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
   const slot = (raw as Record<string, unknown>).slot;
-  return Number.isInteger(slot) && (slot as number) >= 0 && (slot as number) < INVENTORY_SLOTS
-    ? (slot as number)
-    : undefined;
+  return Number.isInteger(slot) && (slot as number) >= 0 && (slot as number) < slots ? (slot as number) : undefined;
 }
 
 // O que o uso de um slot pode mudar no personagem.

@@ -5,11 +5,13 @@ import {
   FIRST_KILL_XP,
   parseClassId,
   restoreInventory,
+  restoreStash,
   type ClassId,
   type DeathCause,
   type Inventory,
   type ItemId,
   type MobKind,
+  type Stash,
 } from "shared";
 
 export interface CharacterRecord {
@@ -22,7 +24,8 @@ export interface CharacterRecord {
 
 // Cada migração roda uma vez, em ordem. O número da última aplicada fica em PRAGMA user_version.
 // Nunca editar uma migração já publicada: acrescentar uma nova no fim.
-const MIGRATIONS: string[] = [
+// Exportada só para o teste da migração (db.test.ts) montar um banco de uma versão antiga.
+export const MIGRATIONS: string[] = [
   `
   CREATE TABLE lineages (
     id INTEGER PRIMARY KEY,
@@ -79,6 +82,12 @@ const MIGRATIONS: string[] = [
   -- Classe do personagem (mago, elfo, barbaro, homem_fera). NULL = ainda não escolheu (o primeiro da linhagem
   -- ou um herdeiro escolhe na ficha de registro). Depois de escolhida, não muda.
   ALTER TABLE characters ADD COLUMN class TEXT;
+  `,
+  `
+  -- Moedas e baú são da linhagem: sobrevivem à morte do personagem (o herdeiro herda). Baú: JSON como o
+  -- inventário, com STASH_SLOTS slots; NULL = nunca usado (vazio).
+  ALTER TABLE lineages ADD COLUMN coins INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE lineages ADD COLUMN stash TEXT;
   `,
 ];
 
@@ -172,6 +181,29 @@ export class Store {
 
   setInventory(characterId: number, inventory: Inventory) {
     this.db.prepare("UPDATE characters SET inventory = ? WHERE id = ?").run(JSON.stringify(inventory), characterId);
+  }
+
+  coins(lineageId: number): number {
+    return (this.db.prepare("SELECT coins FROM lineages WHERE id = ?").get(lineageId) as { coins: number }).coins;
+  }
+
+  stash(lineageId: number): Stash {
+    const row = this.db.prepare("SELECT stash FROM lineages WHERE id = ?").get(lineageId) as { stash: string | null };
+    return restoreStash(row.stash === null ? null : (JSON.parse(row.stash) as Stash));
+  }
+
+  // Venda, compra ou baú, na cidade: a mochila do personagem e as moedas/o baú da linhagem gravados juntos, para uma
+  // queda no meio não deixar item duplicado nem sumido.
+  saveCityChange(record: CharacterRecord, change: { inventory: Inventory; coins?: number; stash?: Stash }) {
+    this.db.transaction(() => {
+      this.setInventory(record.characterId, change.inventory);
+      if (change.coins !== undefined) {
+        this.db.prepare("UPDATE lineages SET coins = ? WHERE id = ?").run(change.coins, record.lineageId);
+      }
+      if (change.stash !== undefined) {
+        this.db.prepare("UPDATE lineages SET stash = ? WHERE id = ?").run(JSON.stringify(change.stash), record.lineageId);
+      }
+    })();
   }
 
   close() {

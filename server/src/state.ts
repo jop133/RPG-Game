@@ -30,6 +30,8 @@ export const PlayerState = schema(
     level: t.number().view(OWNER_TAG),
     // Essências equipadas (ids de item). Ocupam os slots; tirar só com NPC, mais à frente.
     essences: t.array("string").view(OWNER_TAG),
+    // Moedas da linhagem, só para o HUD: no labirinto não se ganha nem se gasta moeda.
+    coins: t.number().view(OWNER_TAG),
   },
   "PlayerState",
 );
@@ -64,7 +66,7 @@ export const GameState = schema(
 export type GameState = SchemaType<typeof GameState>;
 
 // Jogador na cidade. Sem vida nem fome: a cidade é segura.
-// Só o dono vê a própria progressão e o próprio inventário (para o HUD).
+// Só o dono vê a própria progressão, o inventário e o que é da linhagem (moedas e baú), para o HUD e as janelas.
 export const CityPlayerState = schema(
   {
     name: t.string(),
@@ -75,6 +77,9 @@ export const CityPlayerState = schema(
     level: t.number().view(OWNER_TAG),
     essences: t.array("string").view(OWNER_TAG),
     inventory: t.array(ItemSlotState).view(OWNER_TAG),
+    coins: t.number().view(OWNER_TAG),
+    // Baú da linhagem (STASH_SLOTS slots). Espelha o servidor; só a Estalagem mexe nele.
+    stash: t.array(ItemSlotState).view(OWNER_TAG),
   },
   "CityPlayerState",
 );

@@ -136,6 +136,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       extractMs: 0,
       xp,
       level: levelForXp(xp),
+      coins: store.coins(record.lineageId),
     });
     for (let i = 0; i < INVENTORY_SLOTS; i++) player.inventory.push(new ItemSlotState({ item: "", count: 0 }));
     for (const essence of essences) player.essences.push(essence);

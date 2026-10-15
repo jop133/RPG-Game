@@ -158,6 +158,7 @@ export const AREA_LAYER = "areas";
 export const EXIT_LAYER = "exits";
 export const PORTAL_LAYER = "portal";
 export const LIGHT_LAYER = "luzes";
+export const INTERACTION_LAYER = "interacoes";
 
 function objectsIn(map: TiledMap, layerName: string): TiledObject[] {
   const layer = map.layers.find((l) => l.type === "objectgroup" && l.name === layerName);
@@ -188,14 +189,25 @@ export function parsePortalPoints(map: TiledMap): Vec2[] {
   return pointsIn(map, PORTAL_LAYER);
 }
 
+// Pontos que precisam de nome; `meaning` diz no erro o que o nome é.
+function namedPointsIn(map: TiledMap, layerName: string, meaning: string): (Vec2 & { name: string })[] {
+  const objects = objectsIn(map, layerName);
+  return pointsIn(map, layerName).map((point, i) => {
+    const name = objects[i]?.name;
+    if (!name) throw new Error(`Ponto ${objects[i]?.id} na camada "${layerName}" está sem nome (o nome é ${meaning}).`);
+    return { name, ...point };
+  });
+}
+
 // Luzes do mapa: pontos na camada "luzes", com o tipo da luz no nome (o raio de cada tipo fica em LIGHT_RADIUS).
 export function parseLights(map: TiledMap): (Vec2 & { kind: string })[] {
-  const objects = objectsIn(map, LIGHT_LAYER);
-  return pointsIn(map, LIGHT_LAYER).map((point, i) => {
-    const name = objects[i]?.name;
-    if (!name) throw new Error(`Ponto ${objects[i]?.id} na camada "${LIGHT_LAYER}" está sem nome (o nome é o tipo da luz).`);
-    return { kind: name, ...point };
-  });
+  return namedPointsIn(map, LIGHT_LAYER, "o tipo da luz").map(({ name, x, y }) => ({ kind: name, x, y }));
+}
+
+// Portas dos prédios da cidade: pontos na camada "interacoes", com o id do prédio no nome (guild, inn, blacksmith).
+// Quem confere se o id existe é o carregador da cidade (server/src/level.ts).
+export function parseInteractionPoints(map: TiledMap): (Vec2 & { name: string })[] {
+  return namedPointsIn(map, INTERACTION_LAYER, "o id do prédio");
 }
 
 // No JSON do Tiled, ponto, elipse, polígono, texto e tile também têm x/y; retângulo é o que não tem marca nenhuma.

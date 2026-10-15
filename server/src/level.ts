@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
 import {
   AREAS,
+  BUILDINGS,
   EXIT_LAYER,
+  INTERACTION_LAYER,
   MOB_KINDS,
   PLAYER_SIZE,
   PORTAL_LAYER,
@@ -9,15 +11,18 @@ import {
   areaFloorCells,
   boxFits,
   entrySpawnPoints,
+  isBuildingId,
   lightRadius,
   parseAreas,
   parseCollisionGrid,
   parseExitPoints,
+  parseInteractionPoints,
   parseLights,
   parsePortalPoints,
   parseSpawnPoints,
   validateAreas,
   type Area,
+  type BuildingPoint,
   type CollisionGrid,
   type LightSource,
   type TiledMap,
@@ -41,6 +46,8 @@ export interface City {
   spawnPoints: Vec2[];
   // Portais para o labirinto.
   portals: Vec2[];
+  // Portas dos prédios com janela (Guilda, Estalagem, Forja).
+  buildings: BuildingPoint[];
 }
 
 function readMap(file: URL): TiledMap {
@@ -74,15 +81,37 @@ export function loadLevel(file: URL): Level {
   return { grid, areas, playerEntryPoints, floorCells, exitCandidates, lights };
 }
 
-// A cidade não tem áreas, mobs nem saídas: só onde se chega e os portais para o labirinto.
+// A cidade não tem áreas, mobs nem saídas: só onde se chega, os portais para o labirinto e as portas dos prédios.
 export function loadCity(file: URL): City {
   const map = readMap(file);
   const grid = parseCollisionGrid(map);
   const spawnPoints = parseSpawnPoints(map);
   const portals = parsePortalPoints(map);
-  const errors = [...spawnErrors(grid, spawnPoints), ...portalErrors(grid, portals), ...lightErrors(parseLights(map))];
+  const doors = parseInteractionPoints(map);
+  const errors = [
+    ...spawnErrors(grid, spawnPoints),
+    ...portalErrors(grid, portals),
+    ...lightErrors(parseLights(map)),
+    ...buildingErrors(grid, doors),
+  ];
   if (errors.length > 0) throw new Error(`Mapa inválido (${file.pathname}):\n- ${errors.join("\n- ")}`);
-  return { grid, spawnPoints, portals };
+  const buildings = doors.flatMap(({ name, x, y }) => (isBuildingId(name) ? [{ building: name, x, y }] : []));
+  return { grid, spawnPoints, portals, buildings };
+}
+
+// Cada prédio de BUILDINGS precisa de pelo menos uma porta; cada porta, de um id conhecido e de lugar para o jogador.
+function buildingErrors(grid: CollisionGrid, doors: (Vec2 & { name: string })[]): string[] {
+  const errors = BUILDINGS.filter((id) => !doors.some((door) => door.name === id)).map(
+    (id) => `O prédio "${id}" não tem porta. Crie um ponto com esse nome na camada "${INTERACTION_LAYER}".`,
+  );
+  for (const door of doors) {
+    if (!isBuildingId(door.name)) {
+      errors.push(`A porta "${door.name}" em (${door.x}, ${door.y}) não é um prédio conhecido (${BUILDINGS.join(", ")}).`);
+    } else if (!boxFits(grid, door, PLAYER_SIZE / 2)) {
+      errors.push(`A porta "${door.name}" (${door.x}, ${door.y}) encosta em parede. O jogador não conseguiria ficar nela.`);
+    }
+  }
+  return errors;
 }
 
 // Na cidade a luz é só desenho, mas um tipo errado no mapa é erro de digitação do mesmo jeito.

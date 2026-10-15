@@ -11,18 +11,23 @@ import {
   MOB_KINDS,
   EXIT_LIGHT_RADIUS,
   FIRST_KILL_XP,
+  INTERACTION_LAYER,
   LIGHT_LAYER,
   PLAYER_ATTACK,
   PLAYER_LIGHT_RADIUS,
   PLAYER_MAX_HP,
   PLAYER_SIZE,
   PORTAL_LAYER,
+  buildingAt,
   isAtPortal,
+  isBuildingId,
   lightRadius,
   mobStrikeArc,
   playerStats,
   viewportSize,
   xpForNextLevel,
+  type BuildingId,
+  type BuildingPoint,
   type ClassId,
   type DeathCause,
   type ExtractionResult,
@@ -68,6 +73,8 @@ interface PlayerView extends Vec2 {
   extractMs?: number;
   xp?: number;
   level?: number;
+  // Moedas da linhagem.
+  coins?: number;
   essences?: { forEach(callback: (item: string) => void): void };
   inventory?: { forEach(callback: (slot: { item: string; count: number }, index: number) => void): void };
 }
@@ -241,6 +248,12 @@ const PLAYER_LIGHT: LightLook = { color: 0xfff0dc, intensity: 1, effect: "steady
 const EXIT_LIGHT: LightLook = { color: 0x40c4ff, intensity: 1, effect: "pulse" };
 // Portal de saída ativo: a mesma arte do portal da cidade, puxada para o azul da extração.
 const EXIT_PORTAL_KEY = "city/portal";
+// Nome de cada prédio da cidade na dica da porta (e no título da janela).
+const BUILDING_NAMES: Record<BuildingId, string> = {
+  guild: "Salão da Guilda",
+  inn: "Estalagem & Baú da Linhagem",
+  blacksmith: "Forja do Ferreiro",
+};
 const EXIT_PORTAL_TINT = 0x80d8ff;
 
 // Sombra nos pés: elipse escura no chão, embaixo de jogadores, mobs e enfeites em pé.
@@ -328,8 +341,9 @@ class WorldScene extends Phaser.Scene {
   private place: Place = "city";
   private room?: Room<unknown, ServerState>;
   private keys?: MoveKeys;
-  // Só na cidade: portais (lidos do mapa, como as paredes) e a tecla E.
+  // Só na cidade: portais e portas dos prédios (lidos do mapa, como as paredes) e a tecla E.
   private portals: Vec2[] = [];
+  private buildings: BuildingPoint[] = [];
   private portalKey?: Phaser.Input.Keyboard.Key;
   private avatars = new Map<string, Avatar>();
   private mobSprites = new Map<string, MobSprite>();
@@ -409,6 +423,9 @@ class WorldScene extends Phaser.Scene {
   // Portais desenhados a partir do mapa (são fixos, como as paredes). Quem decide se entrou é o servidor.
   private createCity(room: Room<unknown, ServerState>, map: Phaser.Tilemaps.Tilemap) {
     this.portals = (map.getObjectLayer(PORTAL_LAYER)?.objects ?? []).map((o) => ({ x: o.x ?? 0, y: o.y ?? 0 }));
+    this.buildings = (map.getObjectLayer(INTERACTION_LAYER)?.objects ?? []).flatMap((o) =>
+      o.name && isBuildingId(o.name) ? [{ building: o.name, x: o.x ?? 0, y: o.y ?? 0 }] : [],
+    );
     const g = this.add.graphics().setDepth(EXIT_DEPTH);
     for (const portal of this.portals) {
       g.fillStyle(PORTAL_COLOR, 0.2);
@@ -515,14 +532,14 @@ Subiu para o nível ${info.level}!` : "";
     });
   }
 
-  // E dentro do portal pede para entrar no labirinto. A dica é só visual; o servidor confere de novo.
+  // E dentro do portal pede para entrar no labirinto; na porta de um prédio, dá a dica do prédio. A dica é só
+  // visual; o servidor confere de novo onde o jogador está.
   private updateCity(room: Room<unknown, ServerState>) {
-    let atPortal = false;
-    room.state.players.forEach((player, sessionId) => {
-      if (sessionId === room.sessionId) atPortal = isAtPortal(player, this.portals);
-    });
-    hud.hint(atPortal ? "E: entrar no labirinto" : "");
-    if (this.portalKey && Phaser.Input.Keyboard.JustDown(this.portalKey)) room.send("enterPortal");
+    const self = room.state.players.get(room.sessionId);
+    const atPortal = self !== undefined && isAtPortal(self, this.portals);
+    const building = self && !atPortal ? buildingAt(self, this.buildings) : undefined;
+    hud.hint(atPortal ? "[E] Entrar no labirinto" : building ? `[E] ${BUILDING_NAMES[building]}` : "");
+    if (this.portalKey && Phaser.Input.Keyboard.JustDown(this.portalKey) && atPortal) room.send("enterPortal");
   }
 
   private updateLabyrinth(room: Room<unknown, ServerState>, time: number) {
@@ -579,6 +596,7 @@ Subiu para o nível ${info.level}!` : "";
         hp: self.hp ?? maxHp,
         maxHp,
         hunger: self.hunger,
+        coins: self.coins ?? 0,
         inventory,
       },
       time,

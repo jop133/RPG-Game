@@ -43,8 +43,29 @@ export type ItemId = keyof typeof ITEMS;
 // Slots do inventário. Comida ocupa slot como qualquer item: mais comida = menos espaço para loot (GDD).
 export const INVENTORY_SLOTS = 12;
 
-// Com o que todo personagem novo entra. Provisório: quando houver loja (passo 9), a comida passa a ser comprada.
+// Com o que todo personagem novo entra. Depois, a comida se compra na Taverna (BUY_PRICES) ou cai de goblins e gnomos.
 export const STARTING_ITEMS: Partial<Record<ItemId, number>> = { racao: 3 };
+
+// Baú da linhagem, na Estalagem: slots no mesmo formato do inventário. É da linhagem: sobrevive à morte do personagem.
+export const STASH_SLOTS = 24;
+
+// Economia. As moedas são da linhagem (uma bolsa só, segura, que o herdeiro herda) e só servem na cidade.
+// SELL_PRICES: quanto o Mercador da Guilda paga por unidade. Item fora da lista não se vende (a ração não).
+// BUY_PRICES: o que a Taverna da Estalagem vende, por unidade. Valores iniciais, para ajustar jogando.
+export const SELL_PRICES: Partial<Record<ItemId, number>> = {
+  pele_de_rato: 1,
+  gosma_de_slime: 2,
+  dente_de_goblin: 3,
+  pele_de_lobo: 4,
+  fragmento_de_cristal: 8,
+  essencia_rato: 15,
+  essencia_lobo: 15,
+  essencia_goblin: 15,
+  essencia_goblin_rara: 40,
+};
+export const BUY_PRICES: Partial<Record<ItemId, number>> = { racao: 10 };
+// Maior quantidade aceita numa compra ou venda (só para recusar números absurdos vindos do cliente).
+export const MAX_TRADE_COUNT = 999;
 
 // O que cada tipo de mob larga ao morrer. Cada linha é sorteada à parte: com chance `chance` (0 a 1),
 // cai uma quantidade entre `min` e `max`. Goblins às vezes carregam comida: fonte de ração dentro do labirinto.
@@ -84,6 +105,9 @@ export const EXTRACT_MS = 5000;
 
 // Cidade: raio do portal para o labirinto, contado do centro. Dentro dele, a tecla E leva ao labirinto.
 export const CITY_PORTAL_RADIUS = 28;
+// Cidade: raio dos pontos na frente das portas dos prédios (camada "interacoes"). Dentro, E abre a janela do prédio,
+// e só dali o servidor aceita vender, comprar e mexer no baú.
+export const CITY_INTERACT_RADIUS = 48;
 
 // Golpe do jogador: arma placeholder única até o passo 8 (maestria de armas).
 // range: alcance em pixels, contado da borda do alvo. arcDegrees: abertura do arco à frente.

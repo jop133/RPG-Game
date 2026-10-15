@@ -841,3 +841,24 @@ Slot vazio usa a moldura comum.
 
 **Limites aceitos:** os prédios são só fachada (nada funciona dentro); colisão em células de 32 px, como antes.
 
+---
+
+## 2026-10 — Prédios da cidade: moedas e baú da linhagem, negócio só na porta do prédio
+
+**Decisões (dono do projeto):**
+- **Moedas são só da linhagem:** uma bolsa só, segura, que o herdeiro herda. Moeda só serve na cidade; levá-la ao labirinto não teria ganho, só risco, e viraria a rotina de sempre depositar antes de entrar. Sem cofre separado. No labirinto, o HUD só mostra o saldo
+- **Baú da linhagem na Estalagem, de graça, com 24 slots** (`STASH_SLOTS`). **Contraria o GDD**, que põe o baú persistente na casa (alugar ou comprar). Provisório: quando existir casa, decidir se o baú vai para ela ou se a Estalagem passa a cobrar
+- **Forja só como vitrine** até o passo 8 (armas e maestria): catálogo e receitas futuras, tudo "em breve"
+- **Em 3 etapas:** 1) base (portas, banco, regras, servidor, moedas na HUD); 2) janelas da Guilda (venda) e da Estalagem (baú e ração); 3) Bestiário, Rank e Forja
+
+**Como:**
+- **Portas no mapa:** camada de pontos `interacoes`, com o id do prédio no nome (`BUILDINGS` em `shared/src/city.ts`); um prédio pode ter várias (a Estalagem tem duas). Raio `CITY_INTERACT_RADIUS`. O servidor valida as portas ao subir, como spawns e portal
+- **Regra 1:** a janela aberta no cliente não vale nada. Cada pedido (`sell`, `buy`, `deposit`, `withdraw`) é conferido na hora: o jogador precisa estar na porta do prédio certo (vender na Guilda; comprar e baú na Estalagem), o item e a quantidade precisam ser válidos, e as regras puras decidem
+- **Tudo ou nada:** vender mais do que se tem, comprar sem moedas para tudo ou sem espaço para tudo é recusado com aviso, sem negócio parcial. Guardar e retirar levam a pilha inteira; o que não cabe fica no slot de origem
+- **Gravação:** na hora, como o resto da cidade. A mochila do personagem e as moedas/o baú da linhagem vão juntos numa transação (`saveCityChange`): uma queda no meio não duplica nem some item. O banco é gravado antes da memória
+- **Banco:** migração 6, colunas `coins` e `stash` em `lineages` (o baú no mesmo JSON do inventário; NULL = vazio)
+- **Preços** em `balance.ts`: `SELL_PRICES` (pele de rato 1, gosma 2, dente de goblin 3, pele de lobo 4, fragmento 8, essências 15, essência rara 40) e `BUY_PRICES` (ração 10). A ração não se vende. Valores iniciais: uma run com uns 5 drops paga mais ou menos 2 rações
+- **Testes do banco** em `server/src/db.test.ts` (SQLite em memória ou em pasta temporária): migração e herança são gravação, não regra pura, então não cabem em `shared/`. O `npm test` passou a rodar `shared` e `server`
+
+**Limites conhecidos:** a identidade continua sendo só o nome: quem digitar o seu nome mexe no seu baú. Dá para entrar no labirinto sem passar pela cidade (o caminho é o mesmo de antes).
+

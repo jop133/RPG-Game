@@ -484,10 +484,11 @@ def city_lights(objects: Objects) -> list[tuple[str, float, float]]:
 # ---------------------------------------------------------------- montagem
 
 
-def point_layer(layer_id: int, name: str, points: list[tuple[float, float]], next_id: list[int]) -> dict:
+def point_layer(layer_id: int, name: str, points: list[tuple[float, float]], next_id: list[int],
+                names: list[str] | None = None) -> dict:
     objs = []
-    for x, y in points:
-        objs.append({"id": next_id[0], "name": "", "type": "", "point": True, "rotation": 0, "visible": True,
+    for i, (x, y) in enumerate(points):
+        objs.append({"id": next_id[0], "name": names[i] if names else "", "type": "", "point": True, "rotation": 0, "visible": True,
                      "width": 0, "height": 0, "x": x, "y": y})
         next_id[0] += 1
     return {"id": layer_id, "name": name, "type": "objectgroup", "draworder": "topdown", "opacity": 1,
@@ -496,6 +497,10 @@ def point_layer(layer_id: int, name: str, points: list[tuple[float, float]], nex
 
 SPAWNS = [(36.5, 32.5), (43.5, 32.5), (40.0, 33.5), (40.0, 23.5)]
 PORTAL_POINT = (40.0, 8.5)
+# Portas dos prédios com janela (E abre): nome do ponto = id do prédio (BUILDINGS em shared/src/city.ts).
+# Guilda: pé da escadaria. Estalagem: porta da taverna e portão do cofre. Forja: na frente da fornalha.
+# Logo abaixo da base do prédio: quem para ali fica desenhado na frente dele (acima da base, o prédio o cobriria).
+INTERACTIONS = [("guild", 29.0, 20.5), ("inn", 48.8, 20.5), ("inn", 53.9, 20.5), ("blacksmith", 67.5, 36.5)]
 
 
 def main() -> None:
@@ -528,10 +533,12 @@ def main() -> None:
         point_layer(3, "spawns", [(x * T, y * T) for x, y in SPAWNS], next_id),
         point_layer(4, "portal", [(PORTAL_POINT[0] * T, PORTAL_POINT[1] * T)], next_id),
         light_layer(5, lights, next_id),
+        point_layer(6, "interacoes", [(x * T, y * T) for _, x, y in INTERACTIONS], next_id,
+                    [name for name, _, _ in INTERACTIONS]),
     ]
     city = {"compressionlevel": -1, "width": W, "height": H, "tilewidth": T, "tileheight": T, "infinite": False,
             "orientation": "orthogonal", "renderorder": "right-down", "type": "map", "version": "1.10",
-            "tiledversion": "1.12.2", "nextlayerid": 6, "nextobjectid": next_id[0], "layers": layers,
+            "tiledversion": "1.12.2", "nextlayerid": 7, "nextobjectid": next_id[0], "layers": layers,
             "tilesets": [floor_ts, objects.tileset()]}
     MAP_OUT.write_text(json.dumps(city) + "\n", encoding="utf-8")
     check(objects, zones["road"])

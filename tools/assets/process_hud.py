@@ -291,8 +291,18 @@ def icon_lock() -> Image.Image:
     return dot(dot(img, 8, 10, (40, 28, 16)), 8, 11, (40, 28, 16))
 
 
+def icon_coin() -> Image.Image:
+    """Moeda pequena (11x11), do tamanho do texto da plaqueta: mostrada em tamanho real, sem reamostrar."""
+    rim, face = np.zeros((ICON, ICON), bool), np.zeros((ICON, ICON), bool)
+    ellipse(rim, 5.5, 5.5, 4.4, 4.4)
+    ellipse(face, 5.5, 5.5, 2.5, 2.5)
+    img = paint([(rim, (190, 132, 36)), (face, (240, 192, 64))])
+    dot(dot(img, 4, 3, (255, 240, 170)), 3, 4, (255, 240, 170))  # brilho
+    return img.crop((0, 0, 11, 11))
+
+
 # Desenhos do HUD que não são itens.
-EXTRA_ICONS = {"weapon": icon_sword, "lock": icon_lock}
+EXTRA_ICONS = {"weapon": icon_sword, "lock": icon_lock, "coin": icon_coin}
 
 # Um ícone por item de ITEMS (shared/src/balance.ts). Item novo sem ícone aqui aparece com a sigla no slot.
 ICONS = {

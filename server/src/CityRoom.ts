@@ -1,23 +1,34 @@
-import { StateView } from "@colyseus/schema";
+import { StateView, type ArraySchema } from "@colyseus/schema";
 import { CloseCode, Room, type Client } from "colyseus";
 import {
   HUNGER_MAX,
   INVENTORY_SLOTS,
+  ITEMS,
   NO_INPUT,
   PLAYER_SIZE,
+  STASH_SLOTS,
   TICK_RATE,
+  buildingAt,
+  buyItems,
+  deposit,
   isAtPortal,
   levelForXp,
   moveWithCollision,
   movementDelta,
   parseMoveInput,
   parseSlotIndex,
+  parseTrade,
   pickSpawnPoint,
   playerStats,
+  sellItems,
   useSlot,
+  withdraw,
+  type BuildingId,
   type Inventory,
   type ItemId,
   type MoveInput,
+  type Stash,
+  type TradeOutcome,
 } from "shared";
 import type { CharacterRecord } from "./db";
 import { loadCity } from "./level";
@@ -28,8 +39,36 @@ import { updateVisibility } from "./views";
 
 const city = loadCity(new URL("../../assets/maps/city.json", import.meta.url));
 
-// A cidade: uma sala para todos, segura (GDD). Anda, usa itens e entra no portal; sem combate, fome nem mobs.
-// O que muda aqui (itens usados, essências) vai para o banco na hora: na cidade não há run para desfazer.
+// O que a linhagem tem na cidade: a bolsa de moedas e o baú. A verdade fica aqui; o estado só espelha para o dono.
+interface Lineage {
+  coins: number;
+  stash: Stash;
+}
+
+// O que mudou numa venda, compra ou mexida no baú. Vai inteiro para o banco, numa transação.
+interface CityChange {
+  inventory: Inventory;
+  coins?: number;
+  stash?: Stash;
+}
+
+// Quem pede uma troca, já conferido: está na sala e na porta do prédio certo.
+interface Customer {
+  player: CityPlayerState;
+  record: CharacterRecord;
+  inventory: Inventory;
+  lineage: Lineage;
+}
+
+const REFUSALS: Record<Exclude<TradeOutcome["kind"], "done">, string> = {
+  notForSale: "Isso não se negocia aqui.",
+  notEnough: "Você não tem tudo isso na mochila.",
+  noCoins: "Moedas insuficientes.",
+  noSpace: "Mochila cheia.",
+};
+
+// A cidade: uma sala para todos, segura (GDD). Anda, usa itens, negocia nos prédios e entra no portal; sem combate,
+// fome nem mobs. O que muda aqui (itens, moedas, baú) vai para o banco na hora: na cidade não há run para desfazer.
 export class CityRoom extends Room<{ state: CityState }> {
   state = new CityState();
 
@@ -40,6 +79,7 @@ export class CityRoom extends Room<{ state: CityState }> {
   private essences = new Map<string, ItemId[]>();
   // A verdade do inventário. CityPlayerState.inventory só espelha isto para o dono ver.
   private inventories = new Map<string, Inventory>();
+  private lineages = new Map<string, Lineage>();
 
   onCreate() {
     this.onMessage("input", (client, message) => {
@@ -47,6 +87,10 @@ export class CityRoom extends Room<{ state: CityState }> {
     });
     this.onMessage("enterPortal", (client) => this.handlePortal(client));
     this.onMessage("use", (client, message) => this.handleUse(client.sessionId, message));
+    this.onMessage("deposit", (client, message) => this.handleStash(client.sessionId, message, "deposit"));
+    this.onMessage("withdraw", (client, message) => this.handleStash(client.sessionId, message, "withdraw"));
+    this.onMessage("sell", (client, message) => this.handleTrade(client.sessionId, message, "sell"));
+    this.onMessage("buy", (client, message) => this.handleTrade(client.sessionId, message, "buy"));
     this.setSimulationInterval((dtMs) => this.tick(dtMs), 1000 / TICK_RATE);
   }
 
@@ -58,20 +102,25 @@ export class CityRoom extends Room<{ state: CityState }> {
     const record = client.auth as CharacterRecord;
     const xp = store.xp(record.characterId);
     const essences = store.essences(record.characterId);
+    const lineage = { coins: store.coins(record.lineageId), stash: store.stash(record.lineageId) };
     this.characters.set(client.sessionId, record);
     this.essences.set(client.sessionId, essences);
     this.speeds.set(client.sessionId, playerStats(essences).speed);
     this.moveInputs.set(client.sessionId, NO_INPUT);
+    this.lineages.set(client.sessionId, lineage);
     const player = new CityPlayerState({
       name: record.name,
       classId: record.classId ?? "",
       ...pickSpawnPoint(city.spawnPoints, Math.random()),
       xp,
       level: levelForXp(xp),
+      coins: lineage.coins,
     });
     for (const essence of essences) player.essences.push(essence);
     for (let i = 0; i < INVENTORY_SLOTS; i++) player.inventory.push(new ItemSlotState({ item: "", count: 0 }));
+    for (let i = 0; i < STASH_SLOTS; i++) player.stash.push(new ItemSlotState({ item: "", count: 0 }));
     this.setInventory(client.sessionId, player, store.inventory(record.characterId));
+    mirror(player.stash, lineage.stash);
     this.state.players.set(client.sessionId, player);
     client.view = new StateView();
     client.view.add(player, OWNER_TAG);
@@ -88,6 +137,7 @@ export class CityRoom extends Room<{ state: CityState }> {
     this.speeds.delete(sessionId);
     this.essences.delete(sessionId);
     this.inventories.delete(sessionId);
+    this.lineages.delete(sessionId);
     const record = this.characters.get(sessionId);
     if (record) release(record);
     this.characters.delete(sessionId);
@@ -95,12 +145,7 @@ export class CityRoom extends Room<{ state: CityState }> {
 
   private setInventory(sessionId: string, player: CityPlayerState, inventory: Inventory) {
     this.inventories.set(sessionId, inventory);
-    inventory.forEach((slot, i) => {
-      const view = player.inventory[i];
-      if (!view) return;
-      view.item = slot?.item ?? "";
-      view.count = slot?.count ?? 0;
-    });
+    mirror(player.inventory, inventory);
   }
 
   // Tecla do slot, como no labirinto. Sem fome na cidade: comida é gasta sem efeito (escolha do dono do projeto).
@@ -113,8 +158,7 @@ export class CityRoom extends Room<{ state: CityState }> {
     const essences = this.essences.get(sessionId) ?? [];
     const outcome = useSlot(inventory, slot, { hunger: HUNGER_MAX, essences, essenceSlots: player.level });
     if (outcome.kind === "noEssenceSlot") {
-      const text = `Sem slot de essência livre (nível ${player.level} = ${player.level} slots).`;
-      this.clients.getById(sessionId)?.send("notice", { text });
+      this.notify(sessionId, `Sem slot de essência livre (nível ${player.level} = ${player.level} slots).`);
       return;
     }
     if (outcome.kind !== "used") return;
@@ -125,6 +169,70 @@ export class CityRoom extends Room<{ state: CityState }> {
     this.essences.set(sessionId, outcome.essences);
     this.speeds.set(sessionId, playerStats(outcome.essences).speed);
     player.essences.push(outcome.essences[outcome.essences.length - 1] as ItemId);
+  }
+
+  // Estalagem: clicar num slot da mochila guarda a pilha no baú; num slot do baú, traz para a mochila.
+  private handleStash(sessionId: string, message: unknown, direction: "deposit" | "withdraw") {
+    const customer = this.customerAt(sessionId, "inn");
+    const slot = parseSlotIndex(message, direction === "deposit" ? INVENTORY_SLOTS : STASH_SLOTS);
+    if (!customer || slot === undefined) return;
+    const { inventory, lineage } = customer;
+    const source = direction === "deposit" ? inventory : lineage.stash;
+    if (!source[slot]) return;
+    const moved = (direction === "deposit" ? deposit : withdraw)(inventory, lineage.stash, slot);
+    if (!moved) {
+      this.notify(sessionId, direction === "deposit" ? "O baú está cheio." : "Mochila cheia.");
+      return;
+    }
+    this.apply(sessionId, customer, moved);
+  }
+
+  // Guilda vende (o Mercador compra o loot do jogador); Estalagem compra (a Taverna vende comida).
+  private handleTrade(sessionId: string, message: unknown, side: "sell" | "buy") {
+    const customer = this.customerAt(sessionId, side === "sell" ? "guild" : "inn");
+    const trade = parseTrade(message);
+    if (!customer || !trade) return;
+    const { inventory, lineage } = customer;
+    const trader = side === "sell" ? sellItems : buyItems;
+    const outcome = trader(inventory, lineage.coins, trade.item, trade.count);
+    if (outcome.kind !== "done") {
+      this.notify(sessionId, REFUSALS[outcome.kind]);
+      return;
+    }
+    const amount = Math.abs(outcome.coins - lineage.coins);
+    this.apply(sessionId, customer, { inventory: outcome.inventory, coins: outcome.coins });
+    const verb = side === "sell" ? "Vendeu" : "Comprou";
+    this.notify(sessionId, `${verb} ${trade.count}x ${ITEMS[trade.item].name} (${side === "sell" ? "+" : "-"}${amount} moedas)`);
+  }
+
+  // A janela aberta no cliente não conta (regra 1): quem negocia precisa estar na porta do prédio agora.
+  private customerAt(sessionId: string, building: BuildingId): Customer | undefined {
+    const player = this.state.players.get(sessionId);
+    const record = this.characters.get(sessionId);
+    const inventory = this.inventories.get(sessionId);
+    const lineage = this.lineages.get(sessionId);
+    if (!player || !record || !inventory || !lineage) return undefined;
+    if (buildingAt(player, city.buildings) !== building) return undefined;
+    return { player, record, inventory, lineage };
+  }
+
+  // Grava primeiro: se o banco falhar, nada muda na memória nem na tela.
+  private apply(sessionId: string, customer: Customer, change: CityChange) {
+    store.saveCityChange(customer.record, change);
+    const { player, lineage } = customer;
+    this.setInventory(sessionId, player, change.inventory);
+    if (change.coins !== undefined) {
+      lineage.coins = change.coins;
+      player.coins = change.coins;
+    }
+    if (change.stash !== undefined) {
+      lineage.stash = change.stash;
+      mirror(player.stash, change.stash);
+    }
+  }
+
+  private notify(sessionId: string, text: string) {
+    this.clients.getById(sessionId)?.send("notice", { text });
   }
 
   // E dentro do portal: sai da cidade. O cliente entra numa run do labirinto em seguida.
@@ -153,4 +261,14 @@ export class CityRoom extends Room<{ state: CityState }> {
       });
     }
   }
+}
+
+// Copia os slots (verdade do servidor) para o espelho que vai ao cliente. Vazio = item "" e count 0.
+function mirror(view: ArraySchema<ItemSlotState>, slots: Inventory) {
+  slots.forEach((slot, i) => {
+    const target = view[i];
+    if (!target) return;
+    target.item = slot?.item ?? "";
+    target.count = slot?.count ?? 0;
+  });
 }

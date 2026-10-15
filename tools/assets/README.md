@@ -50,7 +50,9 @@ tools/assets/.venv/Scripts/python.exe -I tools/assets/render_map.py assets/maps/
 - Camada de objetos `objetos`: prédios, enfeites e portal, de uma coleção de imagens (`city/objects`). No Tiled,
   cada tile dessa coleção tem a propriedade `solid` e um retângulo de colisão desenhado na base (editor de colisão
   do Tiled); mover o objeto no Tiled leva a colisão junto.
-- Camadas de pontos `spawns` e `portal`.
+- Camadas de pontos `spawns`, `portal` e `interacoes` (portas dos prédios com janela; nome do ponto = id do prédio,
+  `INTERACTIONS` em `build_city.py`). Ponha cada porta logo abaixo da base do prédio: acima dela, o prédio é desenhado
+  por cima de quem está ali.
 
 ## Interface de registro e personagens
 

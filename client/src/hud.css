@@ -150,6 +150,28 @@
   pointer-events: auto;
 }
 
+/* Moedas: ícone 11x11 desenhado em process_hud.py, em tamanho real ao lado do número dourado. */
+.hud-purse,
+.hud-window-purse {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: #f0c850;
+}
+
+.hud-window-purse {
+  justify-content: flex-end;
+  font-size: 8px;
+  font-weight: bold;
+  text-shadow: 1px 1px 0 #000;
+  pointer-events: auto;
+}
+
+.hud-coin {
+  width: 11px;
+  height: 11px;
+}
+
 /* ---- avisos no topo ---- */
 
 .hud-hint,

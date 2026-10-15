@@ -24,6 +24,8 @@ export interface HudView {
   maxHp: number;
   // Undefined na cidade.
   hunger?: number;
+  // Moedas da linhagem.
+  coins: number;
   inventory: readonly (HudSlot | undefined)[];
 }
 
@@ -55,6 +57,7 @@ export class Hud {
   private readonly nameText: HTMLSpanElement;
   private readonly levelText: HTMLSpanElement;
   private readonly essenceText: HTMLSpanElement;
+  private readonly coinText: HTMLSpanElement;
   private readonly notices: HTMLDivElement;
   private readonly hintText: HTMLDivElement;
   private readonly dockSlots: SlotView[] = [];
@@ -86,6 +89,10 @@ export class Hud {
     this.nameText = el("span", "hud-name", plaque);
     this.levelText = el("span", "hud-badge", plaque);
     this.essenceText = el("span", "hud-badge", plaque);
+    const purse = el("span", "hud-badge hud-purse", plaque);
+    image("icon_coin", "hud-coin", purse);
+    this.coinText = el("span", "", purse);
+    purse.title = "Moedas da linhagem";
 
     // Topo, no centro: avisos que somem sozinhos e a dica fixa (portal, extração).
     const top = el("div", "hud-top", this.root);
@@ -165,6 +172,7 @@ export class Hud {
     setText(this.levelText, `Nv. ${view.level}`);
     this.levelText.title = view.nextLevelXp === undefined ? `XP ${view.xp} (nível máximo)` : `XP ${view.xp} / ${view.nextLevelXp}`;
     setText(this.essenceText, `Essências: ${view.essences.length}/${view.level}`);
+    setText(this.coinText, String(view.coins));
 
     const hp = view.maxHp > 0 ? Math.max(0, view.hp) / view.maxHp : 0;
     if (hp < this.lastHpFraction) this.lastDropAt = time;

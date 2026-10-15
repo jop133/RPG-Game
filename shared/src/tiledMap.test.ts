@@ -4,6 +4,7 @@ import {
   parseAreas,
   parseCollisionGrid,
   parseExitPoints,
+  parseInteractionPoints,
   parseLights,
   parseObjectFootprints,
   parsePortalPoints,
@@ -194,6 +195,30 @@ describe("parseLights", () => {
   it("ponto sem nome dá erro dizendo o objeto", () => {
     const map = mapWith([{ type: "objectgroup", name: "luzes", objects: [{ id: 7, x: 0, y: 0, point: true }] }]);
     expect(() => parseLights(map)).toThrow(/Ponto 7 na camada "luzes" está sem nome/);
+  });
+});
+
+describe("parseInteractionPoints", () => {
+  it("lê os pontos da camada interacoes com o id do prédio no nome, repetidos inclusive", () => {
+    const map = mapWith([
+      {
+        type: "objectgroup",
+        name: "interacoes",
+        objects: [
+          { id: 1, name: "inn", x: 10, y: 20, point: true },
+          { id: 2, name: "inn", x: 50, y: 20, point: true },
+        ],
+      },
+    ]);
+    expect(parseInteractionPoints(map)).toEqual([
+      { name: "inn", x: 10, y: 20 },
+      { name: "inn", x: 50, y: 20 },
+    ]);
+  });
+
+  it("ponto sem nome dá erro dizendo o objeto e o que falta", () => {
+    const map = mapWith([{ type: "objectgroup", name: "interacoes", objects: [{ id: 3, x: 0, y: 0, point: true }] }]);
+    expect(() => parseInteractionPoints(map)).toThrow(/Ponto 3 na camada "interacoes" está sem nome \(o nome é o id do prédio\)/);
   });
 });
 

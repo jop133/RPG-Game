@@ -29,6 +29,7 @@ export interface InventoryView {
   nextLevelXp?: number;
   maxHp: number;
   essences: readonly string[];
+  coins: number;
   inventory: readonly (HudSlot | undefined)[];
 }
 
@@ -65,6 +66,7 @@ export class InventoryWindow {
   private readonly essenceTitle: HTMLDivElement;
   private readonly essenceSlots: EssenceSlot[] = [];
   private readonly bagSlots: SlotView[] = [];
+  private readonly coinText: HTMLSpanElement;
   private view?: InventoryView;
   private shownEssences = "";
 
@@ -107,6 +109,11 @@ export class InventoryWindow {
     // 3. Mochila: os 12 slots do inventário, em 2 fileiras de 6, com as teclas.
     const bagTop = essenceTop + 13 + ESSENCE + 8;
     place(el("div", "hud-abs hud-section-title", this.root), leather.x, bagTop, leather.w).textContent = "Mochila";
+    // Na mesma linha, à direita: a bolsa de moedas (da linhagem: o herdeiro herda).
+    const purse = place(el("div", "hud-abs hud-window-purse", this.root), leather.x, bagTop - 1, leather.w - 6);
+    image("icon_coin", "hud-coin", purse);
+    this.coinText = el("span", "", purse);
+    tooltip.attach(purse, () => ({ title: "Moedas da linhagem", lines: ["Ficam com a linhagem: o herdeiro herda.", "Ganhe vendendo loot na Guilda."] }));
     const bagWidth = BAG_COLUMNS * BAG + (BAG_COLUMNS - 1) * GAP;
     for (let i = 0; i < INVENTORY_SLOTS; i++) {
       const slot = new SlotView(this.root, i, onUse, tooltip, { frameSize: BAG, iconScale: 1, emptyFrame: true });
@@ -138,6 +145,7 @@ export class InventoryWindow {
     setText(this.stats[0] as HTMLDivElement, `Vida Máx ${view.maxHp}  ·  Dano ${stats.damage}  ·  Velocidade ${Math.round(stats.speed)}${speedBonus ? ` (+${speedBonus}%)` : ""}`);
     setText(this.stats[1] as HTMLDivElement, `Nível ${view.level}  ·  ${xp}`);
     setText(this.essenceTitle, `Essências absorvidas  ${view.essences.length} / ${view.level}`);
+    setText(this.coinText, String(view.coins));
     this.updateEssences(view);
     for (let i = 0; i < INVENTORY_SLOTS; i++) {
       const slot = view.inventory[i];
