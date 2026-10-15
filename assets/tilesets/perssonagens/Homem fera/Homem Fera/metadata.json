@@ -1,0 +1,36 @@
+{
+  "group_id": "c83e0a66-2ab9-41c4-a5a8-659dbf1b5542",
+  "states": [
+    {
+      "character": {
+        "id": "da19e1d0-e899-4a93-ab62-57479fb0ddda",
+        "name": "Idle",
+        "prompt": "a man with well difined muscles but not too big and a human face, just ears of animal and a unique tail in the back, wearing just shorts",
+        "size": {
+          "width": 64,
+          "height": 64
+        },
+        "template_id": "mannequin",
+        "directions": 8,
+        "view": "high top-down",
+        "created_at": "2026-10-14T17:14:36.691359+00:00"
+      },
+      "folder": "Idle",
+      "frames": {
+        "rotations": {
+          "south": "Idle/rotations/south.png",
+          "south-east": "Idle/rotations/south-east.png",
+          "east": "Idle/rotations/east.png",
+          "north-east": "Idle/rotations/north-east.png",
+          "north": "Idle/rotations/north.png",
+          "north-west": "Idle/rotations/north-west.png",
+          "west": "Idle/rotations/west.png",
+          "south-west": "Idle/rotations/south-west.png"
+        },
+        "animations": {}
+      }
+    }
+  ],
+  "export_version": "3.1",
+  "export_date": "2026-10-14T18:44:08.319150"
+}

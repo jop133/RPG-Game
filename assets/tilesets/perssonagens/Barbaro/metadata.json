@@ -1,0 +1,36 @@
+{
+  "group_id": "bd84de44-bf2f-461c-94b0-25b1ff240579",
+  "states": [
+    {
+      "character": {
+        "id": "ce9760ef-847d-487a-bbf2-590042e1c821",
+        "name": "Idle",
+        "prompt": "Barbarian strong muscles and a warriors face, wearing just a underpants",
+        "size": {
+          "width": 64,
+          "height": 64
+        },
+        "template_id": "mannequin",
+        "directions": 8,
+        "view": "low top-down",
+        "created_at": "2026-10-14T14:20:20.273902+00:00"
+      },
+      "folder": "Idle",
+      "frames": {
+        "rotations": {
+          "south": "Idle/rotations/south.png",
+          "south-east": "Idle/rotations/south-east.png",
+          "east": "Idle/rotations/east.png",
+          "north-east": "Idle/rotations/north-east.png",
+          "north": "Idle/rotations/north.png",
+          "north-west": "Idle/rotations/north-west.png",
+          "west": "Idle/rotations/west.png",
+          "south-west": "Idle/rotations/south-west.png"
+        },
+        "animations": {}
+      }
+    }
+  ],
+  "export_version": "3.1",
+  "export_date": "2026-10-14T15:14:37.068816"
+}

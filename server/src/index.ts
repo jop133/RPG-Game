@@ -1,11 +1,13 @@
 import { defineRoom, defineServer } from "colyseus";
 import { WebSocketTransport } from "@colyseus/ws-transport";
+import { CityRoom } from "./CityRoom";
 import { GameRoom } from "./GameRoom";
 
 const port = Number(process.env.PORT) || 2567;
 
 const server = defineServer({
   rooms: {
+    city: defineRoom(CityRoom),
     game: defineRoom(GameRoom),
   },
   transport: new WebSocketTransport(),

@@ -62,13 +62,13 @@ describe("planMobSpawns", () => {
   ];
 
   it("cria a quantidade pedida de cada tipo", () => {
-    const spawns = planMobSpawns(cells, { rato: 2, goblin: 1 }, Math.random);
-    expect(spawns.filter((s) => s.kind === "rato")).toHaveLength(2);
+    const spawns = planMobSpawns(cells, { lobo: 2, goblin: 1 }, Math.random);
+    expect(spawns.filter((s) => s.kind === "lobo")).toHaveLength(2);
     expect(spawns.filter((s) => s.kind === "goblin")).toHaveLength(1);
   });
 
   it("cada mob num tile diferente, todos tirados da lista", () => {
-    const spawns = planMobSpawns(cells, { rato: 4 }, Math.random);
+    const spawns = planMobSpawns(cells, { lobo: 4 }, Math.random);
     const keys = spawns.map((s) => `${s.position.x},${s.position.y}`);
     expect(new Set(keys).size).toBe(4);
     expect(spawns.every((s) => cells.some((c) => c.x === s.position.x && c.y === s.position.y))).toBe(true);
@@ -76,7 +76,7 @@ describe("planMobSpawns", () => {
 
   it("o sorteio vem do gerador recebido", () => {
     // 0.99 pega o último tile; 0 pega o primeiro dos que sobraram.
-    const spawns = planMobSpawns(cells, { rato: 2 }, sequence(0.99, 0));
+    const spawns = planMobSpawns(cells, { lobo: 2 }, sequence(0.99, 0));
     expect(spawns.map((s) => s.position)).toEqual([
       { x: 112, y: 16 },
       { x: 16, y: 16 },
@@ -88,6 +88,6 @@ describe("planMobSpawns", () => {
   });
 
   it("mais mobs que tiles dá erro", () => {
-    expect(() => planMobSpawns(cells, { rato: 3, goblin: 2 }, Math.random)).toThrow(/5 mobs não cabem em 4/);
+    expect(() => planMobSpawns(cells, { lobo: 3, goblin: 2 }, Math.random)).toThrow(/5 mobs não cabem em 4/);
   });
 });

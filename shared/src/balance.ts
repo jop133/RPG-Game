@@ -22,11 +22,16 @@ export const STARVATION_DAMAGE_PER_SECOND = 2;
 // maxStack: quantos cabem num slot. food: fome recuperada ao comer um (só itens comestíveis têm).
 // essence: efeito ao consumir a essência, que passa a ocupar um slot de essência do personagem (até o nível).
 // Efeitos de essências iguais se somam. speedPercent: % de velocidade; damage: dano a mais no golpe; maxHp: vida máxima a mais.
+// O rato saiu do 1º andar (a essência de velocidade agora é do lobo), mas os itens dele ficam: há personagens com eles.
 export const ITEMS = {
   racao: { name: "Ração", maxStack: 5, food: 40 },
   pele_de_rato: { name: "Pele de rato", maxStack: 10 },
   dente_de_goblin: { name: "Dente de goblin", maxStack: 10 },
+  pele_de_lobo: { name: "Pele de lobo", maxStack: 10 },
+  fragmento_de_cristal: { name: "Fragmento de cristal", maxStack: 10 },
+  gosma_de_slime: { name: "Gosma de slime", maxStack: 10 },
   essencia_rato: { name: "Essência de rato", maxStack: 3, essence: { speedPercent: 15 } },
+  essencia_lobo: { name: "Essência de lobo", maxStack: 3, essence: { speedPercent: 15 } },
   essencia_goblin: { name: "Essência de goblin", maxStack: 3, essence: { damage: 4 } },
   essencia_goblin_rara: { name: "Essência rara de goblin", maxStack: 3, essence: { maxHp: 25 } },
 } satisfies Record<string, ItemStats>;
@@ -41,11 +46,17 @@ export const STARTING_ITEMS: Partial<Record<ItemId, number>> = { racao: 3 };
 
 // O que cada tipo de mob larga ao morrer. Cada linha é sorteada à parte: com chance `chance` (0 a 1),
 // cai uma quantidade entre `min` e `max`. Goblins às vezes carregam comida: fonte de ração dentro do labirinto.
+// Gnomo e slime ainda não têm essência: só material (as essências deles são decisão de balanceamento futura).
 export const MOB_DROPS: Record<MobKind, DropEntry[]> = {
-  rato: [
-    { item: "pele_de_rato", chance: 0.8, min: 1, max: 1 },
-    { item: "essencia_rato", chance: 0.15, min: 1, max: 1 },
+  lobo: [
+    { item: "pele_de_lobo", chance: 0.8, min: 1, max: 1 },
+    { item: "essencia_lobo", chance: 0.15, min: 1, max: 1 },
   ],
+  gnomo: [
+    { item: "fragmento_de_cristal", chance: 0.9, min: 1, max: 2 },
+    { item: "racao", chance: 0.15, min: 1, max: 1 },
+  ],
+  slime: [{ item: "gosma_de_slime", chance: 0.9, min: 1, max: 2 }],
   goblin: [
     { item: "dente_de_goblin", chance: 1, min: 1, max: 2 },
     { item: "racao", chance: 0.25, min: 1, max: 1 },
@@ -69,6 +80,9 @@ export const EXIT_RADIUS = 28;
 // Tempo parado dentro do portal para extrair. Sair do portal zera; levar dano não.
 export const EXTRACT_MS = 5000;
 
+// Cidade: raio do portal para o labirinto, contado do centro. Dentro dele, a tecla E leva ao labirinto.
+export const CITY_PORTAL_RADIUS = 28;
+
 // Golpe do jogador: arma placeholder única até o passo 8 (maestria de armas).
 // range: alcance em pixels, contado da borda do alvo. arcDegrees: abertura do arco à frente.
 export const PLAYER_ATTACK = { damage: 10, range: 40, arcDegrees: 100, cooldownMs: 500 };
@@ -76,32 +90,62 @@ export const PLAYER_ATTACK = { damage: 10, range: 40, arcDegrees: 100, cooldownM
 // Ticks de simulação do servidor por segundo.
 export const TICK_RATE = 20;
 
+// Metade da diagonal da área do mundo que aparece na tela, em pixels. A janela pode ter qualquer formato: o cliente
+// escolhe largura e altura do jogo para manter esta diagonal e amplia a imagem. Monitor maior não vê mais longe.
+export const SCREEN_HALF_DIAGONAL = 500;
+
 // Distância, em pixels, até onde o servidor envia entidades a um jogador.
-// Maior que a meia-diagonal da tela (800×600 → 500): em área iluminada, nada surge do nada dentro da tela.
+// Maior que SCREEN_HALF_DIAGONAL: em área iluminada, nada surge do nada dentro da tela, qualquer que seja a janela.
 export const VIEW_RADIUS = 520;
 
 // Folga para deixar de ver: quem já é visto só some além de VIEW_RADIUS + isto. Evita piscar na borda.
 export const VIEW_HYSTERESIS = 32;
 
-// Tipos de mob. Placeholders do mapa de teste: nomes e números ainda não são o bestiário de verdade.
+// Tipos de mob do 1º andar (Caverna de Cristal). Números iniciais, para ajustar jogando.
 // size: lado da caixa de colisão em pixels (não pode passar do tamanho do tile). speed: pixels por segundo.
 // aggroRadius: distância em que o mob nota um jogador (precisa também de linha de visão).
 // reach: distância, de borda a borda, em que o mob para ao alcançar o alvo e começa a preparar o golpe.
 // Golpe (telegrafado): prepara por windupMs parado, com a direção travada; então acerta quem estiver no arco
 // (attackArcDegrees) até attackReach de borda a borda; depois fica parado por recoverMs.
 // attackReach > reach de propósito: para escapar é preciso sair do arco de verdade, não só dar um passo para trás.
+// Lobo: rápido e frágil, morde rápido de perto. Gnomo: pequeno, golpe de picareta largo. Slime: lento e resistente,
+// golpe demorado que pega em volta quase toda.
 export const MOB_KINDS = {
-  rato: {
-    size: 16,
-    speed: 90,
-    maxHp: 20,
-    aggroRadius: 160,
+  lobo: {
+    size: 20,
+    speed: 120,
+    maxHp: 30,
+    aggroRadius: 256,
     reach: 8,
-    windupMs: 500,
-    attackDamage: 6,
-    attackReach: 24,
-    attackArcDegrees: 90,
-    recoverMs: 600,
+    windupMs: 450,
+    attackDamage: 10,
+    attackReach: 26,
+    attackArcDegrees: 80,
+    recoverMs: 700,
+  },
+  gnomo: {
+    size: 18,
+    speed: 75,
+    maxHp: 30,
+    aggroRadius: 192,
+    reach: 10,
+    windupMs: 700,
+    attackDamage: 12,
+    attackReach: 30,
+    attackArcDegrees: 110,
+    recoverMs: 800,
+  },
+  slime: {
+    size: 24,
+    speed: 45,
+    maxHp: 55,
+    aggroRadius: 160,
+    reach: 6,
+    windupMs: 900,
+    attackDamage: 14,
+    attackReach: 26,
+    attackArcDegrees: 180,
+    recoverMs: 1000,
   },
   goblin: {
     size: 22,
@@ -129,10 +173,12 @@ export const MOB_LOSE_TRACK_MS = 3000;
 
 // Uma entrada por área do mapa (camada "areas" no Tiled). Os nomes precisam bater com os do mapa.
 // mobs: quantos de cada tipo nascem na área quando a sala é criada.
-// Valores do mapa de teste (assets/maps/test.json).
+// Valores do 1º andar (assets/maps/dungeon_floor1.json, gerado por tools/assets/build_labyrinth.py).
+// Centro: onde se chega, com poucos mobs. Cada região de fora tem o seu povo.
 export const AREAS: Record<string, AreaConfig> = {
-  salao: { playerEntry: true, mobs: { rato: 3 } },
-  galeria: { playerEntry: false, mobs: { rato: 2, goblin: 2 } },
-  tuneis: { playerEntry: true, mobs: { rato: 4 } },
-  toca: { playerEntry: false, mobs: { goblin: 5 } },
+  centro: { playerEntry: true, mobs: { goblin: 1, lobo: 1, gnomo: 1, slime: 1 } },
+  norte: { playerEntry: false, mobs: { goblin: 12 } },
+  leste: { playerEntry: false, mobs: { lobo: 10 } },
+  oeste: { playerEntry: false, mobs: { gnomo: 10 } },
+  sul: { playerEntry: false, mobs: { slime: 10 } },
 };

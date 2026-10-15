@@ -4,6 +4,7 @@ import {
   EXIT_LAYER,
   MOB_KINDS,
   PLAYER_SIZE,
+  PORTAL_LAYER,
   SPAWN_LAYER,
   areaFloorCells,
   boxFits,
@@ -11,6 +12,7 @@ import {
   parseAreas,
   parseCollisionGrid,
   parseExitPoints,
+  parsePortalPoints,
   parseSpawnPoints,
   validateAreas,
   type Area,
@@ -29,9 +31,20 @@ export interface Level {
   exitCandidates: Vec2[];
 }
 
+export interface City {
+  grid: CollisionGrid;
+  spawnPoints: Vec2[];
+  // Portais para o labirinto.
+  portals: Vec2[];
+}
+
+function readMap(file: URL): TiledMap {
+  return JSON.parse(readFileSync(file, "utf8")) as TiledMap;
+}
+
 // Qualquer erro de mapa aparece ao subir o servidor, não no meio de uma run.
 export function loadLevel(file: URL): Level {
-  const map = JSON.parse(readFileSync(file, "utf8")) as TiledMap;
+  const map = readMap(file);
   const grid = parseCollisionGrid(map);
   const areas = parseAreas(map);
   const spawnPoints = parseSpawnPoints(map);
@@ -51,6 +64,24 @@ export function loadLevel(file: URL): Level {
   if (errors.length > 0) throw new Error(`Mapa inválido (${file.pathname}):\n- ${errors.join("\n- ")}`);
 
   return { grid, areas, playerEntryPoints, floorCells, exitCandidates };
+}
+
+// A cidade não tem áreas, mobs nem saídas: só onde se chega e os portais para o labirinto.
+export function loadCity(file: URL): City {
+  const map = readMap(file);
+  const grid = parseCollisionGrid(map);
+  const spawnPoints = parseSpawnPoints(map);
+  const portals = parsePortalPoints(map);
+  const errors = [...spawnErrors(grid, spawnPoints), ...portalErrors(grid, portals)];
+  if (errors.length > 0) throw new Error(`Mapa inválido (${file.pathname}):\n- ${errors.join("\n- ")}`);
+  return { grid, spawnPoints, portals };
+}
+
+function portalErrors(grid: CollisionGrid, portals: Vec2[]): string[] {
+  if (portals.length === 0) return [`A cidade não tem portal. Crie uma camada de objetos "${PORTAL_LAYER}" com pontos.`];
+  return portals
+    .filter((p) => !boxFits(grid, p, PLAYER_SIZE / 2))
+    .map((p) => `O portal (${p.x}, ${p.y}) encosta em parede. O jogador não conseguiria ficar nele.`);
 }
 
 function exitErrors(grid: CollisionGrid, exits: Vec2[]): string[] {

@@ -1,6 +1,5 @@
-import { fileURLToPath } from "node:url";
 import { StateView } from "@colyseus/schema";
-import { CloseCode, Room, ServerError, type Client } from "colyseus";
+import { CloseCode, Room, type Client } from "colyseus";
 import {
   AREAS,
   EXITS_ACTIVE,
@@ -11,9 +10,7 @@ import {
   PICKUP_RADIUS,
   PLAYER_ATTACK,
   PLAYER_SIZE,
-  STARTING_ITEMS,
   TICK_RATE,
-  VIEW_RADIUS,
   applyDamage,
   isInArc,
   isInSwing,
@@ -27,16 +24,13 @@ import {
   nearestWithin,
   parseAttackAngle,
   parseMoveInput,
-  parsePlayerName,
   parseSlotIndex,
   playerStats,
   pickActiveExits,
   pickSpawnPoint,
   planMobSpawns,
   rollDrops,
-  shouldSee,
   startIdle,
-  startingInventory,
   starvationDamage,
   stepExtraction,
   stepMob,
@@ -56,18 +50,14 @@ import {
   type MoveInput,
   type Vec2,
 } from "shared";
-import { type CharacterRecord, Store } from "./db";
+import type { CharacterRecord } from "./db";
 import { loadLevel } from "./level";
+import { admit, release } from "./presence";
 import { ExitState, GameState, ItemSlotState, LootState, MobState, OWNER_TAG, PlayerState } from "./state";
+import { store } from "./store";
+import { updateVisibility } from "./views";
 
-const level = loadLevel(new URL("../../assets/maps/test.json", import.meta.url));
-
-// DB_FILE permite um banco separado (ex.: servidores de teste não tocam no banco de verdade).
-const store = new Store(process.env.DB_FILE ?? fileURLToPath(new URL("../../data/rpg-extracao.db", import.meta.url)));
-
-// Personagens dentro de alguma sala agora (conectados ou esperando reconexão), neste processo.
-// Impede o mesmo personagem de entrar duas vezes (ex.: o mesmo nome em duas abas).
-const charactersInside = new Set<number>();
+const level = loadLevel(new URL("../../assets/maps/dungeon_floor1.json", import.meta.url));
 
 // O que o servidor precisa saber de um mob para movê-lo, e que o cliente não precisa ver.
 interface MobBrain {
@@ -115,16 +105,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.setSimulationInterval((dtMs) => this.tick(dtMs), 1000 / TICK_RATE);
   }
 
-  // Porta de entrada: valida o nome e acha (ou cria) o personagem. Recusa quem já está no labirinto.
   onAuth(_client: Client, options: unknown): CharacterRecord {
-    const name = parsePlayerName((options as { name?: unknown } | undefined)?.name);
-    if (!name) throw new ServerError(400, "Nome inválido: use de 2 a 20 letras, números, espaço, - ou _.");
-    const record = store.enter(name);
-    if (charactersInside.has(record.characterId)) {
-      throw new ServerError(409, `${record.name} já está no labirinto.`);
-    }
-    charactersInside.add(record.characterId);
-    return record;
+    return admit(options);
   }
 
   onJoin(client: Client) {
@@ -136,6 +118,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.essences.set(client.sessionId, essences);
     this.stats.set(client.sessionId, stats);
     const player = new PlayerState({
+      name: record.name,
+      classId: record.classId ?? "",
       ...this.entryPoint(),
       hp: stats.maxHp,
       maxHp: stats.maxHp,
@@ -148,7 +132,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     });
     for (let i = 0; i < INVENTORY_SLOTS; i++) player.inventory.push(new ItemSlotState({ item: "", count: 0 }));
     for (const essence of essences) player.essences.push(essence);
-    this.setInventory(client.sessionId, player, startingInventory(STARTING_ITEMS));
+    // O que o personagem trouxe da cidade (ou o kit inicial, se for novo).
+    this.setInventory(client.sessionId, player, store.inventory(record.characterId));
     this.state.players.set(client.sessionId, player);
     this.moveInputs.set(client.sessionId, NO_INPUT);
     client.view = new StateView();
@@ -177,7 +162,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.inventories.delete(sessionId);
     this.extractProgress.delete(sessionId);
     const record = this.characters.get(sessionId);
-    if (record) charactersInside.delete(record.characterId);
+    if (record) release(record);
     this.characters.delete(sessionId);
     this.essences.delete(sessionId);
     this.stats.delete(sessionId);
@@ -202,13 +187,14 @@ export class GameRoom extends Room<{ state: GameState }> {
     for (const sessionId of done) this.extractPlayer(sessionId);
   }
 
-  // Extraiu: sai da sala levando tudo o que carregava. Ninguém deixa pilha ao extrair.
+  // Extraiu: sai da sala levando tudo o que carregava, que fica gravado no personagem. Ninguém deixa pilha ao extrair.
+  // Só aqui o inventário vai para o banco: se o servidor cair no meio da run, ela "não aconteceu".
   private extractPlayer(sessionId: string) {
     const client = this.clients.getById(sessionId);
     const inventory = this.inventories.get(sessionId);
     const result: ExtractionResult = { items: inventory ? inventoryToPile(inventory) : [] };
     const record = this.characters.get(sessionId);
-    if (record) store.creditExtraction(record.lineageId, result.items);
+    if (record && inventory) store.setInventory(record.characterId, inventory);
     client?.send("extracted", result);
     this.removePlayer(sessionId);
     client?.leave(CloseCode.CONSENTED);
@@ -451,11 +437,4 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.state.exits.forEach((exit) => updateVisibility(view, self, exit));
     }
   }
-}
-
-function updateVisibility(view: StateView, observer: Vec2, entity: PlayerState | MobState | LootState | ExitState) {
-  const seen = view.has(entity);
-  const see = shouldSee(observer, entity, VIEW_RADIUS, seen);
-  if (see && !seen) view.add(entity);
-  if (!see && seen) view.remove(entity);
 }

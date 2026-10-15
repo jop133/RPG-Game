@@ -3,3 +3,11 @@ dist/
 .env
 *.log
 data/
+.venv/
+__pycache__/
+tools/assets/build/
+# Arte original (grande, só no disco do dono do projeto): os scripts de tools/assets/ leem daqui,
+# o jogo usa só o que eles geram. O pacote Paper UI não pode ser redistribuído (licença).
+assets/tilesets/novos tilesets/
+assets/tilesets/labirinto/
+assets/tilesets/interface/

@@ -1,0 +1,36 @@
+{
+  "group_id": "89436fe8-540c-47b3-9937-100ae88d0fc8",
+  "states": [
+    {
+      "character": {
+        "id": "bad47b5f-1b32-4591-9662-6711961755c2",
+        "name": "Idle",
+        "prompt": "tiny goblin, wearing just a thong of leather",
+        "size": {
+          "width": 64,
+          "height": 64
+        },
+        "template_id": "mannequin",
+        "directions": 8,
+        "view": "high top-down",
+        "created_at": "2026-10-14T18:43:46.487346+00:00"
+      },
+      "folder": "Idle",
+      "frames": {
+        "rotations": {
+          "south": "Idle/rotations/south.png",
+          "south-east": "Idle/rotations/south-east.png",
+          "east": "Idle/rotations/east.png",
+          "north-east": "Idle/rotations/north-east.png",
+          "north": "Idle/rotations/north.png",
+          "north-west": "Idle/rotations/north-west.png",
+          "west": "Idle/rotations/west.png",
+          "south-west": "Idle/rotations/south-west.png"
+        },
+        "animations": {}
+      }
+    }
+  ],
+  "export_version": "3.1",
+  "export_date": "2026-10-14T18:54:52.811520"
+}

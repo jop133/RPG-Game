@@ -8,9 +8,23 @@ export interface TiledProperty {
   value: unknown;
 }
 
+export interface TiledTile {
+  id: number;
+  properties?: TiledProperty[];
+  // Só em coleção de imagens (cada tile é uma imagem de qualquer tamanho, usada como objeto: casa, poste...).
+  image?: string;
+  imagewidth?: number;
+  imageheight?: number;
+  // Retângulos de colisão desenhados no tile (editor de colisão do Tiled), a partir do canto de cima da imagem.
+  objectgroup?: { objects: TiledObject[] };
+}
+
 export interface TiledTileset {
   firstgid: number;
-  tiles?: { id: number; properties?: TiledProperty[] }[];
+  name?: string;
+  // Folha de tiles: uma imagem só. Coleção de imagens não tem: cada tile traz a sua.
+  image?: string;
+  tiles?: TiledTile[];
 }
 
 export interface TiledObject {
@@ -45,17 +59,73 @@ export interface TiledMap {
 }
 
 // Os 3 bits mais altos do gid guardam espelhamento/rotação do tile, não a identidade dele.
-const GID_MASK = 0x1fffffff;
+export const GID_MASK = 0x1fffffff;
+
+function isSolidTile(tile: TiledTile | undefined): boolean {
+  return tile?.properties?.some((p) => p.name === "solid" && p.value === true) ?? false;
+}
 
 function solidGids(tilesets: TiledTileset[]): Set<number> {
   const gids = new Set<number>();
   for (const tileset of tilesets) {
     for (const tile of tileset.tiles ?? []) {
-      const solid = tile.properties?.some((p) => p.name === "solid" && p.value === true);
-      if (solid) gids.add(tileset.firstgid + tile.id);
+      if (isSolidTile(tile)) gids.add(tileset.firstgid + tile.id);
     }
   }
   return gids;
+}
+
+function tileForGid(tilesets: TiledTileset[], gid: number): TiledTile | undefined {
+  const tileset = tilesets.filter((t) => t.firstgid <= gid).sort((a, b) => b.firstgid - a.firstgid)[0];
+  return tileset?.tiles?.find((tile) => tile.id === gid - tileset.firstgid);
+}
+
+// Área que bloqueia de cada objeto de tile (com gid) cujo tile tem `solid`, em pixels do mundo.
+// No Tiled (mapa ortogonal), x,y de um objeto de tile é o canto de BAIXO-esquerdo da imagem.
+// Usa os retângulos de colisão do tile (escalados se o objeto foi redimensionado); sem retângulo, o objeto inteiro.
+export function parseObjectFootprints(map: TiledMap): Rect[] {
+  const rects: Rect[] = [];
+  for (const layer of map.layers) {
+    if (layer.type !== "objectgroup") continue;
+    for (const object of layer.objects ?? []) {
+      if (object.gid === undefined) continue;
+      const tile = tileForGid(map.tilesets, object.gid & GID_MASK);
+      if (!isSolidTile(tile)) continue;
+      const width = object.width ?? tile?.imagewidth ?? 0;
+      const height = object.height ?? tile?.imageheight ?? 0;
+      const sx = tile?.imagewidth ? width / tile.imagewidth : 1;
+      const sy = tile?.imageheight ? height / tile.imageheight : 1;
+      const top = object.y - height;
+      const shapes = tile?.objectgroup?.objects.filter(isRectangle) ?? [];
+      if (shapes.length === 0) rects.push({ x: object.x, y: top, width, height });
+      for (const shape of shapes) {
+        rects.push({
+          x: object.x + shape.x * sx,
+          y: top + shape.y * sy,
+          width: (shape.width ?? 0) * sx,
+          height: (shape.height ?? 0) * sy,
+        });
+      }
+    }
+  }
+  return rects;
+}
+
+// Células cujo centro está dentro do intervalo [start, start + length). Se nenhum centro cair dentro
+// (retângulo mais fino que uma célula, como a base de um poste), a célula do meio do intervalo.
+function cellSpanOf(start: number, length: number, size: number, count: number): [number, number] {
+  let first = Math.ceil(start / size - 0.5);
+  let last = Math.ceil((start + length) / size - 0.5) - 1;
+  if (first > last) first = last = Math.floor((start + length / 2) / size);
+  return [Math.max(0, first), Math.min(count - 1, last)];
+}
+
+function markRects(solid: boolean[], map: TiledMap, rects: Rect[]) {
+  for (const rect of rects) {
+    const [col0, col1] = cellSpanOf(rect.x, rect.width, map.tilewidth, map.width);
+    const [row0, row1] = cellSpanOf(rect.y, rect.height, map.tilewidth, map.height);
+    for (let row = row0; row <= row1; row++) for (let col = col0; col <= col1; col++) solid[row * map.width + col] = true;
+  }
 }
 
 function layerData(layer: TiledLayer): number[] {
@@ -65,7 +135,8 @@ function layerData(layer: TiledLayer): number[] {
   return layer.data ?? [];
 }
 
-// Uma célula é parede se qualquer camada de tiles tiver ali um tile com a propriedade `solid`.
+// Uma célula é parede se qualquer camada de tiles tiver ali um tile com a propriedade `solid`,
+// ou se a área de colisão de um objeto sólido (casa, poste...) cobrir o centro dela.
 export function parseCollisionGrid(map: TiledMap): CollisionGrid {
   if (map.tilewidth !== map.tileheight) {
     throw new Error(`Tiles precisam ser quadrados (mapa tem ${map.tilewidth}x${map.tileheight}).`);
@@ -78,12 +149,14 @@ export function parseCollisionGrid(map: TiledMap): CollisionGrid {
       if (gids.has(gid & GID_MASK)) solid[index] = true;
     });
   }
+  markRects(solid, map, parseObjectFootprints(map));
   return { width: map.width, height: map.height, tileSize: map.tilewidth, solid };
 }
 
 export const SPAWN_LAYER = "spawns";
 export const AREA_LAYER = "areas";
 export const EXIT_LAYER = "exits";
+export const PORTAL_LAYER = "portal";
 
 function objectsIn(map: TiledMap, layerName: string): TiledObject[] {
   const layer = map.layers.find((l) => l.type === "objectgroup" && l.name === layerName);
@@ -107,6 +180,11 @@ export function parseSpawnPoints(map: TiledMap): Vec2[] {
 // Candidatos a portal de saída: pontos na camada "exits". Alguns são sorteados como ativos em cada run.
 export function parseExitPoints(map: TiledMap): Vec2[] {
   return pointsIn(map, EXIT_LAYER);
+}
+
+// Portais da cidade para o labirinto: pontos na camada "portal".
+export function parsePortalPoints(map: TiledMap): Vec2[] {
+  return pointsIn(map, PORTAL_LAYER);
 }
 
 // No JSON do Tiled, ponto, elipse, polígono, texto e tile também têm x/y; retângulo é o que não tem marca nenhuma.

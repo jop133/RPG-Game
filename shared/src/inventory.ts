@@ -1,4 +1,4 @@
-import { HUNGER_MAX, INVENTORY_SLOTS, ITEMS, type ItemId } from "./balance";
+import { HUNGER_MAX, INVENTORY_SLOTS, ITEMS, STARTING_ITEMS, type ItemId } from "./balance";
 import type { EssenceEffect } from "./essences";
 
 export interface ItemStats {
@@ -67,6 +67,13 @@ export function startingInventory(items: Partial<Record<ItemId, number>>): Inven
     inventory = addItems(inventory, item, count).inventory;
   }
   return inventory;
+}
+
+// Inventário guardado no personagem → inventário em jogo. Nada guardado (personagem novo) = kit inicial.
+// Completa com slots vazios se INVENTORY_SLOTS tiver crescido desde que foi gravado.
+export function restoreInventory(saved: Inventory | null): Inventory {
+  if (saved === null) return startingInventory(STARTING_ITEMS);
+  return Array.from({ length: INVENTORY_SLOTS }, (_, i) => saved[i] ?? null);
 }
 
 // Vem do cliente: só aceita { slot: inteiro de 0 a INVENTORY_SLOTS - 1 }.

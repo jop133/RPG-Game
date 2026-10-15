@@ -1,0 +1,36 @@
+{
+  "group_id": "e79a68df-7d6f-4d46-ae74-bd5cf8449b6f",
+  "states": [
+    {
+      "character": {
+        "id": "4d175597-5b21-45dc-ad2d-b126ad7b2ed0",
+        "name": "Idle",
+        "prompt": "small evil gnome with a pointed red hat",
+        "size": {
+          "width": 64,
+          "height": 64
+        },
+        "template_id": "mannequin",
+        "directions": 8,
+        "view": "high top-down",
+        "created_at": "2026-10-14T23:44:34.524694+00:00"
+      },
+      "folder": "Idle",
+      "frames": {
+        "rotations": {
+          "south": "Idle/rotations/south.png",
+          "south-east": "Idle/rotations/south-east.png",
+          "east": "Idle/rotations/east.png",
+          "north-east": "Idle/rotations/north-east.png",
+          "north": "Idle/rotations/north.png",
+          "north-west": "Idle/rotations/north-west.png",
+          "west": "Idle/rotations/west.png",
+          "south-west": "Idle/rotations/south-west.png"
+        },
+        "animations": {}
+      }
+    }
+  ],
+  "export_version": "3.1",
+  "export_date": "2026-10-14T23:56:48.684922"
+}

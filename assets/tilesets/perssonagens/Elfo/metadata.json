@@ -1,0 +1,36 @@
+{
+  "group_id": "09a17ccb-ebd3-4163-8fc1-66c403210b5d",
+  "states": [
+    {
+      "character": {
+        "id": "0a8cd2dd-db5b-479a-9038-19b458112dcf",
+        "name": "Idle",
+        "prompt": "elf race with long ears and elf aspects wearing just a underpant",
+        "size": {
+          "width": 64,
+          "height": 64
+        },
+        "template_id": "mannequin",
+        "directions": 8,
+        "view": "low top-down",
+        "created_at": "2026-10-14T14:05:36.478825+00:00"
+      },
+      "folder": "Idle",
+      "frames": {
+        "rotations": {
+          "south": "Idle/rotations/south.png",
+          "south-east": "Idle/rotations/south-east.png",
+          "east": "Idle/rotations/east.png",
+          "north-east": "Idle/rotations/north-east.png",
+          "north": "Idle/rotations/north.png",
+          "north-west": "Idle/rotations/north-west.png",
+          "west": "Idle/rotations/west.png",
+          "south-west": "Idle/rotations/south-west.png"
+        },
+        "animations": {}
+      }
+    }
+  ],
+  "export_version": "3.1",
+  "export_date": "2026-10-14T14:18:34.316901"
+}

@@ -11,6 +11,9 @@ export type ItemSlotState = SchemaType<typeof ItemSlotState>;
 // hunger e inventory são privados: os outros veem a sua vida, não a sua fome nem o que você carrega.
 export const PlayerState = schema(
   {
+    // Públicos: os outros veem nome e classe (o desenho do personagem).
+    name: t.string(),
+    classId: t.string(),
     x: t.number(),
     y: t.number(),
     hp: t.number(),
@@ -59,3 +62,24 @@ export const GameState = schema(
   "GameState",
 );
 export type GameState = SchemaType<typeof GameState>;
+
+// Jogador na cidade. Sem vida nem fome: a cidade é segura.
+// Só o dono vê a própria progressão e o próprio inventário (para o HUD).
+export const CityPlayerState = schema(
+  {
+    name: t.string(),
+    classId: t.string(),
+    x: t.number(),
+    y: t.number(),
+    xp: t.number().view(OWNER_TAG),
+    level: t.number().view(OWNER_TAG),
+    essences: t.array("string").view(OWNER_TAG),
+    inventory: t.array(ItemSlotState).view(OWNER_TAG),
+  },
+  "CityPlayerState",
+);
+export type CityPlayerState = SchemaType<typeof CityPlayerState>;
+
+// Mesmo na cidade, cada cliente só recebe quem está no raio de visão dele (regra 5).
+export const CityState = schema({ players: t.map(CityPlayerState).view() }, "CityState");
+export type CityState = SchemaType<typeof CityState>;

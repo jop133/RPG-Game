@@ -1,5 +1,7 @@
 export * from "./areas";
 export * from "./balance";
+export * from "./city";
+export * from "./classes";
 export * from "./collision";
 export * from "./combat";
 export * from "./death";

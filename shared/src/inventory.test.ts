@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HUNGER_MAX, INVENTORY_SLOTS, ITEMS, type ItemId } from "./balance";
+import { HUNGER_MAX, INVENTORY_SLOTS, ITEMS, STARTING_ITEMS, type ItemId } from "./balance";
 import {
   type Inventory,
   addItems,
@@ -7,6 +7,7 @@ import {
   emptyInventory,
   parseSlotIndex,
   removeItems,
+  restoreInventory,
   startingInventory,
   useSlot,
 } from "./inventory";
@@ -77,6 +78,25 @@ describe("startingInventory", () => {
     expect(countItem(inv, "racao")).toBe(3);
     expect(countItem(inv, "pele_de_rato")).toBe(2);
     expect(inv).toHaveLength(INVENTORY_SLOTS);
+  });
+});
+
+describe("restoreInventory", () => {
+  it("personagem sem inventário guardado recebe o kit inicial", () => {
+    expect(restoreInventory(null)).toEqual(startingInventory(STARTING_ITEMS));
+  });
+
+  it("inventário guardado volta como estava, inclusive vazio (o kit é uma vez só)", () => {
+    const saved = addItems(emptyInventory(), "pele_de_rato", 4).inventory;
+    expect(restoreInventory(saved)).toEqual(saved);
+    expect(used(restoreInventory(emptyInventory()))).toBe(0);
+  });
+
+  it("guardado com menos slots: completa com vazios, sem perder itens", () => {
+    const restored = restoreInventory([{ item: "racao", count: 2 }]);
+    expect(restored).toHaveLength(INVENTORY_SLOTS);
+    expect(restored[0]).toEqual({ item: "racao", count: 2 });
+    expect(used(restored)).toBe(1);
   });
 });
 

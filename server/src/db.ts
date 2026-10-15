@@ -1,12 +1,23 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
-import { FIRST_KILL_XP, type DeathCause, type ItemId, type ItemStack, type MobKind } from "shared";
+import {
+  FIRST_KILL_XP,
+  parseClassId,
+  restoreInventory,
+  type ClassId,
+  type DeathCause,
+  type Inventory,
+  type ItemId,
+  type MobKind,
+} from "shared";
 
 export interface CharacterRecord {
   characterId: number;
   lineageId: number;
   name: string;
+  // Escolhida uma vez, na ficha de registro. undefined = personagem novo que ainda não escolheu.
+  classId: ClassId | undefined;
 }
 
 // Cada migração roda uma vez, em ordem. O número da última aplicada fica em PRAGMA user_version.
@@ -57,6 +68,18 @@ const MIGRATIONS: string[] = [
   -- Essências equipadas do personagem (JSON com ids de item). Somem com ele na morte.
   ALTER TABLE characters ADD COLUMN essences TEXT NOT NULL DEFAULT '[]';
   `,
+  `
+  -- Inventário do personagem (JSON: um item por slot, ou null). NULL = nunca gravado: recebe o kit inicial.
+  -- No labirinto só é gravado na extração: se o servidor cair no meio de uma run, ela "não aconteceu".
+  ALTER TABLE characters ADD COLUMN inventory TEXT;
+  -- O crédito da linhagem era provisório (não havia para onde voltar). O que se extrai agora fica no inventário.
+  DROP TABLE lineage_credit;
+  `,
+  `
+  -- Classe do personagem (mago, elfo, barbaro, homem_fera). NULL = ainda não escolheu (o primeiro da linhagem
+  -- ou um herdeiro escolhe na ficha de registro). Depois de escolhida, não muda.
+  ALTER TABLE characters ADD COLUMN class TEXT;
+  `,
 ];
 
 export class Store {
@@ -89,12 +112,17 @@ export class Store {
         name: string;
       };
       const living = this.db
-        .prepare("SELECT id FROM characters WHERE lineage_id = ? AND alive = 1")
-        .get(lineage.id) as { id: number } | undefined;
+        .prepare("SELECT id, class FROM characters WHERE lineage_id = ? AND alive = 1")
+        .get(lineage.id) as { id: number; class: string | null } | undefined;
       const characterId =
         living?.id ?? Number(this.db.prepare("INSERT INTO characters (lineage_id) VALUES (?)").run(lineage.id).lastInsertRowid);
-      return { characterId, lineageId: lineage.id, name: lineage.name };
+      return { characterId, lineageId: lineage.id, name: lineage.name, classId: parseClassId(living?.class) };
     })();
+  }
+
+  // Só grava se o personagem ainda não tem classe: a escolha é uma vez só.
+  setClass(characterId: number, classId: ClassId) {
+    this.db.prepare("UPDATE characters SET class = ? WHERE id = ? AND class IS NULL").run(classId, characterId);
   }
 
   xp(characterId: number): number {
@@ -135,20 +163,15 @@ export class Store {
       .run(JSON.stringify(cause), characterId);
   }
 
-  creditExtraction(lineageId: number, items: ItemStack[]) {
-    const add = this.db.prepare(
-      "INSERT INTO lineage_credit (lineage_id, item, count) VALUES (?, ?, ?) " +
-        "ON CONFLICT(lineage_id, item) DO UPDATE SET count = count + excluded.count",
-    );
-    this.db.transaction(() => {
-      for (const stack of items) add.run(lineageId, stack.item, stack.count);
-    })();
+  inventory(characterId: number): Inventory {
+    const row = this.db.prepare("SELECT inventory FROM characters WHERE id = ?").get(characterId) as {
+      inventory: string | null;
+    };
+    return restoreInventory(row.inventory === null ? null : (JSON.parse(row.inventory) as Inventory));
   }
 
-  credit(lineageId: number): ItemStack[] {
-    return this.db
-      .prepare("SELECT item, count FROM lineage_credit WHERE lineage_id = ? ORDER BY item")
-      .all(lineageId) as ItemStack[];
+  setInventory(characterId: number, inventory: Inventory) {
+    this.db.prepare("UPDATE characters SET inventory = ? WHERE id = ?").run(JSON.stringify(inventory), characterId);
   }
 
   close() {

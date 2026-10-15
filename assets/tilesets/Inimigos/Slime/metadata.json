@@ -1,0 +1,36 @@
+{
+  "group_id": "3fef1250-ea5a-40e2-8a52-fb0f62741637",
+  "states": [
+    {
+      "character": {
+        "id": "834c3afa-97fa-4d54-8ed7-3d28ae1336f2",
+        "name": "Idle",
+        "prompt": "dark fantasy corrosive acid slime monster, translucent toxic green gelatinous blob with acid bubbles and melting puddle edges, gritty dark pixel art",
+        "size": {
+          "width": 64,
+          "height": 64
+        },
+        "template_id": "custom",
+        "directions": 8,
+        "view": "high top-down",
+        "created_at": "2026-10-14T23:51:59.301841+00:00"
+      },
+      "folder": "Idle",
+      "frames": {
+        "rotations": {
+          "south": "Idle/rotations/south.png",
+          "south-east": "Idle/rotations/south-east.png",
+          "east": "Idle/rotations/east.png",
+          "north-east": "Idle/rotations/north-east.png",
+          "north": "Idle/rotations/north.png",
+          "north-west": "Idle/rotations/north-west.png",
+          "west": "Idle/rotations/west.png",
+          "south-west": "Idle/rotations/south-west.png"
+        },
+        "animations": {}
+      }
+    }
+  ],
+  "export_version": "3.1",
+  "export_date": "2026-10-14T23:56:51.832596"
+}

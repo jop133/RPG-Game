@@ -1,0 +1,355 @@
+/* Ficha de registro do aventureiro (telas de nome e de classe). Peças em assets/ui (pacote Paper UI recolorido).
+   Layout fixo de 1280x720 "pixels de arte", ampliado por fator inteiro (ver fitStage) para a pixel art ficar nítida. */
+
+.reg-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  overflow: hidden;
+  background: radial-gradient(ellipse at center, #2a1f19 0%, #120d0a 70%, #070504 100%);
+  opacity: 1;
+  transition: opacity 0.5s ease;
+}
+.reg-backdrop.reg-fading {
+  opacity: 0;
+}
+.reg-stage {
+  position: absolute;
+  width: 1280px;
+  height: 720px;
+  transform-origin: 0 0;
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+  color: #2b1e16;
+}
+.reg-stage,
+.reg-stage * {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+.reg-abs {
+  position: absolute;
+}
+.reg-screen {
+  position: absolute;
+  inset: 0;
+  opacity: 1;
+  transition: opacity 0.3s ease;
+}
+.reg-screen.reg-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ---------- textos ---------- */
+.reg-title {
+  font-size: 34px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  text-align: center;
+  color: #2b1e16;
+}
+.reg-subtitle {
+  font-size: 20px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  text-align: center;
+  color: #d9c29a;
+  text-shadow: 0 2px 0 #000;
+}
+.reg-label {
+  font-size: 21px;
+  color: #4a3525;
+}
+.reg-error {
+  font-size: 17px;
+  color: #7a1c12;
+  min-height: 22px;
+}
+.reg-hint {
+  font-size: 15px;
+  color: #4a3525;
+  opacity: 0.85;
+}
+
+/* ---------- peças de 3 partes (esquerda, meio repetido, direita), ampliadas 2x ---------- */
+.reg-three {
+  display: flex;
+  height: 64px;
+}
+.reg-three > span {
+  display: block;
+  height: 64px;
+  background-size: 64px 64px;
+}
+.reg-three > .l,
+.reg-three > .r {
+  width: 64px;
+  flex: none;
+}
+.reg-three > .m {
+  flex: 1;
+  background-repeat: repeat-x;
+}
+.reg-field > .l { background-image: url("../../assets/ui/field-left.png"); }
+.reg-field > .m { background-image: url("../../assets/ui/field-mid.png"); }
+.reg-field > .r { background-image: url("../../assets/ui/field-right.png"); }
+
+.reg-input {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  top: 0;
+  height: 64px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 26px;
+  color: #2b1e16;
+  caret-color: #7a1c12;
+}
+
+/* Botão: tampa esquerda (com o pino), meio e ponta em flecha. Hover troca pela versão de faixas vermelhas. */
+.reg-button {
+  position: absolute;
+  height: 64px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+.reg-button .reg-three > .l { background-image: url("../../assets/ui/button-left.png"); }
+.reg-button .reg-three > .m { background-image: url("../../assets/ui/button-mid.png"); }
+.reg-button .reg-three > .r { background-image: url("../../assets/ui/button-right.png"); }
+.reg-button:hover .reg-three > .l,
+.reg-button:focus-visible .reg-three > .l { background-image: url("../../assets/ui/button-hover-left.png"); }
+.reg-button:hover .reg-three > .m,
+.reg-button:focus-visible .reg-three > .m { background-image: url("../../assets/ui/button-hover-mid.png"); }
+.reg-button:hover .reg-three > .r,
+.reg-button:focus-visible .reg-three > .r { background-image: url("../../assets/ui/button-hover-right.png"); }
+.reg-button .reg-button-text {
+  position: absolute;
+  inset: 0 70px 0 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 21px;
+  font-weight: bold;
+  color: #2b1e16;
+  white-space: nowrap;
+}
+.reg-button:active .reg-button-text {
+  transform: translateY(2px);
+}
+.reg-button:disabled {
+  cursor: default;
+  filter: grayscale(0.6) brightness(0.8);
+}
+
+/* Faixa (banner) do nome da classe: pontas com divisas e meio repetido, 1x (80 de altura). */
+.reg-banner {
+  height: 80px;
+}
+.reg-banner > span {
+  height: 80px;
+  background-size: 112px 80px;
+}
+.reg-banner > .l,
+.reg-banner > .r {
+  width: 112px;
+}
+.reg-banner > .l { background-image: url("../../assets/ui/banner-left.png"); }
+.reg-banner > .m { background-image: url("../../assets/ui/banner-mid.png"); }
+.reg-banner > .r { background-image: url("../../assets/ui/banner-right.png"); }
+.reg-banner-text {
+  position: absolute;
+  inset: 0 90px 10px 90px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 27px;
+  font-weight: bold;
+  color: #2b1e16;
+}
+
+/* ---------- animações quadro a quadro (tiras verticais) ---------- */
+.reg-reveal-dialogue {
+  width: 624px;
+  height: 128px;
+  background: url("../../assets/ui/reveal-dialogue-strip.png") 0 0 / 624px 5632px no-repeat;
+  animation: reg-reveal-dialogue 1.1s steps(43) forwards;
+  pointer-events: none;
+}
+@keyframes reg-reveal-dialogue {
+  to { background-position: 0 -5504px; }
+}
+.reg-reveal-sheet {
+  width: 288px;
+  height: 336px;
+  background: url("../../assets/ui/reveal-sheet-strip.png") 0 0 / 288px 12096px no-repeat;
+  animation: reg-reveal-sheet 0.9s steps(35) forwards;
+  pointer-events: none;
+}
+@keyframes reg-reveal-sheet {
+  to { background-position: 0 -11760px; }
+}
+/* Carimbo: 20 quadros de 96x96, ampliado 2x. */
+.reg-stamp {
+  width: 192px;
+  height: 192px;
+  background: url("../../assets/ui/stamp-strip.png") 0 0 / 192px 3840px no-repeat;
+  animation: reg-stamp 0.6s steps(19) forwards;
+  pointer-events: none;
+}
+@keyframes reg-stamp {
+  to { background-position: 0 -3648px; }
+}
+.reg-stamp-mark {
+  width: 64px;
+  height: 64px;
+  background: url("../../assets/ui/stamp-mark.png") 0 0 / 64px 64px no-repeat;
+  opacity: 0;
+  transform: rotate(-12deg) scale(1.3);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.reg-stamp-mark.reg-on {
+  opacity: 0.9;
+  transform: rotate(-12deg) scale(1);
+}
+
+/* ---------- ficha de classe ---------- */
+.reg-card {
+  position: absolute;
+  width: 150px;
+  height: 160px;
+  cursor: pointer;
+}
+.reg-card .reg-holder {
+  position: absolute;
+  left: 19px;
+  top: 0;
+  width: 112px;
+  height: 112px;
+  background: url("../../assets/ui/holder-card.png") 0 0 / 112px 112px;
+}
+.reg-card .reg-sprite {
+  position: absolute;
+  left: 43px;
+  top: 20px;
+  width: 64px;
+  height: 64px;
+}
+.reg-card .reg-card-name {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 118px;
+  text-align: center;
+  font-size: 19px;
+  color: #d9c29a;
+  text-shadow: 0 2px 0 #000;
+}
+.reg-card.reg-active .reg-card-name {
+  color: #f0dcb4;
+  font-weight: bold;
+}
+.reg-card:hover .reg-holder {
+  filter: brightness(1.08);
+}
+/* Destaque: quatro cantos (16x16, 2x) em volta da moldura do card ativo, pulsando. */
+.reg-corner {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  background-size: 32px 32px;
+  animation: reg-pulse 0.9s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+.reg-corner.tl { background-image: url("../../assets/ui/highlight-tl.png"); --dx: -3px; --dy: -3px; }
+.reg-corner.tr { background-image: url("../../assets/ui/highlight-tr.png"); --dx: 3px; --dy: -3px; }
+.reg-corner.br { background-image: url("../../assets/ui/highlight-br.png"); --dx: 3px; --dy: 3px; }
+.reg-corner.bl { background-image: url("../../assets/ui/highlight-bl.png"); --dx: -3px; --dy: 3px; }
+@keyframes reg-pulse {
+  to { transform: translate(var(--dx), var(--dy)); }
+}
+
+.reg-preview {
+  width: 224px;
+  height: 224px;
+  background: url("../../assets/ui/holder-big.png") 0 0 / 224px 224px;
+}
+.reg-preview img {
+  position: absolute;
+  left: 16px;
+  top: 8px;
+  width: 192px;
+  height: 192px;
+  animation: reg-breathe 1.6s ease-in-out infinite alternate;
+}
+@keyframes reg-breathe {
+  to { transform: translateY(-3px); }
+}
+
+.reg-desc {
+  font-size: 18px;
+  line-height: 1.35;
+  color: #2b1e16;
+}
+.reg-desc b {
+  display: block;
+  margin-bottom: 4px;
+}
+.reg-desc span {
+  color: #4a3525;
+}
+
+/* Barras de atributo: fundo vazio de 3 partes e preenchimento por cima, cortado pela largura. 2x (32 de altura). */
+.reg-stat {
+  position: absolute;
+  height: 32px;
+}
+.reg-stat-label {
+  position: absolute;
+  left: 0;
+  width: 120px;
+  top: 4px;
+  font-size: 16px;
+  color: #4a3525;
+}
+.reg-bar {
+  position: absolute;
+  left: 124px;
+  width: 160px;
+  height: 32px;
+}
+.reg-bar > .reg-three,
+.reg-bar > .reg-fill > .reg-three {
+  height: 32px;
+  width: 160px;
+}
+.reg-bar .reg-three > span {
+  height: 32px;
+  background-size: 32px 32px;
+}
+.reg-bar .reg-three > .l,
+.reg-bar .reg-three > .r {
+  width: 32px;
+}
+.reg-bar .empty > .l { background-image: url("../../assets/ui/bar-empty-left.png"); }
+.reg-bar .empty > .m { background-image: url("../../assets/ui/bar-empty-mid.png"); }
+.reg-bar .empty > .r { background-image: url("../../assets/ui/bar-empty-right.png"); }
+.reg-bar .red > .l { background-image: url("../../assets/ui/bar-red-left.png"); }
+.reg-bar .red > .m { background-image: url("../../assets/ui/bar-red-mid.png"); }
+.reg-bar .red > .r { background-image: url("../../assets/ui/bar-red-right.png"); }
+.reg-bar .gold > .l { background-image: url("../../assets/ui/bar-gold-left.png"); }
+.reg-bar .gold > .m { background-image: url("../../assets/ui/bar-gold-mid.png"); }
+.reg-bar .gold > .r { background-image: url("../../assets/ui/bar-gold-right.png"); }
+.reg-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 32px;
+  overflow: hidden;
+  transition: width 0.35s ease;
+}
