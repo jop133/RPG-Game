@@ -7,8 +7,6 @@ import {
   GID_MASK,
   EXIT_RADIUS,
   EXTRACT_MS,
-  HUNGER_MAX,
-  INVENTORY_SLOTS,
   ITEMS,
   MOB_KINDS,
   EXIT_LIGHT_RADIUS,
@@ -22,6 +20,7 @@ import {
   isAtPortal,
   lightRadius,
   mobStrikeArc,
+  playerStats,
   viewportSize,
   xpForNextLevel,
   type ClassId,
@@ -48,6 +47,7 @@ import {
   type NumberKind,
   type Swing,
 } from "./juice";
+import { Hud } from "./hud";
 import { Lighting, darkness, phaseAt, type Light, type LightLook } from "./lighting";
 import { Particles } from "./particles";
 import { openRegistration, type Registration } from "./registration";
@@ -253,54 +253,30 @@ const SORT_DEPTH = 10;
 const ABOVE_DEPTH = 100_000;
 const LIGHT_DEPTH = 100_000.5;
 const OVERLAY_DEPTH = 100_001;
-const HUD_DEPTH = 200_000;
 
 function sortDepth(baseY: number): number {
   return SORT_DEPTH + baseY;
 }
 
-// Barra de fome fixa no canto superior esquerdo (não acompanha a câmera).
-const HUD_MARGIN = 16;
-const HUNGER_BAR = { width: 160, height: 10 };
-// Fundo escuro atrás dos textos do canto: sem ele, o texto branco some sobre fachadas claras.
-const HUD_PANEL = { width: 230, height: 84, alpha: 0.45 };
-const HUNGER_COLOR = 0xffb300;
-const XP_COLOR = 0x7e57c2;
-const TOAST_MS = 2500;
 const LOOT_SIZE = 12;
 const LOOT_COLOR = 0x8d6e63;
 const EXIT_COLOR = 0x40c4ff;
 const PORTAL_COLOR = 0xb388ff;
 
-// Barra de inventário fixa, embaixo e no centro.
-const SLOT_SIZE = 36;
-const SLOT_GAP = 4;
-const ITEM_COLORS: Record<ItemId, number> = {
-  racao: 0xc8a165,
-  pele_de_rato: 0x8d8d8d,
-  dente_de_goblin: 0xf5f5dc,
-  pele_de_lobo: 0x78909c,
-  fragmento_de_cristal: 0x4fc3f7,
-  gosma_de_slime: 0x81c784,
-  essencia_rato: 0xb39ddb,
-  essencia_lobo: 0x90caf9,
-  essencia_goblin: 0x9ccc65,
-  essencia_goblin_rara: 0xffd54f,
-};
 // Tecla de cada slot, na ordem: 1–9, 0, - e = (12 slots, só 10 teclas de número).
 const SLOT_KEYS = [
-  { code: Phaser.Input.Keyboard.KeyCodes.ONE, label: "1" },
-  { code: Phaser.Input.Keyboard.KeyCodes.TWO, label: "2" },
-  { code: Phaser.Input.Keyboard.KeyCodes.THREE, label: "3" },
-  { code: Phaser.Input.Keyboard.KeyCodes.FOUR, label: "4" },
-  { code: Phaser.Input.Keyboard.KeyCodes.FIVE, label: "5" },
-  { code: Phaser.Input.Keyboard.KeyCodes.SIX, label: "6" },
-  { code: Phaser.Input.Keyboard.KeyCodes.SEVEN, label: "7" },
-  { code: Phaser.Input.Keyboard.KeyCodes.EIGHT, label: "8" },
-  { code: Phaser.Input.Keyboard.KeyCodes.NINE, label: "9" },
-  { code: Phaser.Input.Keyboard.KeyCodes.ZERO, label: "0" },
-  { code: Phaser.Input.Keyboard.KeyCodes.MINUS, label: "-" },
-  { code: Phaser.Input.Keyboard.KeyCodes.PLUS, label: "=" },
+  Phaser.Input.Keyboard.KeyCodes.ONE,
+  Phaser.Input.Keyboard.KeyCodes.TWO,
+  Phaser.Input.Keyboard.KeyCodes.THREE,
+  Phaser.Input.Keyboard.KeyCodes.FOUR,
+  Phaser.Input.Keyboard.KeyCodes.FIVE,
+  Phaser.Input.Keyboard.KeyCodes.SIX,
+  Phaser.Input.Keyboard.KeyCodes.SEVEN,
+  Phaser.Input.Keyboard.KeyCodes.EIGHT,
+  Phaser.Input.Keyboard.KeyCodes.NINE,
+  Phaser.Input.Keyboard.KeyCodes.ZERO,
+  Phaser.Input.Keyboard.KeyCodes.MINUS,
+  Phaser.Input.Keyboard.KeyCodes.PLUS,
 ];
 
 const HP_BAR_HEIGHT = 3;
@@ -346,7 +322,6 @@ class WorldScene extends Phaser.Scene {
   // Só na cidade: portais (lidos do mapa, como as paredes) e a tecla E.
   private portals: Vec2[] = [];
   private portalKey?: Phaser.Input.Keyboard.Key;
-  private portalHint?: Phaser.GameObjects.Text;
   private avatars = new Map<string, Avatar>();
   private mobSprites = new Map<string, MobSprite>();
   private lootSprites = new Map<string, Phaser.GameObjects.Rectangle>();
@@ -354,21 +329,13 @@ class WorldScene extends Phaser.Scene {
   private lastSentInput = "";
   private overlay?: Phaser.GameObjects.Graphics;
   private telegraphs?: Phaser.GameObjects.Graphics;
-  private hud?: Phaser.GameObjects.Graphics;
   private exitsLayer?: Phaser.GameObjects.Graphics;
   // Portal de cada saída ativa que este jogador vê.
   private exitSprites = new Map<string, Phaser.GameObjects.Image>();
   private lighting?: Lighting;
   // Luzes fixas do mapa (camada "luzes"); as que se mexem (jogadores, saídas) entram a cada quadro.
   private mapLights: Light[] = [];
-  private extractLabel?: Phaser.GameObjects.Text;
-  private levelLabel?: Phaser.GameObjects.Text;
-  private essenceLabel?: Phaser.GameObjects.Text;
-  private toast?: Phaser.GameObjects.Text;
-  private toastUntil = 0;
   private slotKeys: Phaser.Input.Keyboard.Key[] = [];
-  private slotLabels: Phaser.GameObjects.Text[] = [];
-  private slotKeyLabels: Phaser.GameObjects.Text[] = [];
   // Quando este cliente viu cada mob começar a preparar: base para o aviso encher no ritmo certo.
   private windupStartedAt = new Map<string, number>();
   private lastAttackSeq = new Map<string, number>();
@@ -400,64 +367,34 @@ class WorldScene extends Phaser.Scene {
     this.numbers = new FloatingNumbers(this, OVERLAY_DEPTH + 1);
     // Entre a camada de luz (LIGHT_DEPTH) e a vinheta (LIGHT_DEPTH + 0.1): brilham no escuro, a vinheta ainda os cobre.
     this.particles = new Particles(this, LIGHT_DEPTH + 0.05);
-    this.hud = this.add.graphics().setDepth(HUD_DEPTH).setScrollFactor(0);
-    this.levelLabel = this.add
-      .text(HUD_MARGIN, HUD_MARGIN + 34, "", { fontSize: "12px", color: "#ffffff" })
-      .setScrollFactor(0)
-      .setDepth(HUD_DEPTH);
-    this.essenceLabel = this.add
-      .text(HUD_MARGIN, HUD_MARGIN + 62, "", { fontSize: "12px", color: "#ffffff" })
-      .setScrollFactor(0)
-      .setDepth(HUD_DEPTH);
-    this.toast = this.add
-      .text(this.scale.width / 2, this.scale.height / 3, "", { fontSize: "18px", color: "#ffd54f", align: "center" })
-      .setOrigin(0.5)
-      .setScrollFactor(0)
-      .setDepth(HUD_DEPTH);
     this.keys = this.input.keyboard?.addKeys({ up: "W", down: "S", left: "A", right: "D" }) as MoveKeys;
-    // Inventário nos dois lugares: o personagem leva o que extraiu para a cidade.
-    for (let i = 0; i < INVENTORY_SLOTS; i++) {
-      const { x, y } = slotPosition(this.scale.width, this.scale.height, i);
-      const key = SLOT_KEYS[i];
-      if (key) {
-        const phaserKey = this.input.keyboard?.addKey(key.code);
-        if (phaserKey) this.slotKeys[i] = phaserKey;
-        const keyLabel = this.add.text(x + SLOT_SIZE - 9, y + 2, key.label, { fontSize: "9px", color: "#9e9e9e" });
-        this.slotKeyLabels[i] = keyLabel.setScrollFactor(0).setDepth(HUD_DEPTH + 1);
-      }
-      const label = this.add.text(x + 2, y + 2, "", { fontSize: "10px", color: "#ffffff" });
-      this.slotLabels.push(label.setScrollFactor(0).setDepth(HUD_DEPTH + 1));
-    }
-    // A janela mudou de formato: o tamanho do jogo muda junto (ver viewportSize) e o HUD se reposiciona.
+    // Teclas dos slots nos dois lugares: o personagem leva o inventário para a cidade. Clicar no slot do HUD faz o mesmo.
+    SLOT_KEYS.forEach((key, i) => {
+      const phaserKey = this.input.keyboard?.addKey(key);
+      if (phaserKey) this.slotKeys[i] = phaserKey;
+    });
+    // A janela mudou de formato: o tamanho do jogo muda junto (ver viewportSize). O HUD (HTML) se ajusta sozinho.
     this.scale.on(Phaser.Scale.Events.RESIZE, this.onResize, this);
     const stopListening = () => this.scale.off(Phaser.Scale.Events.RESIZE, this.onResize, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, stopListening);
     this.events.once(Phaser.Scenes.Events.DESTROY, stopListening);
     const room = this.room;
     if (!room) return;
-    room.onMessage("notice", (notice: { text: string }) => this.showToast(notice.text));
+    room.onMessage("notice", (notice: { text: string }) => hud.notice(notice.text));
     if (this.place === "city") this.createCity(room, map);
     else this.createLabyrinth(room);
-    this.layoutHud();
+    activeScene = this;
+    hud.show();
+  }
+
+  // Clique num slot do HUD: o mesmo pedido da tecla do slot. Quem decide se dá para usar é o servidor.
+  useSlot(slot: number) {
+    this.room?.send("use", { slot });
   }
 
   private onResize(gameSize: Phaser.Structs.Size) {
     this.cameras.main.setSize(gameSize.width, gameSize.height);
     this.lighting?.resize(gameSize.width, gameSize.height);
-    this.layoutHud();
-  }
-
-  // Posições do HUD que dependem do tamanho da tela. Roda ao criar a cena e quando a janela muda de formato.
-  private layoutHud() {
-    const { width, height } = this.scale;
-    this.toast?.setPosition(width / 2, height / 3);
-    this.portalHint?.setPosition(width / 2, HUD_MARGIN);
-    this.extractLabel?.setPosition(width / 2, HUD_MARGIN);
-    for (let i = 0; i < INVENTORY_SLOTS; i++) {
-      const { x, y } = slotPosition(width, height, i);
-      this.slotLabels[i]?.setPosition(x + 2, y + 2);
-      this.slotKeyLabels[i]?.setPosition(x + SLOT_SIZE - 9, y + 2);
-    }
   }
 
   // Portais desenhados a partir do mapa (são fixos, como as paredes). Quem decide se entrou é o servidor.
@@ -470,11 +407,6 @@ class WorldScene extends Phaser.Scene {
       g.lineStyle(2, PORTAL_COLOR, 0.9);
       g.strokeCircle(portal.x, portal.y, CITY_PORTAL_RADIUS);
     }
-    this.portalHint = this.add
-      .text(this.scale.width / 2, HUD_MARGIN, "", { fontSize: "16px", color: "#b388ff" })
-      .setOrigin(0.5, 0)
-      .setScrollFactor(0)
-      .setDepth(HUD_DEPTH);
     this.portalKey = this.input.keyboard?.addKey("E");
     room.onMessage("toLabyrinth", () => {
       this.room = undefined;
@@ -486,53 +418,41 @@ class WorldScene extends Phaser.Scene {
     this.overlay = this.add.graphics().setDepth(OVERLAY_DEPTH);
     this.telegraphs = this.add.graphics().setDepth(TELEGRAPH_DEPTH);
     this.exitsLayer = this.add.graphics().setDepth(EXIT_DEPTH);
-    this.extractLabel = this.add
-      .text(this.scale.width / 2, HUD_MARGIN, "", { fontSize: "16px", color: "#40c4ff" })
-      .setOrigin(0.5, 0)
-      .setScrollFactor(0)
-      .setDepth(HUD_DEPTH);
-    this.add.text(HUD_MARGIN, HUD_MARGIN, "Fome", { fontSize: "12px", color: "#ffffff" }).setScrollFactor(0).setDepth(HUD_DEPTH);
     this.pickupKey = this.input.keyboard?.addKey("F");
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => this.sendAttack(pointer));
     room.onMessage("extracted", (result: ExtractionResult) => {
       this.room = undefined;
       sessionStorage.removeItem(RECONNECTION_TOKEN_KEY);
+      hud.hide();
       showEndScreen("Você extraiu", describeLoot(result), "Voltar à cidade");
     });
     room.onMessage("firstKill", (info: FirstKillMessage) => {
       const levelUp = info.leveledUp ? `
 Subiu para o nível ${info.level}!` : "";
-      this.showToast(`Primeira morte: ${MOB_NAMES[info.mob]} (+XP)${levelUp}`);
+      hud.notice(`Primeira morte: ${MOB_NAMES[info.mob]} (+XP)${levelUp}`);
       const self = room.state.players.get(room.sessionId);
       if (self) this.popNumber(self.x, self.y + PLAYER_SIZE / 2 - AVATAR_HEIGHT, `+${FIRST_KILL_XP} XP`, "xp");
     });
     room.onMessage("death", (cause: DeathCause) => {
       this.room = undefined;
       sessionStorage.removeItem(RECONNECTION_TOKEN_KEY);
+      hud.hide();
       showEndScreen("Você morreu", describeDeath(cause), "Novo personagem");
     });
   }
-
-  // Aviso curto no centro da tela.
-  private showToast(text: string) {
-    this.lastToastText = text;
-    this.toastUntil = this.time.now + TOAST_MS;
-  }
-
-  private lastToastText = "";
 
   update(time: number, delta: number) {
     this.numbers?.update(time, delta);
     this.particles?.update(time, delta);
     this.shake.update(this.cameras.main, delta);
     const room = this.room;
-    if (!room || !this.keys || !this.hud) return;
+    if (!room || !this.keys) return;
     this.sendInputIfChanged(room, this.keys);
     this.slotKeys.forEach((key, slot) => {
       if (Phaser.Input.Keyboard.JustDown(key)) room.send("use", { slot });
     });
     this.syncAvatars(room, time);
-    this.drawHud(room, this.hud);
+    this.updateHud(room, time);
     if (this.place === "city") this.updateCity(room);
     else this.updateLabyrinth(room, time);
     const lights = this.currentLights(room);
@@ -592,8 +512,7 @@ Subiu para o nível ${info.level}!` : "";
     room.state.players.forEach((player, sessionId) => {
       if (sessionId === room.sessionId) atPortal = isAtPortal(player, this.portals);
     });
-    const hint = atPortal ? "E: entrar no labirinto" : "";
-    if (this.portalHint && this.portalHint.text !== hint) this.portalHint.setText(hint);
+    hud.hint(atPortal ? "E: entrar no labirinto" : "");
     if (this.portalKey && Phaser.Input.Keyboard.JustDown(this.portalKey)) room.send("enterPortal");
   }
 
@@ -630,81 +549,36 @@ Subiu para o nível ${info.level}!` : "";
     }
   }
 
-  private drawHud(room: Room<unknown, ServerState>, g: Phaser.GameObjects.Graphics) {
-    g.clear();
-    g.fillStyle(0x000000, HUD_PANEL.alpha);
-    g.fillRect(HUD_MARGIN / 2, HUD_MARGIN / 2, HUD_PANEL.width, HUD_PANEL.height);
-    let hunger: number | undefined;
-    room.state.players.forEach((player, sessionId) => {
-      if (sessionId === room.sessionId) hunger = player.hunger;
-    });
-    let extractMs = 0;
-    room.state.players.forEach((player, sessionId) => {
-      if (sessionId === room.sessionId) extractMs = player.extractMs ?? 0;
-    });
-    const label = extractMs > 0 ? `Extraindo… ${((EXTRACT_MS - extractMs) / 1000).toFixed(1)} s` : "";
-    if (this.extractLabel && this.extractLabel.text !== label) this.extractLabel.setText(label);
-    this.drawProgress(room, g);
-    this.drawInventory(room, g);
-    // Fome só existe no labirinto.
-    if (hunger === undefined) return;
-    const top = HUD_MARGIN + 16;
-    g.fillStyle(0x000000, 0.6);
-    g.fillRect(HUD_MARGIN, top, HUNGER_BAR.width, HUNGER_BAR.height);
-    g.fillStyle(HUNGER_COLOR, 1);
-    g.fillRect(HUD_MARGIN, top, HUNGER_BAR.width * (hunger / HUNGER_MAX), HUNGER_BAR.height);
+  // Dados do próprio jogador para o HUD (HTML). Na cidade não há vida nem fome: o HUD mostra cheias.
+  private updateHud(room: Room<unknown, ServerState>, time: number) {
+    const self = room.state.players.get(room.sessionId);
+    if (!self) return;
+    const essences: ItemId[] = [];
+    self.essences?.forEach((item) => essences.push(item as ItemId));
+    const inventory: { item: string; count: number }[] = [];
+    self.inventory?.forEach((slot, i) => (inventory[i] = { item: slot.item, count: slot.count }));
+    const level = self.level ?? 1;
+    const maxHp = self.maxHp ?? playerStats(essences).maxHp;
+    hud.update(
+      {
+        name: self.name ?? "",
+        classId: self.classId ?? "",
+        level,
+        xp: self.xp ?? 0,
+        nextLevelXp: xpForNextLevel(level),
+        essences: essences.length,
+        hp: self.hp ?? maxHp,
+        maxHp,
+        hunger: self.hunger,
+        inventory,
+      },
+      time,
+    );
+    if (this.place !== "labyrinth") return;
+    const extractMs = self.extractMs ?? 0;
+    hud.hint(extractMs > 0 ? `Extraindo… ${((EXTRACT_MS - extractMs) / 1000).toFixed(1)} s` : "");
   }
 
-  // Nível e barra de XP até o próximo nível; e o aviso de primeira morte enquanto durar.
-  private drawProgress(room: Room<unknown, ServerState>, g: Phaser.GameObjects.Graphics) {
-    let xp = 0;
-    let level = 1;
-    room.state.players.forEach((player, sessionId) => {
-      if (sessionId !== room.sessionId) return;
-      xp = player.xp ?? 0;
-      level = player.level ?? 1;
-    });
-    const next = xpForNextLevel(level);
-    const levelText = next === undefined ? `Nível ${level} (máximo)` : `Nível ${level}  ·  XP ${xp}/${next}`;
-    if (this.levelLabel && this.levelLabel.text !== levelText) this.levelLabel.setText(levelText);
-    const top = HUD_MARGIN + 50;
-    g.fillStyle(0x000000, 0.6);
-    g.fillRect(HUD_MARGIN, top, HUNGER_BAR.width, 6);
-    g.fillStyle(XP_COLOR, 1);
-    g.fillRect(HUD_MARGIN, top, HUNGER_BAR.width * (next === undefined ? 1 : Math.min(1, xp / next)), 6);
-    const toastText = this.time.now < this.toastUntil ? this.lastToastText : "";
-    const names: string[] = [];
-    room.state.players.forEach((player, sessionId) => {
-      if (sessionId === room.sessionId) player.essences?.forEach((item) => names.push(ITEMS[item as ItemId].name.replace("Essência ", "")));
-    });
-    const essenceText = `Essências (${names.length}/${level})${names.length > 0 ? ": " + names.join(", ") : ""}`;
-    if (this.essenceLabel && this.essenceLabel.text !== essenceText) this.essenceLabel.setText(essenceText);
-    if (this.toast && this.toast.text !== toastText) this.toast.setText(toastText);
-  }
-
-  private drawInventory(room: Room<unknown, ServerState>, g: Phaser.GameObjects.Graphics) {
-    let inventory: PlayerView["inventory"];
-    room.state.players.forEach((player, sessionId) => {
-      if (sessionId === room.sessionId) inventory = player.inventory;
-    });
-    for (let i = 0; i < INVENTORY_SLOTS; i++) {
-      const { x, y } = slotPosition(this.scale.width, this.scale.height, i);
-      g.fillStyle(0x000000, 0.6);
-      g.fillRect(x, y, SLOT_SIZE, SLOT_SIZE);
-    }
-    inventory?.forEach((slot, i) => {
-      const label = this.slotLabels[i];
-      const text = slot.count > 0 ? `${ITEMS[slot.item as ItemId].name.slice(0, 3)}
-${slot.count}` : "";
-      if (label && label.text !== text) label.setText(text);
-      if (slot.count === 0) return;
-      const { x, y } = slotPosition(this.scale.width, this.scale.height, i);
-      g.fillStyle(ITEM_COLORS[slot.item as ItemId], 1);
-      g.fillRect(x + SLOT_SIZE / 2, y + SLOT_SIZE / 2, SLOT_SIZE / 2 - 3, SLOT_SIZE / 2 - 3);
-    });
-  }
-
-  // Aviso do golpe do mob: contorno = área atingida; preenchimento cresce até a borda no tempo da preparação.
   private drawTelegraphs(room: Room<unknown, ServerState>, g: Phaser.GameObjects.Graphics, time: number) {
     g.clear();
     const preparing = new Set<string>();
@@ -1087,14 +961,6 @@ function syncSprites<T extends Vec2>(
   }
 }
 
-function slotPosition(screenWidth: number, screenHeight: number, index: number): Vec2 {
-  const total = INVENTORY_SLOTS * SLOT_SIZE + (INVENTORY_SLOTS - 1) * SLOT_GAP;
-  return {
-    x: (screenWidth - total) / 2 + index * (SLOT_SIZE + SLOT_GAP),
-    y: screenHeight - HUD_MARGIN - SLOT_SIZE,
-  };
-}
-
 function overlayScreen(): HTMLDivElement {
   const screen = document.createElement("div");
   screen.style.cssText =
@@ -1144,6 +1010,9 @@ function drawHpBar(g: Phaser.GameObjects.Graphics, centerX: number, top: number,
 }
 
 const client = new Client(SERVER_URL);
+// O HUD é um só para a página (HTML); cada cena que entra numa sala passa a ser a "ativa" e recebe os cliques.
+let activeScene: WorldScene | undefined;
+const hud = new Hud((slot) => activeScene?.useSlot(slot));
 // O jogo ocupa a janela inteira. O tamanho em pixels do mundo segue o formato da janela com a mesma meia-diagonal
 // (SCREEN_HALF_DIAGONAL), e o Phaser amplia a imagem para preencher: monitor maior não vê mais longe.
 const initialSize = viewportSize(window.innerWidth, window.innerHeight);

@@ -88,3 +88,16 @@ tools/assets/.venv/Scripts/python.exe -I tools/assets/render_map.py assets/maps/
 as janelas acesas das casas e as lanternas dos postes são achadas na própria arte (manchas de pixels claros e
 alaranjados); chafariz e portal têm uma luz cada. No labirinto, cada cristal, rocha de minério, cogumelo, tocha e o
 portal ganham a sua (`GLOWING` em `build_labyrinth.py`). O raio de cada tipo fica em `LIGHT_RADIUS` (`shared/src/balance.ts`).
+
+## HUD (status, barra rápida, mochila)
+
+```bash
+tools/assets/.venv/Scripts/python.exe -I tools/assets/process_hud.py
+```
+
+Lê `assets/tilesets/interface/hud_status_kit.png` e `hud_inventario_kit.png` (fora do git) e grava em `assets/ui/hud/`:
+as peças sem fundo e reduzidas por área (tamanhos em "pixels de HUD" no topo do script), as tiras das 3 barras com 100% do vão
+das calhas, o rosto de cada classe (recortado do sprite parado, centrado pela testa) e um ícone 16x16 para cada item
+(`ICONS`, desenhados no código: item novo sem ícone aparece com a sigla). Os vãos medidos na arte vão para `layout.json`,
+que o cliente (`client/src/hud.ts`) usa para posicionar retrato, barras e slots.
+

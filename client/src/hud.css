@@ -1,0 +1,279 @@
+/* HUD (client/src/hud.ts). Tudo é medido em "pixels de HUD" e ampliado por --s (inteiro): cada bloco fica preso
+   ao seu canto e cresce a partir dele. Pixels nítidos (sem suavizar ao ampliar). Fica abaixo da ficha de registro. */
+
+.hud {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+  color: #e8dcc4;
+  --s: 1;
+  --m: 6px;
+}
+
+.hud[hidden],
+.hud [hidden] {
+  display: none !important;
+}
+
+.hud img {
+  image-rendering: pixelated;
+  user-select: none;
+}
+
+.hud-abs {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+.hud-status,
+.hud-top,
+.hud-dock,
+.hud-bag {
+  position: absolute;
+}
+
+.hud-status {
+  left: var(--m);
+  top: var(--m);
+  transform: scale(var(--s));
+  transform-origin: 0 0;
+}
+
+/* Avisos no centro, logo abaixo da altura do bloco de status (113 px de HUD): não cobrem as barras em tela estreita. */
+.hud-top {
+  left: 50%;
+  top: calc(var(--m) + 118px * var(--s));
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  transform: translateX(-50%) scale(var(--s));
+  transform-origin: 50% 0;
+}
+
+.hud-dock {
+  left: 50%;
+  bottom: var(--m);
+  transform: translateX(-50%) scale(var(--s));
+  transform-origin: 50% 100%;
+}
+
+.hud-bag {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(var(--s));
+  transform-origin: 50% 50%;
+  pointer-events: auto;
+}
+
+/* ---- status: retrato, calhas, ícones, plaqueta ---- */
+
+.hud-portrait {
+  object-fit: contain;
+}
+
+.hud-gutter {
+  overflow: hidden;
+}
+
+.hud-fill,
+.hud-ghost {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+}
+
+.hud-fill {
+  background-repeat: no-repeat;
+  background-size: auto 100%;
+}
+
+/* O que acabou de ser perdido aparece claro e escorre (hud.ts controla a largura). */
+.hud-ghost {
+  background: rgba(255, 214, 196, 0.75);
+}
+
+.hud-bar-icon {
+  width: 16px;
+  height: 14px;
+}
+
+.hud-bar-icon.hud-alert {
+  animation: hud-pulse 0.9s ease-in-out infinite;
+}
+
+@keyframes hud-pulse {
+  0%, 100% { transform: scale(1); filter: none; }
+  50% { transform: scale(1.18); filter: brightness(1.5) drop-shadow(0 0 2px #ff5a2a); }
+}
+
+.hud-bar-text {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 7px;
+  font-weight: bold;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 0 1px #000, 1px 1px 0 #000, -1px -1px 0 #000;
+}
+
+.hud-plaque {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 2px 6px 3px;
+  white-space: nowrap;
+  background: rgba(14, 10, 12, 0.72);
+  border: 1px solid #4a3a2c;
+  border-radius: 2px;
+}
+
+.hud-name {
+  font-size: 10px;
+  font-weight: bold;
+  color: #f0e2bf;
+}
+
+.hud-badge {
+  font-size: 8px;
+  color: #c9b48a;
+  pointer-events: auto;
+}
+
+/* ---- avisos no topo ---- */
+
+.hud-hint,
+.hud-notice {
+  max-width: 320px;
+  padding: 3px 10px 4px;
+  font-size: 10px;
+  text-align: center;
+  white-space: pre-line;
+  background: rgba(16, 8, 10, 0.82);
+  border: 1px solid #6e1f1f;
+  box-shadow: inset 0 0 0 1px rgba(201, 162, 39, 0.35);
+}
+
+.hud-hint {
+  color: #9fd8ff;
+  font-weight: bold;
+}
+
+.hud-notice {
+  color: #ffd98a;
+  transition: opacity 0.4s;
+}
+
+.hud-notice.hud-fading {
+  opacity: 0;
+}
+
+/* ---- slots (barra e mochila) ---- */
+
+.hud-slot {
+  position: absolute;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  pointer-events: auto;
+  font: inherit;
+  color: inherit;
+}
+
+.hud-slot:hover .hud-slot-frame {
+  filter: brightness(1.35);
+}
+
+.hud-slot-frame {
+  position: absolute;
+  inset: 0;
+  width: 48px;
+  height: 48px;
+}
+
+.hud-bag .hud-empty .hud-slot-frame {
+  opacity: 0.35;
+}
+
+.hud-slot-icon {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  width: 32px;
+  height: 32px;
+}
+
+.hud-slot-sigla {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: bold;
+}
+
+.hud-slot-key,
+.hud-slot-count {
+  position: absolute;
+  font-size: 8px;
+  font-weight: bold;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
+}
+
+.hud-slot-key {
+  left: 6px;
+  top: 5px;
+  color: #d8c8a8;
+}
+
+.hud-slot-count {
+  right: 6px;
+  bottom: 5px;
+}
+
+.hud-empty .hud-slot-key {
+  opacity: 0.6;
+}
+
+.hud-bag-button {
+  white-space: nowrap;
+  padding: 3px 6px;
+  font: inherit;
+  font-size: 8px;
+  color: #d8c8a8;
+  background: rgba(14, 10, 12, 0.8);
+  border: 1px solid #4a3a2c;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.hud-bag-button:hover {
+  color: #ffd98a;
+}
+
+/* ---- mochila ---- */
+
+.hud-bag-title {
+  font-size: 12px;
+  font-weight: bold;
+  text-align: center;
+  letter-spacing: 1px;
+  color: #e9d6a8;
+  text-shadow: 1px 1px 0 #000;
+}
+
+.hud-equip {
+  opacity: 0.55;
+  filter: grayscale(0.4);
+}

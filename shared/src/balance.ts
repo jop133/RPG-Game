@@ -21,19 +21,20 @@ export const STARVATION_DAMAGE_PER_SECOND = 2;
 // Itens. Placeholders: nomes e números ainda não são o conteúdo de verdade.
 // maxStack: quantos cabem num slot. food: fome recuperada ao comer um (só itens comestíveis têm).
 // essence: efeito ao consumir a essência, que passa a ocupar um slot de essência do personagem (até o nível).
+// rarity: comum (comida e materiais), rara (essências), épica (essência rara); lendária ainda não há.
 // Efeitos de essências iguais se somam. speedPercent: % de velocidade; damage: dano a mais no golpe; maxHp: vida máxima a mais.
 // O rato saiu do 1º andar (a essência de velocidade agora é do lobo), mas os itens dele ficam: há personagens com eles.
 export const ITEMS = {
-  racao: { name: "Ração", maxStack: 5, food: 40 },
-  pele_de_rato: { name: "Pele de rato", maxStack: 10 },
-  dente_de_goblin: { name: "Dente de goblin", maxStack: 10 },
-  pele_de_lobo: { name: "Pele de lobo", maxStack: 10 },
-  fragmento_de_cristal: { name: "Fragmento de cristal", maxStack: 10 },
-  gosma_de_slime: { name: "Gosma de slime", maxStack: 10 },
-  essencia_rato: { name: "Essência de rato", maxStack: 3, essence: { speedPercent: 15 } },
-  essencia_lobo: { name: "Essência de lobo", maxStack: 3, essence: { speedPercent: 15 } },
-  essencia_goblin: { name: "Essência de goblin", maxStack: 3, essence: { damage: 4 } },
-  essencia_goblin_rara: { name: "Essência rara de goblin", maxStack: 3, essence: { maxHp: 25 } },
+  racao: { name: "Ração", rarity: "common", maxStack: 5, food: 40 },
+  pele_de_rato: { name: "Pele de rato", rarity: "common", maxStack: 10 },
+  dente_de_goblin: { name: "Dente de goblin", rarity: "common", maxStack: 10 },
+  pele_de_lobo: { name: "Pele de lobo", rarity: "common", maxStack: 10 },
+  fragmento_de_cristal: { name: "Fragmento de cristal", rarity: "common", maxStack: 10 },
+  gosma_de_slime: { name: "Gosma de slime", rarity: "common", maxStack: 10 },
+  essencia_rato: { name: "Essência de rato", rarity: "rare", maxStack: 3, essence: { speedPercent: 15 } },
+  essencia_lobo: { name: "Essência de lobo", rarity: "rare", maxStack: 3, essence: { speedPercent: 15 } },
+  essencia_goblin: { name: "Essência de goblin", rarity: "rare", maxStack: 3, essence: { damage: 4 } },
+  essencia_goblin_rara: { name: "Essência rara de goblin", rarity: "epic", maxStack: 3, essence: { maxHp: 25 } },
 } satisfies Record<string, ItemStats>;
 
 export type ItemId = keyof typeof ITEMS;

@@ -768,3 +768,23 @@ O cliente recebe `windup` e `attackAngle` e desenha o arco no chão: o contorno 
 
 **Só desenho:** nada disso vem do servidor nem muda o jogo. Esporos e faíscas ficam entre a camada de luz e a vinheta, somando cor: brilham no escuro, como os cristais.
 
+---
+
+## 2026-10 — HUD oficial em HTML, medido na própria arte
+
+**Pedido do dono do projeto:** trocar o HUD provisório pela arte dark fantasy dos kits `hud_status_kit.png` e `hud_inventario_kit.png`.
+
+**Escolhas do dono do projeto:**
+- **HTML, como a ficha de registro**, e não Phaser: a arte é ampliada por um fator inteiro (1 em 1366x768, 2 em 1920x1080...), com pixels nítidos; o canvas do jogo é ampliado por fator quebrado, o que deforma arte fina. De graça: fica livre da luz e do tremor da câmera, e cliques e textos são do navegador
+- **Mochila agora** (I ou Tab): a barra nova só tem 6 slots; sem a janela, os slots 7 a 12 ficariam invisíveis. Os 6 slots de equipamento aparecem desativados (não há equipamento no jogo)
+- **Ícones desenhados no código** (`process_hud.py`): os kits não têm ícones de itens; quando houver uma folha de ícones na arte do jogo, ela substitui estes
+
+**Como:**
+- O script mede na arte onde ficam os vãos (retrato, calhas, slots da barra, couro da mochila) e grava em `assets/ui/hud/layout.json`: o cliente não tem coordenada escrita à mão, e trocar a arte é rodar o script de novo
+- O HUD só desenha: `main.ts` entrega os dados do próprio jogador a cada quadro; clicar num slot manda o mesmo `use` da tecla (regra 1). O HUD só mexe na página quando um valor muda
+- **Raridade** virou campo de cada item em `ITEMS` (comum: comida e materiais; rara: essências; épica: essência rara). Por enquanto só escolhe a moldura do slot
+- Na cidade não há vida nem fome: as barras aparecem cheias (é assim que se entra na caverna); a vida máxima sai das essências (`playerStats`)
+- A barra azul (recurso de classe) fica cheia só de enfeite até o passo 10, como no pedido
+
+**Descartado:** `orelha_de_goblin` do pedido não existe; o item do goblin é `dente_de_goblin`.
+
