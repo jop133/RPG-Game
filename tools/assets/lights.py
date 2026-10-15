@@ -16,15 +16,21 @@ from process_city import components
 LAYER = "luzes"
 
 
-def warm_spots(path: Path) -> list[tuple[float, float]]:
-    """Centros das manchas de luz quente da imagem (janelas acesas, lanternas), em pixels da imagem.
-    Pixel quente = claro, alaranjado e opaco; manchas a até ~4 px uma da outra contam como uma."""
+def warm_spots(path: Path) -> list[tuple[float, float, int]]:
+    """Manchas de luz quente da imagem (janelas acesas, lanternas, fogo, velas): centro em pixels da imagem e
+    tamanho (pixels quentes). Pixel quente = muito claro, amarelo-alaranjado e opaco (telhado laranja não conta);
+    manchas a até ~4 px uma da outra contam como uma. Só faz sentido em peças que têm luz: barraca ocre e árvore de
+    outono também "acendem" por esta regra, e por isso ficam de fora (ver build_city.py)."""
     a = np.asarray(Image.open(path).convert("RGBA")).astype(int)
     r, g, b = a[..., 0], a[..., 1], a[..., 2]
-    warm = (a[..., 3] > 200) & (r > 160) & (g > 95) & (b < 110) & (r - b > 80) & (r + g > 270)
+    warm = (a[..., 3] > 200) & (r > 200) & (g > 140) & (b < 150) & (r - b > 90)
     grown = np.asarray(Image.fromarray((warm * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(9))) > 0
-    boxes = components(grown, min_area=1)
-    return [((x0 + x1) / 2, (y0 + y1) / 2) for x0, y0, x1, y1 in boxes if warm[y0:y1, x0:x1].sum() >= 6]
+    spots = []
+    for x0, y0, x1, y1 in components(grown, min_area=1):
+        size = int(warm[y0:y1, x0:x1].sum())
+        if size >= 6:
+            spots.append(((x0 + x1) / 2, (y0 + y1) / 2, size))
+    return spots
 
 
 def light_layer(layer_id: int, lights: list[tuple[str, float, float]], next_id: list[int]) -> dict:

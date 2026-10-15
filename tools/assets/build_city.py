@@ -1,9 +1,19 @@
 """Monta assets/maps/city.json com a arte processada em assets/tilesets/city/ (rodar process_city.py antes).
 
-- Chão: um tileset de 32x32 (city/floor.png) montado aqui a partir dos blocos, com as guias (meio-fio)
-  em todas as direções e os cantos gerados por espelhamento.
-- Casas, enfeites e portal: objetos de uma coleção de imagens (cada um a sua imagem). A colisão de cada um
-  é um retângulo na base, desenhado no tile (o jeito do Tiled); o servidor transforma em células de parede.
+A cidade é desenhada de frente (as fachadas olham para baixo da tela), então ela é organizada em fileiras: cada
+prédio tem a base na beira de cima de uma calçada, com a rua logo abaixo.
+
+- Fileira norte (base na linha 20): 2 casas, Salão da Guilda, a alameda do Portal (braseiros e postes),
+  Estalagem & Cofre, 2 casas. Atrás, um parque com árvores e cercas.
+- Faixa do meio (base na linha 36): feira de rua a oeste, praça central de piso nobre (chafariz no meio, caminho
+  de bronze do portal até ele, árvores, bancos, mesas da taverna na frente da estalagem), Forja do Ferreiro e uma
+  casa a leste.
+- Rua Principal (linhas 37-40) cortando o mapa, com faixa de travessia; avenida para o sul.
+- Fileira sul (base na linha 53): 7 casas de frente para a Rua Sul, de paralelepípedo rústico (bairro de fora).
+
+Chão: tileset de 32x32 (city/floor.png) com os tiles nobres de Tileset.png, as guias montadas para as 4 direções
+e o paralelepípedo rústico antigo. Prédios e enfeites são objetos de uma coleção de imagens; a colisão de cada um é
+um retângulo na base (o jogador passa atrás dos telhados e das copas). Luzes: camada "luzes" (lights.py).
 
 Uso (da raiz do projeto):
     tools/assets/.venv/Scripts/python.exe -I tools/assets/build_city.py
@@ -24,7 +34,7 @@ from lights import light_layer, warm_spots  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 CITY = ROOT / "assets" / "tilesets" / "city"
-WORK = ROOT / "tools" / "assets" / "build"  # blocos de chão recortados pelo process_city.py
+WORK = ROOT / "tools" / "assets" / "build"  # tiles recortados pelo process_city.py
 MAP_OUT = ROOT / "assets" / "maps" / "city.json"
 W, H, T = 80, 60, 32
 rng = random.Random(7)
@@ -32,7 +42,13 @@ rng = random.Random(7)
 # ---------------------------------------------------------------- chão
 
 
-def block(name: str) -> Image.Image:
+def tile(name: str) -> Image.Image:
+    """Tile de Tileset.png (linha-coluna da folha)."""
+    return Image.open(WORK / "floor2" / f"tile-{name}.png").convert("RGBA")
+
+
+def rustic(name: str) -> Image.Image:
+    """Bloco do paralelepípedo rústico antigo (chao_cidade.png)."""
     return Image.open(WORK / "floor" / f"floor-{name}.png").convert("RGBA")
 
 
@@ -44,69 +60,83 @@ def flip_v(image: Image.Image) -> Image.Image:
     return image.transpose(Image.FLIP_TOP_BOTTOM)
 
 
-def outer_corner() -> Image.Image:
-    """Canto de quarteirão: calçada só no quadrante de cima-esquerda, rua à direita e embaixo.
-    A arte não tem esta peça: monta com a guia horizontal (2-0), a vertical (2-3) e o paralelepípedo (0-0).
-    Na guia horizontal a calçada ocupa as linhas 0-17; na vertical, as colunas 0-16."""
-    horizontal = np.asarray(block("2-0"))
-    vertical = np.asarray(block("2-3"))
-    out = np.asarray(block("0-0")).copy()
-    out[0:18, 0:17] = horizontal[0:18, 0:17]
-    out[0:14, 13:17] = vertical[0:14, 13:17]
-    return Image.fromarray(out)
+# A guia de baixo (rua ao sul) mostra a face do meio-fio: 10 px (linhas 22-31). As laterais e a de cima, só a beirada
+# de cima do meio-fio: 4 px. Por isso a guia de cima é a lateral girada, e não a de baixo espelhada.
+CURB_FACE = 10
+CURB_EDGE = 4
 
 
-def floor_kinds() -> dict[str, list[Image.Image]]:
-    corner = outer_corner()
-    inner = block("2-5")
-    horizontal = [block(n) for n in ("2-0", "2-1", "2-2")]
-    vertical = [block(n) for n in ("2-3", "2-4")]
+def curb_tiles() -> dict[str, list[Image.Image]]:
+    north = [tile("2-1"), tile("2-2")]  # calçada em cima, rua embaixo
+    west = [tile("2-4"), tile("2-5")]  # rua à esquerda (oeste), calçada à direita
+    east = [flip_h(i) for i in west]
+    south = [i.rotate(-90) for i in west]  # rua em cima
+    curve = [tile("2-6"), tile("2-7")]  # rua só no quadrante de baixo-esquerda, guia curva
+
+    def corner(base: Image.Image, side: Image.Image, cols: slice, rows: slice) -> Image.Image:
+        out = np.asarray(base).copy()
+        out[rows, cols] = np.asarray(side)[rows, cols]
+        return Image.fromarray(out)
+
+    top = slice(0, T - CURB_FACE)
+    below = slice(CURB_EDGE, T)
     return {
-        "rua": [block(n) for n in ("0-0", "0-1", "0-2")],
-        "rua-musgo": [block("0-3")],
-        "rua-quebrada": [block("1-4")],
-        "rua-terra": [block(n) for n in ("3-3", "3-4", "3-5")],
-        "poca": [block("3-6")],
-        "bueiro": [block(n) for n in ("3-0", "3-1")],
-        "grelha": [block("3-2")],
-        "laje": [block(n) for n in ("1-0", "1-1", "1-2")],
-        "laje-musgo": [block("1-3")],
-        "lama": [block(n) for n in ("1-5", "1-6")],
-        "terra": [block(n) for n in ("4-0", "4-1", "4-2")],
-        "grama": [block(n) for n in ("4-3", "4-4", "4-5", "4-6")],
-        # Guia: o nome diz de que lado está a calçada (n = calçada em cima, rua embaixo).
-        "guia-n": horizontal,
-        "guia-s": [flip_v(i) for i in horizontal],
-        "guia-o": vertical,
-        "guia-l": [flip_h(i) for i in vertical],
-        # Canto externo (esquina do quarteirão): o nome diz em que canto do tile fica a calçada.
-        "canto-ext-no": [corner],
-        "canto-ext-ne": [flip_h(corner)],
-        "canto-ext-so": [flip_v(corner)],
-        "canto-ext-se": [flip_h(flip_v(corner))],
-        # Canto interno: a rua ocupa só um quadrante (o do nome).
-        "canto-int-se": [inner],
-        "canto-int-so": [flip_h(inner)],
-        "canto-int-ne": [flip_v(inner)],
-        "canto-int-no": [flip_h(flip_v(inner))],
+        "guia-n": north,
+        "guia-s": south,
+        "guia-l": west,
+        "guia-o": east,
+        # Esquina de quarteirão: o nome diz em que canto do tile fica a calçada (a rua passa pelos outros dois lados).
+        "canto-ext-no": [corner(north[0], east[0], slice(T - CURB_EDGE, T), top)],
+        "canto-ext-ne": [corner(north[0], west[0], slice(0, CURB_EDGE), top)],
+        "canto-ext-so": [corner(south[0], east[0], slice(T - CURB_EDGE, T), below)],
+        "canto-ext-se": [corner(south[0], west[0], slice(0, CURB_EDGE), below)],
+        # Canto interno: a rua ocupa só um quadrante (o do nome), com a guia curva.
+        "canto-int-so": curve,
+        "canto-int-se": [flip_h(i) for i in curve],
+        "canto-int-no": [flip_v(i) for i in curve],
+        "canto-int-ne": [flip_h(flip_v(i)) for i in curve],
     }
 
 
-# Tipos de chão "lisos" (textura sem forma grande): dá para tirar a vinheta e igualar as variantes.
-# Guias, cantos, bueiro, grelha e poça ficam como estão: a forma grande deles é de propósito.
-FLATTEN = {"rua", "rua-musgo", "rua-quebrada", "rua-terra", "laje", "laje-musgo", "lama", "terra", "grama"}
+def floor_kinds() -> dict[str, list[Image.Image]]:
+    return {
+        # Rua nobre (centro): paralelepípedo cinza, que destaca da calçada bege.
+        "rua": [tile("0-1")],
+        "rua-desenho": [tile("0-4")],  # paralelepípedo em círculos: cruzamentos
+        "faixa": [tile("4-2")],  # faixa de travessia
+        # Rua rústica (bairro de fora): o paralelepípedo antigo, com musgo e terra.
+        "rua-rustica": even_out([rustic(n) for n in ("0-0", "0-1", "0-2")]),
+        "rua-musgo": even_out([rustic("0-3")]),
+        "rua-terra": even_out([rustic(n) for n in ("3-3", "3-4")]),
+        # Calçada e guias.
+        "calcada": [tile("2-0"), tile("2-3")],
+        **curb_tiles(),
+        # Praça: piso liso com desenhos.
+        "praca": [tile("4-6")],
+        "praca-borda": [tile("4-3")],  # moldura de bronze na beira da praça
+        "praca-bronze": [tile("1-2"), tile("1-3")],  # caminho do portal ao chafariz
+        "praca-moldura": [tile("1-4"), tile("1-5")],  # anel em volta do chafariz
+        "praca-roseta": [tile("1-7")],
+        "praca-circulo": [tile("1-0"), tile("1-1")],
+        # Feira e pátio da forja.
+        "feira": [tile("0-0")],
+        "feira-laje": [tile("0-5")],
+        "forja": [tile("0-2")],
+        # Grama e canteiros.
+        "grama": [tile("3-0")],
+        "grama-flores": [tile("3-1"), tile("3-2")],
+    }
 
 
 def flatten(image: Image.Image) -> np.ndarray:
-    """Tira a variação de brilho de baixa frequência (borda mais escura que o meio) mantendo o detalhe:
-    divide pela versão borrada (4x4 ampliada) e multiplica pela média."""
+    """Tira a variação de brilho de baixa frequência (borda mais escura que o meio), mantendo o detalhe."""
     rgb = np.asarray(image.convert("RGB")).astype(float)
     low = np.asarray(image.convert("RGB").resize((4, 4), Image.BOX).resize((T, T), Image.BILINEAR)).astype(float)
     return rgb / np.maximum(low, 1) * rgb.mean(axis=(0, 1))
 
 
 def even_out(variants: list[Image.Image]) -> list[Image.Image]:
-    """Vinheta fora e todas as variantes com a mesma cor média: sem xadrez ao misturar no chão."""
+    """Vinheta fora e todas as variantes com a mesma cor média: o paralelepípedo rústico antigo não vira xadrez."""
     flat = [flatten(v) for v in variants]
     target = np.mean([f.mean(axis=(0, 1)) for f in flat], axis=0)
     return [Image.fromarray(np.clip(f / f.mean(axis=(0, 1)) * target, 0, 255).astype(np.uint8)).convert("RGBA") for f in flat]
@@ -114,10 +144,9 @@ def even_out(variants: list[Image.Image]) -> list[Image.Image]:
 
 def build_floor_tileset() -> dict[str, list[int]]:
     """Grava city/floor.png e devolve, para cada tipo de chão, os ids (locais) das variantes."""
-    kinds = {name: even_out(variants) if name in FLATTEN else variants for name, variants in floor_kinds().items()}
     ids: dict[str, list[int]] = {}
     images: list[Image.Image] = []
-    for name, variants in kinds.items():
+    for name, variants in floor_kinds().items():
         ids[name] = list(range(len(images), len(images) + len(variants)))
         images.extend(variants)
     cols = 8
@@ -132,28 +161,36 @@ def build_floor_tileset() -> dict[str, list[int]]:
 
 # ---------------------------------------------------------------- traçado
 
-# Ruas (retângulos de células, inclusive): avenida N-S, ruas N-S laterais, rua principal L-O e ruas L-O.
-ROADS = [
-    (37, 0, 42, 59),
-    (13, 0, 16, 59),
-    (63, 0, 66, 59),
-    (0, 28, 79, 33),
-    (0, 9, 79, 12),
-    (0, 49, 79, 52),
+# Linha onde fica a base dos prédios de cada fileira (a fachada encosta na calçada logo abaixo).
+NORTH_BASE, MIDDLE_BASE, SOUTH_BASE = 20, 36, 53
+# Ruas (retângulos de células, inclusive): (x0, y0, x1, y1).
+NOBLE_ROADS = [
+    (37, 5, 42, 20),  # alameda do Portal
+    (0, 21, 20, 22),  # Rua Norte, oeste
+    (59, 21, 79, 22),  # Rua Norte, leste
+    (0, 37, 79, 40),  # Rua Principal
+    (38, 41, 41, 53),  # avenida sul
 ]
-PLAZA = (29, 20, 50, 41)  # praça de lajes no centro; as ruas acabam na borda dela
-SIDEWALK = 2  # largura da calçada em volta das ruas
+RUSTIC_ROADS = [(0, 54, 79, 57)]  # Rua Sul
+PLAZA = (21, 20, 58, 35)  # começa na linha 20: a Guilda e a Estalagem abrem direto na praça
+MARKET = (0, 24, 20, 35)
+FORGE_YARD = (59, 24, 79, 35)
+CROSSWALK = (39, 37, 40, 40)
+FOUNTAIN = (40.0, 31.0)  # meio da base do chafariz, em tiles
 
 
-def layout_masks() -> tuple[np.ndarray, np.ndarray]:
-    road = np.zeros((H, W), bool)
-    for x0, y0, x1, y1 in ROADS:
-        road[y0 : y1 + 1, x0 : x1 + 1] = True
-    plaza = np.zeros((H, W), bool)
-    x0, y0, x1, y1 = PLAZA
-    plaza[y0 : y1 + 1, x0 : x1 + 1] = True
-    road &= ~plaza
-    return road, plaza
+def rect_mask(rects: list[tuple[int, int, int, int]]) -> np.ndarray:
+    mask = np.zeros((H, W), bool)
+    for x0, y0, x1, y1 in rects:
+        mask[y0 : y1 + 1, x0 : x1 + 1] = True
+    return mask
+
+
+def layout() -> dict[str, np.ndarray]:
+    noble, rustic_road = rect_mask(NOBLE_ROADS), rect_mask(RUSTIC_ROADS)
+    plaza = rect_mask([PLAZA])
+    return {"noble": noble & ~plaza, "rustic": rustic_road, "road": (noble | rustic_road) & ~plaza, "plaza": plaza,
+            "market": rect_mask([MARKET]), "yard": rect_mask([FORGE_YARD])}
 
 
 def is_road(road: np.ndarray, x: int, y: int) -> bool:
@@ -161,7 +198,7 @@ def is_road(road: np.ndarray, x: int, y: int) -> bool:
 
 
 def curb_kind(road: np.ndarray, x: int, y: int) -> str | None:
-    """Tipo de guia de uma célula de calçada encostada na rua (ou None se não encosta)."""
+    """Guia de uma célula de calçada encostada na rua (ou None se não encosta)."""
     n, s, w, e = is_road(road, x, y - 1), is_road(road, x, y + 1), is_road(road, x - 1, y), is_road(road, x + 1, y)
     if s and e and not (n or w):
         return "canto-ext-no"
@@ -172,7 +209,7 @@ def curb_kind(road: np.ndarray, x: int, y: int) -> str | None:
     if n and w and not (s or e):
         return "canto-ext-se"
     if (n and s) or (w and e):
-        return "laje"  # calçada espremida entre duas ruas: o traçado não deveria gerar isto
+        return "calcada"  # calçada espremida entre duas ruas: o traçado não deveria gerar isto
     if s:
         return "guia-n"
     if n:
@@ -192,43 +229,49 @@ def curb_kind(road: np.ndarray, x: int, y: int) -> str | None:
     return None
 
 
-def near_road(road: np.ndarray, x: int, y: int, distance: int) -> bool:
-    y0, y1, x0, x1 = max(0, y - distance), min(H, y + distance + 1), max(0, x - distance), min(W, x + distance + 1)
-    return bool(road[y0:y1, x0:x1].any())
+def street_kind(zones: dict[str, np.ndarray], x: int, y: int) -> str:
+    x0, y0, x1, y1 = CROSSWALK
+    if x0 <= x <= x1 and y0 <= y <= y1:
+        return "faixa"
+    if zones["rustic"][y, x]:
+        roll = rng.random()
+        return "rua-musgo" if roll < 0.12 else ("rua-terra" if roll < 0.16 else "rua-rustica")
+    return "rua"
 
 
-def grass_noise() -> np.ndarray:
-    """Manchas de grama nos terrenos: soma de círculos sorteados."""
-    field = np.zeros((H, W))
-    yy, xx = np.mgrid[0:H, 0:W]
-    for _ in range(45):
-        cx, cy, r = rng.uniform(0, W), rng.uniform(0, H), rng.uniform(2, 6)
-        field += np.clip(1 - np.hypot(xx - cx, yy - cy) / r, 0, None)
-    return field
+def plaza_kind(x: int, y: int) -> str:
+    px0, py0, px1, py1 = PLAZA
+    fx, fy = FOUNTAIN
+    if x in (px0, px1) or y == py1:
+        return "praca-borda"
+    if 39 <= x <= 40 and y < fy - 4.5:
+        return "praca-bronze"  # caminho do portal até o chafariz
+    if (x in (35, 44) and 25 <= y <= 33) or (y in (25, 33) and 35 <= x <= 44):
+        return "praca-moldura"  # anel em volta do chafariz
+    if (x, y) in {(27, 27), (52, 27), (27, 32), (52, 32)}:
+        return "praca-roseta"
+    if (x, y) in {(30, 24), (49, 24), (30, 31), (49, 31)}:
+        return "praca-circulo"
+    return "praca"
 
 
-def floor_layer(ids: dict[str, list[int]], road: np.ndarray, plaza: np.ndarray) -> list[int]:
-    grass = grass_noise()
+def floor_layer(ids: dict[str, list[int]], zones: dict[str, np.ndarray]) -> list[int]:
+    road = zones["road"]
     data = []
     for y in range(H):
         for x in range(W):
             if road[y, x]:
-                kind = "rua"
-                roll = rng.random()
-                if roll < 0.02:
-                    kind = "bueiro"
-                elif roll < 0.05:
-                    kind = rng.choice(["rua-terra", "rua-musgo", "rua-quebrada", "poca"])
-                elif roll < 0.07 and (not is_road(road, x, y - 1) or not is_road(road, x, y + 1)):
-                    kind = "grelha"  # escoamento junto à guia
+                kind = street_kind(zones, x, y)
+            elif zones["plaza"][y, x]:
+                kind = plaza_kind(x, y)
             elif (curb := curb_kind(road, x, y)) is not None:
                 kind = curb
-            elif plaza[y, x] or near_road(road, x, y, SIDEWALK):
-                kind = "laje-musgo" if rng.random() < 0.06 else "laje"
-            elif y < 7:
-                kind = "grama"  # faixa de parque ao norte
+            elif zones["market"][y, x]:
+                kind = "feira-laje" if rng.random() < 0.12 else "feira"
+            elif zones["yard"][y, x]:
+                kind = "forja"
             else:
-                kind = "grama" if grass[y, x] > 0.6 else ("lama" if rng.random() < 0.04 else "terra")
+                kind = "grama-flores" if rng.random() < 0.12 else "grama"
             data.append(1 + rng.choice(ids[kind]))
     return data
 
@@ -236,24 +279,42 @@ def floor_layer(ids: dict[str, list[int]], road: np.ndarray, plaza: np.ndarray) 
 # ---------------------------------------------------------------- objetos
 
 # Retângulo de colisão na base de cada objeto, em frações da imagem (x0, y0, x1, y1). None = não bloqueia.
+# Prédios: só o térreo (o jogador passa atrás do telhado). Escadas e enfeites colados na frente ficam livres.
 FOOTPRINT: dict[str, tuple[float, float, float, float] | None] = {
-    "casa": (0.18, 0.72, 0.82, 0.97),
-    "poste": (0.3, 0.9, 0.7, 1.0),
-    "poste-duplo": (0.3, 0.9, 0.7, 1.0),
-    "banco-a": (0.1, 0.45, 0.9, 0.95),
-    "banco-b": (0.1, 0.45, 0.9, 0.95),
-    "quadro-avisos": (0.1, 0.85, 0.9, 1.0),
-    "placa-direcao": (0.35, 0.88, 0.65, 1.0),
-    "chafariz": (0.05, 0.4, 0.95, 1.0),
-    "correntes": (0.0, 0.55, 1.0, 1.0),
-    "grade": (0.0, 0.5, 1.0, 1.0),
-    "barris": (0.05, 0.3, 0.95, 1.0),
-    "caixas": (0.05, 0.3, 0.95, 1.0),
-    "carrinho": (0.1, 0.45, 0.9, 0.95),
-    "barraca": (0.05, 0.55, 0.95, 1.0),
-    "canteiro": (0.05, 0.4, 0.95, 1.0),
-    "arvore": (0.05, 0.6, 0.95, 1.0),
+    "house": (0.08, 0.80, 0.92, 0.97),
+    "landmark_guild": (0.10, 0.72, 0.90, 0.89),
+    "landmark_inn_vault": (0.16, 0.78, 0.97, 0.93),
+    "landmark_blacksmith": (0.03, 0.68, 0.97, 0.89),
     "portal": None,
+    "barraca-vermelha": (0.05, 0.55, 0.95, 0.95),
+    "barraca-ocre": (0.05, 0.55, 0.95, 0.95),
+    "barraca-verde": (0.05, 0.55, 0.95, 0.95),
+    "rack-armas": (0.05, 0.70, 0.95, 1.0),
+    "caixotes-pilha": (0.05, 0.50, 0.95, 1.0),
+    "carroca-cristais": (0.05, 0.45, 0.80, 0.95),
+    "mesa-taverna-a": (0.05, 0.50, 0.95, 0.95),
+    "mesa-taverna-b": (0.05, 0.50, 0.95, 0.95),
+    "barris-a": (0.05, 0.40, 0.95, 1.0),
+    "barris-b": (0.05, 0.40, 0.95, 1.0),
+    "barril-coberto": (0.10, 0.50, 0.90, 1.0),
+    "mochilas-a": None,
+    "mochilas-b": None,
+    "caixotes": (0.05, 0.40, 0.95, 1.0),
+    "cestos": None,
+    "chafariz": (0.05, 0.35, 0.95, 0.98),
+    "arvore-verde": (0.15, 0.72, 0.85, 1.0),
+    "arvore-outono": (0.15, 0.72, 0.85, 1.0),
+    "cerca-a": (0.0, 0.55, 1.0, 1.0),
+    "cerca-b": (0.0, 0.55, 1.0, 1.0),
+    "cerca-vertical": (0.10, 0.10, 0.90, 1.0),
+    "pilar": (0.10, 0.50, 0.90, 1.0),
+    "banco-madeira": (0.05, 0.50, 0.95, 0.95),
+    "banco-ferro": (0.05, 0.50, 0.95, 0.95),
+    "placa-direcao": (0.30, 0.85, 0.70, 1.0),
+    "poste": (0.35, 0.88, 0.65, 1.0),
+    "poste-duplo": (0.35, 0.88, 0.65, 1.0),
+    "braseiro-a": (0.15, 0.60, 0.85, 1.0),
+    "braseiro-b": (0.15, 0.60, 0.85, 1.0),
 }
 
 
@@ -269,31 +330,37 @@ class Objects:
             return self.by_image[image_path]
         with Image.open(CITY / image_path) as image:
             w, h = image.size
-        tile: dict = {"id": len(self.tiles), "image": f"../tilesets/city/{image_path}", "imagewidth": w, "imageheight": h}
+        tile_: dict = {"id": len(self.tiles), "image": f"../tilesets/city/{image_path}", "imagewidth": w, "imageheight": h}
         footprint = FOOTPRINT[kind]
-        tile["properties"] = [{"name": "solid", "type": "bool", "value": footprint is not None}]
+        tile_["properties"] = [{"name": "solid", "type": "bool", "value": footprint is not None}]
         if footprint is not None:
             x0, y0, x1, y1 = footprint
             rect = {"id": 1, "name": "", "type": "", "rotation": 0, "visible": True,
                     "x": round(x0 * w), "y": round(y0 * h), "width": round((x1 - x0) * w), "height": round((y1 - y0) * h)}
-            tile["objectgroup"] = {"draworder": "index", "name": "", "type": "objectgroup", "opacity": 1, "visible": True,
-                                   "x": 0, "y": 0, "objects": [rect]}
-        self.tiles.append(tile)
-        self.by_image[image_path] = tile["id"]
-        return tile["id"]
+            tile_["objectgroup"] = {"draworder": "index", "name": "", "type": "objectgroup", "opacity": 1, "visible": True,
+                                    "x": 0, "y": 0, "objects": [rect]}
+        self.tiles.append(tile_)
+        self.by_image[image_path] = tile_["id"]
+        return tile_["id"]
 
-    def place(self, image_path: str, kind: str, cx: float, bottom: float, name: str = "") -> dict:
+    def place(self, image_path: str, kind: str, cx: float, bottom: float, name: str) -> dict:
         """Põe o objeto com o meio da base em (cx, bottom), em pixels do mundo."""
         local = self.tile_for(image_path, kind)
-        tile = self.tiles[local]
-        obj = {"id": 0, "gid": self.firstgid + local, "name": name or kind, "type": "", "rotation": 0, "visible": True,
-               "x": round(cx - tile["imagewidth"] / 2), "y": round(bottom),
-               "width": tile["imagewidth"], "height": tile["imageheight"]}
+        info = self.tiles[local]
+        obj = {"id": 0, "gid": self.firstgid + local, "name": name, "type": "", "rotation": 0, "visible": True,
+               "x": round(cx - info["imagewidth"] / 2), "y": round(bottom),
+               "width": info["imagewidth"], "height": info["imageheight"]}
         self.placed.append(obj)
         return obj
 
-    def prop(self, name: str, cx_tiles: float, bottom_tiles: float) -> dict:
-        return self.place(f"props/{name}.png", name, cx_tiles * T, bottom_tiles * T)
+    def prop(self, name: str, cx: float, bottom: float) -> dict:
+        return self.place(f"props/{name}.png", name, cx * T, bottom * T, name)
+
+    def house(self, n: int, cx: float, bottom: float) -> dict:
+        return self.place(f"houses/house_{n:02d}.png", "house", cx * T, bottom * T, f"house_{n:02d}")
+
+    def landmark(self, name: str, cx: float, bottom: float) -> dict:
+        return self.place(f"landmarks/{name}.png", name, cx * T, bottom * T, name)
 
     def tileset(self) -> dict:
         return {"firstgid": self.firstgid, "name": "city/objects", "tilecount": len(self.tiles), "columns": 0,
@@ -301,78 +368,116 @@ class Objects:
                 "margin": 0, "spacing": 0, "grid": {"orientation": "orthogonal", "width": 1, "height": 1}, "tiles": self.tiles}
 
 
-def place_city(objects: Objects) -> None:
-    # Casas: meio da base (coluna) e linha onde a base encosta na calçada. Ver ROADS para os quarteirões.
-    houses = [
-        (5.5, 26), (24, 26), (56, 26), (74.5, 26),  # norte da rua principal, de frente para ela
-        (5.5, 47), (24, 47), (56, 47), (74.5, 47),  # sul da rua principal, de frente para a rua sul
-        (27, 60), (53, 60),  # faixa do sul
-    ]
-    order = list(range(1, 11))
-    rng.shuffle(order)
-    for (cx, bottom), n in zip(houses, order):
-        objects.place(f"houses/casa-{n}.png", "casa", cx * T, bottom * T, name=f"casa-{n}")
+def place_buildings(objects: Objects) -> None:
+    """Meio da base (coluna, em tiles) de cada prédio. Larguras em process_city.py (casas ~7-10 tiles)."""
+    for n, cx in ((2, 5.0), (6, 14.4), (5, 63.0), (12, 73.0)):
+        objects.house(n, cx, NORTH_BASE)
+    objects.landmark("landmark_guild", 29.0, NORTH_BASE)
+    objects.landmark("landmark_inn_vault", 50.0, NORTH_BASE)
+    objects.landmark("landmark_blacksmith", 66.0, MIDDLE_BASE)
+    objects.house(7, 75.9, MIDDLE_BASE)
+    for n, cx in ((1, 4.9), (3, 14.9), (8, 25.2), (10, 33.6), (4, 48.5), (9, 60.5), (11, 72.0)):
+        objects.house(n, cx, SOUTH_BASE)
 
-    # Praça: chafariz no centro, portal na borda norte entre correntes, bancos, postes nos cantos.
-    objects.prop("chafariz", 40, 33.2)
-    objects.place("portal.png", "portal", 40 * T, 23.5 * T, name="portal")
-    objects.prop("correntes", 37.2, 23.6)
-    objects.prop("correntes", 42.8, 23.6)
-    for cx, bottom, name in ((35.3, 31, "banco-a"), (44.7, 31, "banco-b"), (35.3, 36, "banco-b"), (44.7, 36, "banco-a")):
-        objects.prop(name, cx, bottom)
-    for cx, bottom in ((30, 22), (50, 22), (30, 41.5), (50, 41.5)):
-        objects.prop("poste-duplo", cx, bottom)
-    for cx, bottom in ((32, 26), (48, 26), (32, 39), (48, 39)):
-        objects.prop("arvore", cx, bottom)
-    objects.prop("quadro-avisos", 33.5, 22.5)
-    # Canto de mercado no sudoeste da praça.
-    objects.prop("barraca", 31.5, 37)
-    objects.prop("caixas", 30.2, 38.3)
-    objects.prop("barris", 33.4, 38.6)
 
-    # Postes ao longo das calçadas internas (avenida e rua principal), longe das casas.
-    for row in (3, 16, 45, 57):
-        objects.prop("poste", 35.5, row)
-        objects.prop("poste", 44.5, row)
-    for col in (3, 21, 59, 77):
-        objects.prop("poste", col + 0.5, 27)
-        objects.prop("poste", col + 0.5, 35)
-    objects.prop("placa-direcao", 35.5, 8.6)
-    objects.prop("placa-direcao", 44.5, 49)
+def place_portal_avenue(objects: Objects) -> None:
+    """Portal no alto da alameda, entre braseiros; postes com flâmulas dos dois lados até a praça."""
+    objects.place("portal.png", "portal", 40 * T, 9 * T, "portal")
+    objects.prop("braseiro-a", 37.6, 9.2)
+    objects.prop("braseiro-b", 42.4, 9.2)
+    for y in (13.0, 17.5):
+        objects.prop("poste-duplo", 37.9, y)
+        objects.prop("poste-duplo", 42.1, y)
 
-    # Parque ao norte (faixa de grama acima da rua norte): árvores, canteiros, grades e bancos.
-    for cx in (3, 9, 21, 31, 49, 59, 71, 77):
-        objects.prop("arvore", cx, 4.5)
-    for cx in (6, 26, 54, 74):
-        objects.prop("canteiro", cx, 6.3)
-    for cx in (24, 56):
-        objects.prop("banco-a" if cx < 40 else "banco-b", cx, 4)
-    for cx in (17.6, 61.3):
-        objects.prop("grade", cx, 6.4)
 
-    # Vida nas laterais das casas: barris, caixas, carrinhos.
-    for cx, bottom, name in (
-        (10.5, 25.5, "barris"), (19.5, 24.5, "caixas"), (60.5, 24.5, "carrinho"), (69.6, 25.5, "barris"),
-        (10.5, 46.5, "carrinho"), (19.5, 45.5, "barris"), (60.5, 45.5, "caixas"), (69.6, 46.5, "caixas"),
-        (20.5, 58.5, "barris"), (59.5, 58.5, "carrinho"),
-    ):
-        objects.prop(name, cx, bottom)
+def place_plaza(objects: Objects) -> None:
+    fx, fy = FOUNTAIN
+    objects.prop("chafariz", fx, fy)
+    # Árvores nos cantos de cima; bancos virados para o chafariz; postes nos cantos.
+    objects.prop("arvore-verde", 24.0, 26.0)
+    objects.prop("arvore-outono", 55.5, 26.5)
+    objects.prop("arvore-outono", 24.0, 35.5)
+    for cx, y, name in ((34.0, 29.5, "banco-ferro"), (46.0, 29.5, "banco-ferro"), (36.0, 35.0, "banco-madeira"), (44.0, 35.0, "banco-madeira")):
+        objects.prop(name, cx, y)
+    for cx, y, name in ((22.6, 22.2, "poste-duplo"), (57.4, 22.2, "poste-duplo"), (32.0, 33.6, "poste"), (48.0, 33.6, "poste")):
+        objects.prop(name, cx, y)
+    # Frente da Guilda: espaço livre na escadaria, braseiros dos lados e a placa de direções perto da alameda.
+    objects.prop("braseiro-a", 25.6, 21.4)
+    objects.prop("braseiro-b", 32.4, 21.4)
+    objects.prop("placa-direcao", 35.6, 22.6)
+    # Frente da Estalagem: mesas da taverna, barris e caixas.
+    objects.prop("mesa-taverna-a", 47.0, 23.8)
+    objects.prop("mesa-taverna-b", 53.0, 23.8)
+    objects.prop("barris-a", 57.0, 24.4)
+    objects.prop("barril-coberto", 44.4, 21.6)
+    objects.prop("caixotes", 44.3, 24.2)
+    # Perto da Forja (canto de baixo-direita da praça): rack de armas, carroça de minério e caixotes.
+    objects.prop("rack-armas", 56.6, 35.6)
+    objects.prop("carroca-cristais", 55.6, 31.8)
+    objects.prop("caixotes-pilha", 58.4, 28.4)
+
+
+def place_market(objects: Objects) -> None:
+    """Feira de rua a oeste da praça: barracas numa fileira, carroça, cestos, sacos e mochilas na de baixo."""
+    for cx, name in ((3.5, "barraca-vermelha"), (8.5, "barraca-ocre"), (13.5, "barraca-verde")):
+        objects.prop(name, cx, 28.4)
+    objects.prop("cestos", 17.6, 28.0)
+    for cx, name in ((4.2, "carroca-cristais"), (8.4, "mochilas-a"), (10.6, "mochilas-b"), (13.9, "barris-b"), (17.4, "caixotes")):
+        objects.prop(name, cx, 34.6)
+    objects.prop("barril-coberto", 19.4, 33.2)
+
+
+def place_streets(objects: Objects) -> None:
+    """Postes ao longo da Rua Principal, cercas no parque do norte e na beira sul, árvores e bancos no parque."""
+    for cx in (10.0, 30.5, 49.5, 70.0):
+        objects.prop("poste", cx, 36.95)
+    for cx in (19.0, 60.0):
+        objects.prop("poste", cx, 41.95)
+    for cx in (3.0, 9.5, 16.0):
+        objects.prop("arvore-verde" if cx != 9.5 else "arvore-outono", cx, 10.4)
+    for cx in (61.0, 67.0, 74.5):
+        objects.prop("arvore-outono" if cx == 67.0 else "arvore-verde", cx, 9.8)
+    for cx in (7.0, 71.0):
+        objects.prop("banco-madeira", cx, 4.6)
+    # Cercas: uma fileira no alto do parque e outra na beira sul, com pilares entre os trechos.
+    fence = 114 / T
+    for row in (2.6, 59.95):
+        x = 0.2
+        i = 0
+        while x + fence <= W - 0.2:
+            objects.prop("cerca-a" if i % 2 == 0 else "cerca-b", x + fence / 2, row)
+            x += fence
+            i += 1
 
 
 # ---------------------------------------------------------------- luzes
 
+# Que luz sai de cada tipo de objeto (as manchas quentes da arte viram pontos). Os que não estão aqui não têm luz
+# (a barraca ocre e a árvore de outono "acendem" pela regra das manchas, mas não são luz).
+WINDOW_LIGHTS = ("house_", "landmark_guild", "landmark_inn_vault")
+
 
 def city_lights(objects: Objects) -> list[tuple[str, float, float]]:
-    """Janelas acesas das casas e lanternas dos postes (achadas na arte pelos pixels quentes), chafariz e portal."""
     lights = []
     for obj in objects.placed:
         image = MAP_OUT.parent / objects.tiles[obj["gid"] - objects.firstgid]["image"]
         top = obj["y"] - obj["height"]
-        if obj["name"].startswith(("casa", "poste")):
-            kind = "janela" if obj["name"].startswith("casa") else "poste"
-            lights += [(kind, obj["x"] + sx, top + sy) for sx, sy in warm_spots(image)]
-        elif obj["name"] in ("chafariz", "portal"):
-            lights.append((obj["name"], obj["x"] + obj["width"] / 2, obj["y"] - obj["height"] * 0.45))
+        name = obj["name"]
+        spots = warm_spots(image) if name != "portal" else []
+        if name.startswith(WINDOW_LIGHTS):
+            lights += [("janela", obj["x"] + sx, top + sy) for sx, sy, _ in spots]
+        elif name == "landmark_blacksmith":
+            # A maior mancha é a fornalha; o resto, janelas e brasas.
+            biggest = max(spots, key=lambda s: s[2])
+            lights += [("forja" if s is biggest else "janela", obj["x"] + s[0], top + s[1]) for s in spots]
+        elif name.startswith("poste"):
+            lights += [("poste", obj["x"] + sx, top + sy) for sx, sy, _ in spots]
+        elif name.startswith("braseiro"):
+            lights.append(("braseiro", obj["x"] + obj["width"] / 2, top + obj["height"] * 0.35))
+        elif name.startswith("mesa-taverna"):
+            lights += [("vela", obj["x"] + sx, top + sy) for sx, sy, _ in spots]
+        elif name == "portal":
+            lights.append(("portal", obj["x"] + obj["width"] / 2, obj["y"] - obj["height"] * 0.45))
     return lights
 
 
@@ -389,50 +494,84 @@ def point_layer(layer_id: int, name: str, points: list[tuple[float, float]], nex
             "visible": True, "x": 0, "y": 0, "objects": objs}
 
 
+SPAWNS = [(36.5, 32.5), (43.5, 32.5), (40.0, 33.5), (40.0, 23.5)]
+PORTAL_POINT = (40.0, 8.5)
+
+
 def main() -> None:
     ids = build_floor_tileset()
     count = ids.pop("_count")[0]
-    road, plaza = layout_masks()
-    floor = floor_layer(ids, road, plaza)
+    zones = layout()
+    floor = floor_layer(ids, zones)
     objects = Objects(firstgid=1 + count)
-    place_city(objects)
+    place_buildings(objects)
+    place_portal_avenue(objects)
+    place_plaza(objects)
+    place_market(objects)
+    place_streets(objects)
 
     next_id = [1]
     placed = sorted(objects.placed, key=lambda o: o["y"])
     for obj in placed:
         obj["id"] = next_id[0]
         next_id[0] += 1
+    sheet = Image.open(CITY / "floor.png")
     floor_ts = {"firstgid": 1, "name": "city/floor", "image": "../tilesets/city/floor.png",
-                "imagewidth": Image.open(CITY / "floor.png").width, "imageheight": Image.open(CITY / "floor.png").height,
+                "imagewidth": sheet.width, "imageheight": sheet.height,
                 "tilewidth": T, "tileheight": T, "tilecount": count, "columns": 8, "margin": 0, "spacing": 0}
+    lights = city_lights(objects)
     layers = [
         {"id": 1, "name": "chao", "type": "tilelayer", "width": W, "height": H, "x": 0, "y": 0,
          "opacity": 1, "visible": True, "data": floor},
         {"id": 2, "name": "objetos", "type": "objectgroup", "draworder": "topdown", "opacity": 1,
          "visible": True, "x": 0, "y": 0, "objects": placed},
-        point_layer(3, "spawns", [(37 * T, 34 * T), (43 * T, 34 * T), (40 * T, 37 * T), (40 * T, 27 * T)], next_id),
-        point_layer(4, "portal", [(40 * T, 23 * T)], next_id),
-        light_layer(5, city_lights(objects), next_id),
+        point_layer(3, "spawns", [(x * T, y * T) for x, y in SPAWNS], next_id),
+        point_layer(4, "portal", [(PORTAL_POINT[0] * T, PORTAL_POINT[1] * T)], next_id),
+        light_layer(5, lights, next_id),
     ]
     city = {"compressionlevel": -1, "width": W, "height": H, "tilewidth": T, "tileheight": T, "infinite": False,
             "orientation": "orthogonal", "renderorder": "right-down", "type": "map", "version": "1.10",
             "tiledversion": "1.12.2", "nextlayerid": 6, "nextobjectid": next_id[0], "layers": layers,
             "tilesets": [floor_ts, objects.tileset()]}
     MAP_OUT.write_text(json.dumps(city) + "\n", encoding="utf-8")
-    check_overlaps(objects)
-    print(f"mapa {W}x{H}: {count} tiles de chão, {len(objects.tiles)} imagens de objeto, {len(placed)} objetos")
+    check(objects, zones["road"])
+    kinds: dict[str, int] = {}
+    for kind, _, _ in lights:
+        kinds[kind] = kinds.get(kind, 0) + 1
+    print(f"mapa {W}x{H}: {count} tiles de chão, {len(objects.tiles)} imagens de objeto, {len(placed)} objetos; luzes {kinds}")
 
 
-def check_overlaps(objects: Objects) -> None:
-    """Acusa casas sobrepostas (imagem com imagem) e qualquer objeto fora do mapa."""
-    houses = [o for o in objects.placed if o["name"].startswith("casa")]
+# ---------------------------------------------------------------- conferência
+
+
+def image_cells(obj: dict) -> tuple[int, int, int, int]:
+    """Células cobertas pela imagem do objeto (x0, y0, x1, y1 inclusive)."""
+    x0, x1 = obj["x"] / T, (obj["x"] + obj["width"]) / T
+    y0, y1 = (obj["y"] - obj["height"]) / T, obj["y"] / T
+    return int(x0), int(y0), int(np.ceil(x1)) - 1, int(np.ceil(y1)) - 1
+
+
+def check(objects: Objects, road: np.ndarray) -> None:
+    """Acusa prédios que se sobrepõem, prédio cobrindo rua, base sólida de enfeite em rua e objeto fora do mapa."""
+    buildings = [o for o in objects.placed if o["name"].startswith(("house_", "landmark_"))]
     problems = []
-    for i, a in enumerate(houses):
-        for b in houses[i + 1 :]:
+    for i, a in enumerate(buildings):
+        for b in buildings[i + 1 :]:
             if a["x"] < b["x"] + b["width"] and b["x"] < a["x"] + a["width"] and a["y"] - a["height"] < b["y"] and b["y"] - b["height"] < a["y"]:
                 problems.append(f"{a['name']} sobrepõe {b['name']}")
+    for o in buildings:
+        x0, y0, x1, y1 = image_cells(o)
+        if road[max(0, y0) : y1 + 1, max(0, x0) : x1 + 1].any():
+            problems.append(f"{o['name']} cobre rua")
     for o in objects.placed:
-        if o["x"] < 0 or o["x"] + o["width"] > W * T or o["y"] > H * T:
+        info = objects.tiles[o["gid"] - objects.firstgid]
+        group = info.get("objectgroup")
+        if group and not o["name"].startswith(("house_", "landmark_", "poste", "braseiro")):
+            r = group["objects"][0]
+            cx, cy = (o["x"] + r["x"] + r["width"] / 2) / T, (o["y"] - o["height"] + r["y"] + r["height"] / 2) / T
+            if road[min(H - 1, int(cy)), min(W - 1, int(cx))]:
+                problems.append(f"{o['name']} em ({cx:.1f},{cy:.1f}) bloqueia rua")
+        if o["x"] < 0 or o["x"] + o["width"] > W * T or o["y"] > H * T or o["y"] - o["height"] < 0:
             problems.append(f"{o['name']} sai do mapa em ({o['x']},{o['y']})")
     print("problemas: " + ("; ".join(problems) if problems else "nenhum"))
 

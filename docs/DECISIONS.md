@@ -822,3 +822,22 @@ Slot vazio usa a moldura comum.
 
 **Muda a decisão "Sprites e animação":** os sprites dos inimigos deixam de ser lidos direto de `assets/tilesets/Inimigos/`. Agora o script copia o parado e gera a caminhada em `assets/mobs/<tipo>/` (como `assets/characters/` para as classes), e o cliente lê tudo de lá: uma pasta só por bicho, com o que o jogo usa. `Inimigos/` vira só a arte de origem.
 
+---
+
+## 2026-10 — Cidade refeita com arte frontal: fileiras, praça central e marcos
+
+**Substitui** a decisão "Cidade com a arte nova (dark fantasy)" na arte e no traçado, a pedido do dono do projeto, que trouxe 7 folhas novas (`Casas1`, `Casas2`, `Guilda`, `Ferreiro e Mercador`, `EnfenitesRua`, `EnfeitesRua2`, `Tileset`). A técnica continua a mesma: processamento em Python, objetos de uma coleção de imagens, colisão num retângulo na base, Y-sorting. As casas isométricas e os enfeites antigos saíram do jogo (PNGs apagados de `assets/tilesets/city/`).
+
+**Fim da exceção isométrica:** a arte nova é desenhada de frente (fachada virada para baixo da tela), o que combina com "Top-down, não isométrico". A ressalva da decisão anterior (casas "giradas" em relação às ruas, colisão aproximada nas quinas) deixa de valer.
+
+**Como:**
+- **Escala pela porta:** casas a 0,46 do tamanho da folha (porta com ~60 px, a altura do jogador). Com 0,50, as 12 casas não cabiam nas 80 colunas sem se sobrepor. Guilda, Forja e Estalagem a 0,32 (saem ~1,5x maiores que uma casa, como marcos). Portal com 100 px de altura
+- **Recorte pelo desenho, não pela grade:** cada casa da folha 3x2 é um pedaço conectado da imagem e fica com a célula onde está o centro dele. Recortar pelas linhas da grade levava a placa e o cata-vento da casa vizinha
+- **Cidade em fileiras**, porque a arte é frontal: cada prédio tem a base na beira de uma calçada, com a rua logo abaixo; nenhum prédio fica de lado. Norte: casas, Guilda, alameda do Portal, Estalagem e Cofre, casas (parque atrás). Meio: feira de rua, praça nobre com o chafariz, Forja. Rua Principal cortando o mapa. Sul: 7 casas no bairro rústico
+- **Chão em dois níveis:** piso nobre (`Tileset.png`: ruas cinza, guias, praça com moldura, caminho de bronze do portal ao chafariz) no centro; o paralelepípedo rústico antigo na periferia. As guias das 4 direções e os cantos são montados com peças da folha (espelhadas ou giradas); os cantos curvos da folha recebem o tile de rua por baixo
+- **Luzes:** tipos novos `braseiro`, `forja` e `vela` (raio em `LIGHT_RADIUS`, cor em `LIGHT_LOOKS`). As manchas quentes da arte viram luz só onde faz sentido: janelas em casas e marcos, a maior mancha da Forja vira a fornalha, lanternas nos postes, velas nas mesas da taverna. Barraca ocre e árvore de outono "acenderiam" pela regra de cor e ficam de fora. O chafariz deixou de ter luz própria: a praça é iluminada pelos postes em volta
+- **Conferência no gerador:** prédios sobrepostos, prédio cobrindo rua, enfeite sólido no meio da rua e objeto fora do mapa. Postes e braseiros da alameda ficam na beira dela, deixando 4 tiles livres de passagem
+- Prédios continuam sem sombra no pé (a base já vem desenhada na arte); os enfeites em pé têm
+
+**Limites aceitos:** os prédios são só fachada (nada funciona dentro); colisão em células de 32 px, como antes.
+

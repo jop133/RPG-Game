@@ -15,7 +15,8 @@ O `.venv` e a pasta `tools/assets/build/` (intermediários) ficam fora do git.
 **As imagens originais também ficam fora do git** (são grandes; o jogo só usa o que os scripts geram):
 `assets/tilesets/novos tilesets/` (cidade), `assets/tilesets/labirinto/` (labirinto) e `assets/tilesets/interface/`
 (pacote Paper UI). Para rodar os scripts, elas precisam estar nessas pastas: guarde uma cópia. Os sprites das classes
-(`perssonagens/`) e dos inimigos (`Inimigos/`) são pequenos e ficam no git (os dos inimigos o jogo lê direto de lá).
+(`perssonagens/`) e dos inimigos (`Inimigos/`) são pequenos e ficam no git (o jogo usa as cópias que os scripts gravam
+em `assets/characters/` e `assets/mobs/`).
 
 ## Rodar (da raiz do projeto)
 
@@ -25,13 +26,19 @@ tools/assets/.venv/Scripts/python.exe -I tools/assets/build_city.py
 tools/assets/.venv/Scripts/python.exe -I tools/assets/render_map.py assets/maps/city.json cidade.png --scale 0.5
 ```
 
-1. **`process_city.py`**: tira o fundo (o quadriculado "falso" das imagens geradas, preenchendo a partir da
-   borda, e os buracos brancos presos dentro da arte), recorta, reduz por média de área e grava em
-   `assets/tilesets/city/` (`houses/`, `props/`, `portal.png`). Os blocos de chão recortados e as folhas de
-   conferência (`contato-*.png`) vão para `tools/assets/build/`. Escalas e nomes dos enfeites ficam no topo do arquivo.
-2. **`build_city.py`**: monta o tileset de chão (`city/floor.png`, com vinheta tirada, variantes igualadas,
-   guias espelhadas e o canto de quarteirão gerado) e o mapa: ruas, calçadas automáticas (2 tiles em volta das
-   ruas), praça, casas, enfeites, portal, spawns. A colisão de cada objeto é um retângulo na base (`FOOTPRINT`).
+1. **`process_city.py`**: lê as folhas de `novos tilesets/` (lista no topo do arquivo), tira o fundo (o
+   quadriculado "falso" das imagens geradas, preenchendo a partir da borda, e os buracos brancos presos dentro da
+   arte), recorta cada peça pelo desenho (pedaços conectados; cada casa da grade 3x2 fica com a célula onde está o
+   centro dela), reduz por média de área e grava em `assets/tilesets/city/` (`houses/house_NN.png`, `landmarks/`
+   com Guilda, Forja e Estalagem, `props/`, `portal.png`). `houses/`, `landmarks/` e `props/` são apagadas e
+   geradas de novo a cada rodada. Os tiles de chão (32x32: piso nobre de `Tileset.png` e paralelepípedo rústico) e as
+   folhas de conferência (`contato-*.png`) vão para `tools/assets/build/`. Escalas (casa pela porta, ~60 px), o corte
+   da folha `Ferreiro e Mercador` (46% da largura) e os nomes dos enfeites ficam no topo do arquivo.
+2. **`build_city.py`**: monta o tileset de chão (`city/floor.png`: piso nobre, guias das 4 direções e cantos
+   montados com peças da folha, paralelepípedo rústico com as variantes igualadas) e o mapa em fileiras (desenho no
+   topo do arquivo): ruas, calçadas, praça, prédios, enfeites, portal, spawns e luzes. A colisão de cada objeto é um
+   retângulo na base (`FOOTPRINT`). No fim, confere prédios sobrepostos, prédio cobrindo rua, enfeite sólido no meio
+   da rua e objeto fora do mapa, e imprime os problemas (o esperado é "problemas: nenhum").
 3. **`render_map.py`**: desenha o mapa como o jogo (objetos ordenados pela base). `--solid grade.json` pinta a
    colisão calculada pelo servidor.
 
@@ -40,7 +47,7 @@ tools/assets/.venv/Scripts/python.exe -I tools/assets/render_map.py assets/maps/
 ## Como o mapa é organizado
 
 - Camada de tiles `chao` (tileset `city/floor`). Nenhum tile de chão é sólido.
-- Camada de objetos `objetos`: casas, enfeites e portal, de uma coleção de imagens (`city/objects`). No Tiled,
+- Camada de objetos `objetos`: prédios, enfeites e portal, de uma coleção de imagens (`city/objects`). No Tiled,
   cada tile dessa coleção tem a propriedade `solid` e um retângulo de colisão desenhado na base (editor de colisão
   do Tiled); mover o objeto no Tiled leva a colisão junto.
 - Camadas de pontos `spawns` e `portal`.
@@ -85,8 +92,9 @@ tools/assets/.venv/Scripts/python.exe -I tools/assets/render_map.py assets/maps/
 ## Luzes dos mapas
 
 `lights.py` é usado pelos dois geradores: escreve a camada de pontos `luzes` (nome do ponto = tipo da luz). Na cidade,
-as janelas acesas das casas e as lanternas dos postes são achadas na própria arte (manchas de pixels claros e
-alaranjados); chafariz e portal têm uma luz cada. No labirinto, cada cristal, rocha de minério, cogumelo, tocha e o
+as janelas acesas das casas e dos marcos, a fornalha da Forja (a maior mancha dela), as lanternas dos postes e as velas
+das mesas da taverna são achadas na própria arte (manchas de pixels claros e alaranjados); braseiros e portal têm uma
+luz cada (`city_lights` em `build_city.py`). No labirinto, cada cristal, rocha de minério, cogumelo, tocha e o
 portal ganham a sua (`GLOWING` em `build_labyrinth.py`). O raio de cada tipo fica em `LIGHT_RADIUS` (`shared/src/balance.ts`).
 
 ## HUD (status, barra rápida, mochila)

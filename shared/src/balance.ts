@@ -121,6 +121,9 @@ export const LIGHT_RADIUS = {
   poste: 150,
   chafariz: 120,
   janela: 70,
+  braseiro: 140,
+  forja: 180,
+  vela: 70,
 } satisfies Record<string, number>;
 
 export type LightKind = keyof typeof LIGHT_RADIUS;

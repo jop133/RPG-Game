@@ -93,7 +93,7 @@ type Place = "city" | "labyrinth";
 const MAP_URLS: Record<Place, string> = { city: cityMapUrl, labyrinth: labyrinthMapUrl };
 // Todas as folhas de tiles do projeto. No Tiled, o nome de cada tileset é o nome do arquivo sem ".png":
 // é por esse nome que o mapa encontra a imagem, qualquer que seja o lugar.
-// A chave de cada imagem é o caminho dentro de assets/tilesets, sem ".png" (ex.: "city/houses/casa-2").
+// A chave de cada imagem é o caminho dentro de assets/tilesets, sem ".png" (ex.: "city/houses/house_01").
 // Fica de fora o que não vai para o jogo (ex.: "novos tilesets", as imagens originais, grandes).
 const TILESET_URLS = Object.entries(
   import.meta.glob<string>(
@@ -233,6 +233,9 @@ const LIGHT_LOOKS: Record<LightKind, LightLook> = {
   poste: { color: 0xff9d42, intensity: 0.85, effect: "flicker" },
   chafariz: { color: 0xff9d42, intensity: 0.5, effect: "flicker" },
   janela: { color: 0xff9d42, intensity: 0.6, effect: "flicker" },
+  braseiro: { color: 0xff7a2e, intensity: 0.95, effect: "flicker" },
+  forja: { color: 0xff5f1f, intensity: 1, effect: "flicker" },
+  vela: { color: 0xffc46b, intensity: 0.55, effect: "flicker" },
 };
 const PLAYER_LIGHT: LightLook = { color: 0xfff0dc, intensity: 1, effect: "steady" };
 const EXIT_LIGHT: LightLook = { color: 0x40c4ff, intensity: 1, effect: "pulse" };
@@ -243,8 +246,9 @@ const EXIT_PORTAL_TINT = 0x80d8ff;
 // Sombra nos pés: elipse escura no chão, embaixo de jogadores, mobs e enfeites em pé.
 const SHADOW_ALPHA = 0.45;
 const AVATAR_SHADOW = { width: 26, height: 9 };
-// Enfeites deitados no chão (ou grandes demais para uma elipse) ficam sem sombra.
+// Enfeites deitados no chão ficam sem sombra; prédios também (a base deles já é desenhada na arte).
 const FLAT_PROPS = new Set(["esqueleto", "ossada", "cogumelos-a", "cogumelos-b"]);
+const BUILDING = /^(house_|landmark_)/;
 
 // Ordem de desenho: sombras e aviso de golpe no chão, mobs por baixo dos jogadores, luz por cima do mundo,
 // barras, nomes e golpes por cima da luz, HUD por cima de tudo.
@@ -685,7 +689,7 @@ Subiu para o nível ${info.level}!` : "";
         const image = this.add.image(object.x, object.y, key).setOrigin(0, 1).setDepth(sortDepth(object.y));
         if (object.width && object.height) image.setDisplaySize(object.width, object.height);
         const name = key.slice(key.lastIndexOf("/") + 1);
-        if (!FLAT_PROPS.has(name) && !name.startsWith("casa")) this.addPropShadow(object.x + image.displayWidth / 2, object.y, image.displayWidth);
+        if (!FLAT_PROPS.has(name) && !BUILDING.test(name)) this.addPropShadow(object.x + image.displayWidth / 2, object.y, image.displayWidth);
       }
     }
   }
