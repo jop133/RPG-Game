@@ -96,8 +96,9 @@ tools/assets/.venv/Scripts/python.exe -I tools/assets/process_hud.py
 ```
 
 Lê `assets/tilesets/interface/hud_status_kit.png` e `hud_inventario_kit.png` (fora do git) e grava em `assets/ui/hud/`:
-as peças sem fundo e reduzidas por área (tamanhos em "pixels de HUD" no topo do script), as tiras das 3 barras com 100% do vão
-das calhas, o rosto de cada classe (recortado do sprite parado, centrado pela testa) e um ícone 16x16 para cada item
+as peças sem fundo e reduzidas por área (tamanhos em "pixels de HUD" no topo do script; as molduras de raridade saem em
+48, 34 e 28, uma para a barra, outra para a mochila e outra para o altar de essências; o painel da janela em 360 de largura), as tiras das 3 barras com 100% do vão
+das calhas, o rosto de cada classe (recortado do sprite parado, centrado pela testa) os ícones de espada (arma inicial) e cadeado (slot de essência trancado) e um ícone 16x16 para cada item
 (`ICONS`, desenhados no código: item novo sem ícone aparece com a sigla). Os vãos medidos na arte vão para `layout.json`,
 que o cliente (`client/src/hud.ts`) usa para posicionar retrato, barras e slots.
 

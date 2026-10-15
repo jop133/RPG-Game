@@ -566,7 +566,7 @@ Subiu para o nível ${info.level}!` : "";
         level,
         xp: self.xp ?? 0,
         nextLevelXp: xpForNextLevel(level),
-        essences: essences.length,
+        essences,
         hp: self.hp ?? maxHp,
         maxHp,
         hunger: self.hunger,

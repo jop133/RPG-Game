@@ -46,18 +46,22 @@ STATUS = {
     "icon_hunger": ((2438, 810), 16, False),
     "hotbar_dock": ((1400, 1286), 360, True),
 }
+# No inventário, a largura pode ser uma lista: a mesma peça sai em vários tamanhos (a primeira sem sufixo, as outras
+# com "-<tamanho>"). Reduzir a arte grande direto para cada tamanho fica mais limpo do que reduzir uma peça já pequena.
+# Molduras de raridade: 48 na barra rápida, 34 na mochila, 28 no altar de essências. Equipamento: 40.
+SLOT_SIZES = [48, 34, 28]
 INVENTORY = {
-    "inv_panel": ((468, 518), 250, True),
-    "slot_common": ((1100, 628), 48, False),
-    "slot_rare": ((1552, 628), 48, False),
-    "slot_epic": ((2006, 628), 48, False),
-    "slot_legendary": ((2458, 628), 48, False),
-    "equip_helm": ((328, 1228), 48, False),
-    "equip_chest": ((758, 1228), 48, False),
-    "equip_weapon": ((1190, 1228), 48, False),
-    "equip_shield": ((1622, 1228), 48, False),
-    "equip_boots": ((2054, 1228), 48, False),
-    "equip_ring": ((2486, 1228), 48, False),
+    "inv_panel": ((468, 518), [360], True),
+    "slot_common": ((1100, 628), SLOT_SIZES, False),
+    "slot_rare": ((1552, 628), SLOT_SIZES, False),
+    "slot_epic": ((2006, 628), SLOT_SIZES, False),
+    "slot_legendary": ((2458, 628), SLOT_SIZES, False),
+    "equip_helm": ((328, 1228), [40], False),
+    "equip_chest": ((758, 1228), [40], False),
+    "equip_weapon": ((1190, 1228), [40], False),
+    "equip_shield": ((1622, 1228), [40], False),
+    "equip_boots": ((2054, 1228), [40], False),
+    "equip_ring": ((2486, 1228), [40], False),
 }
 # Sementes (na imagem original) dos vãos escuros que o cliente precisa saber onde ficam.
 GUTTER_SEEDS = {"hp": (1100, 196), "mp": (1100, 324), "hunger": (1100, 456)}
@@ -268,6 +272,28 @@ def icon_essence(color: tuple[int, int, int]) -> Image.Image:
     return img
 
 
+def icon_sword() -> Image.Image:
+    blade, guard, grip = (np.zeros((ICON, ICON), bool) for _ in range(3))
+    polygon(blade, [(13.5, 1.5), (14.5, 2.5), (6, 11), (5, 10)])
+    polygon(guard, [(2.5, 8.5), (3.5, 7.5), (8.5, 12.5), (7.5, 13.5)])
+    polygon(grip, [(4.5, 11.5), (5.5, 12.5), (2.5, 15.5), (1.5, 14.5)])
+    return paint([(blade, (196, 204, 214)), (guard, (150, 110, 60)), (grip, (96, 64, 40))])
+
+
+def icon_lock() -> Image.Image:
+    shackle, body = np.zeros((ICON, ICON), bool), np.zeros((ICON, ICON), bool)
+    ellipse(shackle, 8, 6, 4, 4.2)
+    hole = np.zeros((ICON, ICON), bool)
+    ellipse(hole, 8, 6, 2.2, 2.6)
+    shackle &= ~hole
+    polygon(body, [(3, 7.5), (13, 7.5), (13, 14), (3, 14)])
+    img = paint([(shackle, (120, 120, 128)), (body, (160, 128, 60))])
+    return dot(dot(img, 8, 10, (40, 28, 16)), 8, 11, (40, 28, 16))
+
+
+# Desenhos do HUD que não são itens.
+EXTRA_ICONS = {"weapon": icon_sword, "lock": icon_lock}
+
 # Um ícone por item de ITEMS (shared/src/balance.ts). Item novo sem ícone aqui aparece com a sigla no slot.
 ICONS = {
     "racao": icon_ration,
@@ -326,14 +352,16 @@ def main() -> None:
     inventory = load_rgba(SRC / "hud_inventario_kit.png")
     outer, holes = cleaned(inventory)
     boxes = boxes_of(holes)
-    for name, ((cx, cy), width, no_holes) in INVENTORY.items():
+    for name, ((cx, cy), widths, no_holes) in INVENTORY.items():
         x0, y0, x1, y1 = box = box_at(boxes, cx, cy)
         art = (holes if no_holes else outer)[y0:y1, x0:x1]
-        height = round(art.shape[0] * width / art.shape[1])
-        image = resize(art, width, height)
-        image.save(OUT / f"{name}.png")
-        sheet.append((name, image))
-        layout[name] = {"w": width, "h": height}
+        for i, width in enumerate(widths):
+            height = round(art.shape[0] * width / art.shape[1])
+            image = resize(art, width, height)
+            image.save(OUT / (f"{name}.png" if i == 0 else f"{name}-{width}.png"))
+            sheet.append((f"{name} {width}", image))
+        width = widths[0]
+        layout[name] = {"w": width, "h": round(art.shape[0] * width / art.shape[1])}
         if name == "inv_panel":
             layout["leather"] = scaled_rect(dark_region(inventory, LEATHER_SEED, tolerance=14), box[:2], width / art.shape[1])
 
@@ -347,6 +375,10 @@ def main() -> None:
         image = draw()
         image.save(OUT / "items" / f"{item}.png")
         sheet.append((item, image.resize((ICON * 3, ICON * 3), Image.NEAREST)))
+    for name, draw in EXTRA_ICONS.items():
+        image = draw()
+        image.save(OUT / f"icon_{name}.png")
+        sheet.append((name, image.resize((ICON * 3, ICON * 3), Image.NEAREST)))
 
     (OUT / "layout.json").write_text(json.dumps(layout, indent=2) + "\n", encoding="utf-8")
     contact_sheet(sheet, WORK / "contato-hud.png", 280)

@@ -788,3 +788,24 @@ O cliente recebe `windup` e `attackAngle` e desenha o arco no chão: o contorno 
 
 **Descartado:** `orelha_de_goblin` do pedido não existe; o item do goblin é `dente_de_goblin`.
 
+---
+
+## 2026-10 — Janela de inventário e regra visual de raridade
+
+**Como:** a mochila simples virou a janela de inventário (`client/src/inventoryWindow.ts`), aberta com I, Tab ou B (Esc fecha). É uma camada HTML: não segura o teclado do jogo, então WASD e as teclas de slot continuam valendo com ela aberta. Três seções no couro do painel: equipamento em volta do personagem com o resumo de atributos, altar das essências, mochila (12 slots, 2 fileiras de 6). Clicar num item manda o mesmo `use` da tecla (regra 1).
+
+**Regra visual de raridade** (campo `rarity` em `ITEMS`; por enquanto só muda a moldura e a cor do nome na dica):
+- Comum: comida e materiais de monstro (ração, peles, dente de goblin, gosma de slime)
+- Raro: fragmento de cristal e as essências comuns (rato, lobo, goblin)
+- Épico: essência rara de goblin
+- Lendário: nenhum item ainda
+Slot vazio usa a moldura comum.
+
+**Atributos e textos sem número escrito à mão:** dano, velocidade e vida máxima na janela saem de `playerStats` (a mesma regra pura que o servidor usa) e da vida máxima que o servidor manda; os textos das dicas saem dos campos do item (`food`, `essence`): item novo já se descreve sozinho.
+
+**Equipamento:** não existe no jogo ainda. O slot da arma mostra a arma inicial (a única até a maestria, passo 8) com dano e alcance; os outros mostram só a silhueta, com a dica "em breve na Cidade".
+
+**Essências:** o altar mostra os slots que o nível abre (nível = slots) e os próximos trancados até o nível máximo, cada um dizendo o nível que o abre. A dica de uma essência absorvida lembra que tirar só por purificação na igreja (decisões "Troca de essência só na cidade, via igreja" e a mudança seguinte).
+
+**Detalhes do pedido adaptados:** `orelha_de_goblin` não existe (é `dente_de_goblin`). A janela é maior que a da etapa anterior (360x518 pixels de HUD) para caber as três seções; em 1920x1080 (escala 2) ela encosta na barra rápida, que fica na frente: atrás dela só a base de ferro do painel.
+
