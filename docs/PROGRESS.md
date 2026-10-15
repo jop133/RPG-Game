@@ -4,36 +4,50 @@ Onde o projeto está agora. Atualizado ao fim de cada passo. O porquê das escol
 
 ## Agora
 
-**Passo 7 concluído: a fatia mínima jogável (passos 1 a 7) está completa.** Próximo: passo 8, maestria de armas.
+**Onde estamos (2026-10-14):** a fatia mínima jogável (passos 0 a 7) está completa, a cidade existe (passo 9a) e o labirinto tem o 1º andar de verdade, com arte. O passo 8 (maestria de armas) ficou para depois, por escolha do dono do projeto.
 
-O passo 7 foi feito em três partes:
+**O jogo hoje, do começo ao fim:**
+1. **Ficha de registro** (HTML, arte Paper UI recolorida para dark fantasy): nome da linhagem; personagem novo escolhe a classe (mago, elfo, bárbaro, homem fera), gravada no servidor. Por enquanto a classe só muda o visual.
+2. **Cidade** (80x60, arte dark fantasy do dono do projeto): segura e uma para todos. O personagem aparece com o sprite da classe, anda com animação nas 8 direções e tem o nome em cima. O portal ao norte da praça (tecla **E**) leva ao labirinto.
+3. **Labirinto, 1º andar: Caverna de Cristal** (128x96). Chega-se no centro, em volta de um portal cercado de cristais. Em volta, quatro regiões com o seu povo: acampamento goblin (norte), covil dos lobos (leste), minas dos gnomos (oeste) e fosso dos slimes (sul), cada um com sprite próprio. Combate com golpe mirado no mouse, golpes de mob avisados no chão, fome, morte definitiva (o próximo da linhagem é herdeiro), loot no chão, essências e XP pela primeira morte de cada tipo de mob.
+4. **Extração:** em cada run, 2 das 8 saídas candidatas ficam ativas (portal azul com anel no chão). Ficar 5 s dentro extrai e leva de volta à cidade com o inventário. Morrer perde tudo o que se carregava.
 
-- [x] **7a.** Persistência (SQLite) e identidade por nome: a linhagem e o personagem sobrevivem entre runs. Tela de nome ao entrar; um personagem vivo por linhagem; morreu, o próximo é herdeiro; extraído vira crédito da linhagem.
-- [x] **7b.** Bestiário (da linhagem) e XP pela 1ª kill de cada tipo (por personagem, para quem dá o golpe final); nível = número de slots. HUD com nível e barra de XP; aviso de primeira morte.
-- [x] **7c.** Essências: drop dos mobs; consumir (tecla do slot) ocupa um slot de essência, em qualquer lugar; efeito de status (velocidade, dano, vida máxima) aplicado pelo servidor; equipadas ficam no banco. Tirar só com NPC, mais à frente.
+**O que veio depois do passo 7** (detalhes no Histórico, abaixo, e em `DECISIONS.md`):
+- [x] **9a.** Cidade (sala `city`) e portais; viagens cidade ↔ labirinto sem recarregar a página.
+- [x] **9a.1.** O inventário é do personagem: vai e volta com ele. Kit inicial (3 rações) só para personagem novo; o crédito da linhagem acabou.
+- [x] **9a.2.** Cidade com arte: primeiro com pacotes LPC; depois **refeita com a arte própria do dono do projeto**, gerada por Python (`tools/assets/`). A versão LPC foi apagada.
+- [x] **Tela cheia**, com a mesma área de mundo visível em qualquer formato de janela.
+- [x] **Ficha de registro e classes** (escolha e visual; os números das classes ficam para o passo 10).
+- [x] **Caminhada** dos personagens nas 8 direções.
+- [x] **Labirinto, 1º andar** (Caverna de Cristal, gerada por `tools/assets/build_labyrinth.py`): lobo, gnomo e slime novos; o rato saiu (a essência de velocidade passou para o lobo).
+- [x] **Sprites dos inimigos** no lugar dos quadrados coloridos.
 
-O passo 6 (inventário, loot, extração) foi feito em 6a, 6b e 6c.
+**Próximos candidatos** (a escolha é do dono do projeto): zona escura dos goblins (raio de replicação menor, regra 4); respawn de mobs; raio seguro em volta da chegada; loja e baú (resto do passo 9); números das classes (passo 10); maestria de armas (passo 8).
 
 **Limitações conhecidas agora:**
-- Sem loja ainda: a comida de cada run são as 3 rações iniciais (`STARTING_ITEMS`), mais as que goblins largam às vezes.
+- Sem loja ainda: a comida de cada run são as 3 rações iniciais (`STARTING_ITEMS`), mais as que goblins e gnomos largam às vezes. Um personagem que gastou tudo fica sem comida.
 - Uma run dura enquanto houver alguém na sala. Quando todos saem (ou morrem), a sala fecha e as pilhas no chão somem com ela.
 - Pilhas no chão não somem com o tempo e mostram só a posição: o conteúdo se descobre ao pegar.
-- O que é extraído vira "crédito" da linhagem no banco, mas ainda não serve para nada: usar vem com baú e loja (passo 9). Entre runs, o inventário zera (decisão do dono do projeto); toda run começa com as 3 rações.
+- O inventário é do personagem e só é gravado na extração (e na hora, na cidade). Ainda não há baú nem loja: os itens só servem para usar (ração, essência) ou ocupar espaço.
+- Sair do labirinto com saída intencional (cliente modificado) escapa sem morrer nem extrair, voltando com o inventário de antes da run. Ver DECISIONS.
 - Identidade é só o nome, sem senha: quem digitar o seu nome entra como você. Serve para jogar entre amigos.
-- Com só 2 tipos de mob, o nível máximo alcançável hoje é 3. Variantes e feitos (GDD) aumentam isso depois. O bestiário é registrado, mas ainda não tem tela.
+- Dá para entrar no labirinto sem passar pela cidade (a identidade é só o nome). Amarrar quando a cidade tiver loja.
+- A classe ainda não muda vida, dano nem velocidade (as barras da ficha são descritivas).
+- Com os 4 tipos de mob do 1º andar, o nível máximo alcançável para um personagem novo é 4. Variantes e feitos (GDD) aumentam isso depois. O bestiário é registrado, mas ainda não tem tela.
 - No co-op, o XP da primeira morte vai só para quem deu o golpe final.
 - Ainda não dá para tirar essência (NPC de purificação vem com a cidade). Com os slots cheios, a essência fica no inventário e é recusada com aviso.
-- As três essências são placeholders só de status. Habilidades únicas e afinidade de área (GDD) vêm com mais mobs e com a escuridão.
-- A fatia do GDD pede "um andar, duas áreas, 3–4 mobs, duas armas e três essências": temos um andar de teste com 4 áreas, 2 tipos de mob, 1 arma e 3 essências. Faltam mobs e a segunda arma (que pertence ao passo 8).
-- Vários mobs perseguindo o mesmo jogador se sobrepõem: não há colisão entre mobs.
-- O aviso do golpe é desenhado no chão, por baixo dos quadrados: com o mob encostado, parte dele fica escondida sob o jogador. Rever quando houver arte.
-- "Novo personagem" só recarrega a página. Quando houver cidade (passo 9), leva para lá.
-- Fechar a aba perde o vínculo com o personagem (o token fica guardado por aba). Ele fica no mundo e morre de fome.
-- Mobs atravessam jogadores e uns aos outros. Colisão é só contra parede.
+- As essências são só de status. Habilidades únicas e afinidade de área (GDD) vêm com mais mobs e com a escuridão. Gnomo e slime ainda não têm essência.
+- A fatia do GDD pede "um andar, duas áreas, 3–4 mobs, duas armas e três essências": temos o 1º andar com 5 áreas, 4 tipos de mob, 1 arma e 3 essências (lobo, goblin, goblin rara). Falta a segunda arma (passo 8).
+- Os números dos mobs (`MOB_KINDS`) e as quantidades por área são iniciais, para ajustar jogando.
 - Mobs nascem só quando a sala é criada. **Respawn: decisão pendente do dono do projeto.**
-- Os dois tipos de mob (`rato`, `goblin`) e as quantidades por área são placeholders do mapa de teste.
+- Os mobs do centro nascem em qualquer tile da área, inclusive ao lado de quem chega: parado na chegada, dá para morrer logo ao entrar.
+- Mobs atravessam jogadores e uns aos outros (colisão só contra parede); vários perseguindo o mesmo jogador se sobrepõem.
+- Os inimigos têm sprite parado nas 8 direções, mas ainda não têm animação de andar nem de golpe (deslizam virados para onde vão).
+- O aviso do golpe é desenhado no chão, por baixo dos sprites: com o mob encostado, parte dele fica escondida atrás do jogador e do próprio mob.
+- Os prédios da cidade são só fachada; loja, estalagem, igreja e guilda ainda não funcionam.
+- Fechar a aba perde o vínculo com o personagem (o token fica guardado por aba). Ele fica no mundo e morre de fome.
 - O movimento dos outros deve parecer "em degraus" (o servidor atualiza 20× por segundo e o cliente desenha a 60). Se incomodar, a correção é interpolação, que é só visual.
-- O mapa é um placeholder de teste (`assets/maps/test.json`). O andar 1 de verdade ainda vai ser desenhado.
+- A arte original (grande) fica fora do git: para rodar de novo os scripts de `tools/assets/`, as pastas `novos tilesets/`, `labirinto/` e `interface/` precisam estar em `assets/tilesets/`. Guarde uma cópia delas.
 
 ## Ordem de construção
 
@@ -46,8 +60,8 @@ O passo 6 (inventário, loot, extração) foi feito em 6a, 6b e 6c.
 - [x] 6. Loot e extração
 - [x] 7. Essências e slots ← fim da fatia mínima jogável
 - [ ] 8. Maestria de armas
-- [ ] 9. Cidade, loja, baú
-- [ ] 10. Classes e vilas
+- [ ] 9. Cidade, loja, baú (9a: cidade, portais e inventário do personagem ✔; loja e baú faltam)
+- [ ] 10. Classes e vilas (escolha da classe e sprites ✔; números das classes e vilas faltam)
 - [ ] 11. Facções e rotas sociais
 
 ## Como rodar
@@ -64,15 +78,29 @@ npm test             # testes de shared/
 
 O banco fica em `data/rpg-extracao.db` (fora do git). Para usar outro arquivo, defina `DB_FILE` antes de subir o servidor.
 
-**Ao abrir:** digite o nome da sua linhagem. O mesmo nome volta ao mesmo personagem (se vivo) ou entra um herdeiro (se o anterior morreu).
+Para mexer na arte ou gerar os mapas de novo (cidade, labirinto, ficha): scripts Python em `tools/assets/`, com instruções no README de lá. Não é preciso para jogar.
 
-**Controles:** WASD anda. Clique esquerdo golpeia na direção do cursor (fogo amigo ligado: acerta outros jogadores também). As teclas **1–9, 0, - e =** usam o item do slot correspondente (ração: come uma; essência: consome e ocupa um slot de essência). **F** pega a pilha de loot mais próxima. Anel azul no chão: portal de saída; fique dentro dele 5 s para extrair. Barra amarela no canto superior esquerdo: sua fome. Embaixo, no centro: seu inventário.
+**Ao abrir:** a ficha de registro pede o nome da sua linhagem (2 a 16 caracteres). Personagem novo (primeiro da linhagem ou herdeiro) escolhe a classe na ficha seguinte (setas ou A/D, Enter ou o botão confirma; o carimbo sela). Depois você entra na **cidade**, com o sprite da classe e o nome em cima. O mesmo nome volta ao mesmo personagem (se vivo) ou entra um herdeiro (se o anterior morreu). A aba lembra o nome: recarregar na cidade volta direto para ela.
+
+**Na cidade:** WASD anda. O anel roxo ao norte é o portal: dentro dele, **E** leva ao labirinto. Ao extrair ou morrer, o botão da tela leva de volta à cidade. O inventário vem junto do labirinto, e as teclas de slot funcionam também na cidade (comer lá gasta a ração sem efeito: não há fome).
+
+**No labirinto:** WASD anda. Clique esquerdo golpeia na direção do cursor (fogo amigo ligado: acerta outros jogadores também). As teclas **1–9, 0, - e =** usam o item do slot correspondente (ração: come uma; essência: consome e ocupa um slot de essência). **F** pega a pilha de loot mais próxima. Portal azul com anel no chão: saída; fique dentro do anel 5 s para extrair. O portal roxo do centro é só a chegada. Barra amarela no canto superior esquerdo: sua fome. Embaixo, no centro: seu inventário.
 
 ## Como editar o mapa
 
-O Tiled está instalado em `C:\Program Files\Tiled\tiled.exe`. Abra `assets/maps/test.json` direto nele.
+O Tiled está instalado em `C:\Program Files\Tiled\tiled.exe`. Abra `assets/maps/dungeon_floor1.json` (labirinto) ou `assets/maps/city.json` (cidade) direto nele. O `test.json` (o mapa de teste antigo) não é mais usado.
 
-- **Parede** é qualquer tile cuja propriedade `solid` (booleana) esteja marcada no tileset. No placeholder, o tile marrom.
+**Labirinto (1º andar):** gerado por `tools/assets/build_labyrinth.py` a partir da arte em `assets/tilesets/labirinto/` (ver o README de `tools/assets/`). Rodar o gerador de novo sobrescreve o mapa, inclusive o que tiver sido editado à mão no Tiled. As paredes são tiles com `solid`; enfeites são objetos com a colisão na base, como na cidade.
+
+**Cidade:** gerada pelos scripts Python em `tools/assets/` (ver o README de lá), a partir da arte em `assets/tilesets/novos tilesets/`. Casas, enfeites e portal são objetos (coleção de imagens) com a colisão desenhada na base de cada tile. Rodar o gerador de novo sobrescreve o mapa, inclusive o que tiver sido editado à mão no Tiled. A cidade precisa das camadas de objetos `spawns` (onde se chega) e `portal` (pontos; cada um leva ao labirinto); não tem áreas, mobs nem saídas. Cada ponto precisa caber o jogador sem encostar em parede.
+
+**Valem para os dois mapas:**
+- **O nome do tileset no Tiled é o caminho do arquivo dentro de `assets/tilesets/`, sem `.png`** (ex.: `labyrinth/floor`). É assim que o cliente acha a imagem: ele carrega as PNGs de `assets/tilesets/`, `city/` e `labyrinth/` (não as originais).
+- **Camada de tiles cujo nome começa com `above`** é desenhada por cima do jogador (copas, lanternas, toldos). Tile nela não deve ter `solid`, senão vira parede onde o jogador deveria passar por baixo.
+
+O resto desta seção vale para o labirinto.
+
+- **Parede** é qualquer tile cuja propriedade `solid` (booleana) esteja marcada no tileset. No 1º andar, os tiles de rocha gerados pelo `build_labyrinth.py`.
 - **O tileset precisa ficar embutido no mapa.** O Phaser não carrega tilesets externos (`.tsx`). Ao criar um tileset novo no Tiled, marque "Embed in map".
 - **Saídas** ficam na camada de objetos `exits`, como pontos (atalho `I`). Cada um é um candidato; em cada run, `EXITS_ACTIVE` deles são sorteados. Cada candidato precisa caber o jogador sem encostar em parede, e o mapa precisa ter pelo menos um.
 - **Pontos de entrada** ficam na camada de objetos `spawns`, criados com a ferramenta "Insert Point" (atalho `I`). Retângulos nessa camada são recusados. O jogador nasce centrado no ponto, e cada ponto precisa ter espaço para a caixa dele (24×24 px) sem encostar em parede.
@@ -82,7 +110,7 @@ O Tiled está instalado em `C:\Program Files\Tiled\tiled.exe`. Abra `assets/maps
 - **Todo ponto de spawn precisa estar dentro de uma área.** Só os pontos em áreas com `playerEntry: true` são usados para jogadores.
 - **O servidor valida o mapa ao subir** e lista todos os problemas de uma vez: área sem configuração (ou o contrário), ponto de spawn fora de área ou encostando em parede, nenhuma área com entrada.
 - **Formato da camada: CSV.** Se for comprimido (Base64/zlib), o servidor recusa o mapa com um erro dizendo isso.
-- **Depois de salvar o mapa, reinicie o servidor.** O modo watch recarrega quando o código muda, mas não quando o mapa muda. O cliente recarrega sozinho.
+- **O servidor recarrega sozinho quando um mapa muda** (`tsx watch --include ../assets/maps/*.json`). O cliente também. Se o servidor tiver sido iniciado antes dessa mudança, reinicie o `npm run dev:server` uma vez.
 
 ## Histórico
 
@@ -108,3 +136,13 @@ O Tiled está instalado em `C:\Program Files\Tiled\tiled.exe`. Abra `assets/maps
 - **2026-10-14** — Passo 7a concluído. SQLite com `better-sqlite3` e migrações numeradas (`server/src/db.ts`), nome validado em `shared/src/identity.ts` (170 testes no total). Verificado com banco descartável: nome inválido ou ausente recusado com mensagem; o mesmo nome em duas conexões recusado ("Teste já está no labirinto."); morte marca o personagem como morto e a próxima entrada cria um herdeiro na mesma linhagem; extrair soma o inventário no crédito da linhagem e o personagem segue vivo (voltar com o mesmo nome reencontra o mesmo personagem). No navegador: tela de nome, digitação de W/A/S/D no campo e mensagem de erro do servidor (sem entrar, para não sujar o banco do dono do projeto).
 - **2026-10-14** — Passo 7b concluído. Bestiário e XP (migração 2 em `server/src/db.ts`; `shared/src/progression.ts`; 175 testes no total). Migração testada sobre um banco da versão 1: dados preservados, versão 2 aplicada. Verificado com banco descartável: entrar no nível 1; primeiro rato → aviso "subiu para o nível 2"; segundo rato → nada; sair e entrar de novo → nível 2 e 1 de XP vindos do banco; herdeiro começa com 0 de XP, mas o bestiário da linhagem continua. **Não verificado no navegador** (entrar exige nome e criaria linhagem no banco do dono do projeto): conferir o "Nível N · XP" e o aviso de primeira morte.
 - **2026-10-14** — Passo 7c concluído, e com ele a fatia mínima jogável. Essências (`shared/src/essences.ts`, `useSlot` com resultados; migração 3; 182 testes no total). Verificado com banco descartável: personagem semeado com as 3 essências entrou com vida 125/125, andou 192 px em ~1 s (184 esperado; sem essência, 160) e um golpe deixou um rato de 20 com 6 (dano 14); essência caída de rato foi pega e consumida, equipada e gravada no banco (duas iguais se somam); com 3/3 slots, a próxima foi recusada com aviso e ficou no inventário. **Não verificado no navegador** (mesmo motivo): conferir a linha "Essências (n/slots)" e as cores das essências no inventário.
+- **2026-10-14** — Passo 9a concluído. Cidade (`server/src/CityRoom.ts`, `assets/maps/city.json`, `shared/src/city.ts`; 187 testes no total). Controle de presença comum às salas (`server/src/presence.ts`). Cliente: uma cena por lugar e viagens entre salas sem recarregar a página. Verificado por script num servidor de teste (banco descartável): nome inválido recusado; dois jogadores na mesma cidade se veem; o mesmo nome é recusado na cidade e no labirinto enquanto está na cidade (e vice-versa); E longe do portal é ignorado; E no portal leva ao labirinto (código 4000) com vida e fome cheias; extração e morte voltam à cidade com o mesmo nome. **Não verificado no navegador além da tela de nome** (entrar criaria linhagem no banco do dono do projeto): conferir a cidade desenhada, o anel roxo, a dica "E: entrar no labirinto" e as viagens.
+- **2026-10-14** — Passo 9a.1 concluído. Inventário do personagem (migração 4, `restoreInventory` em `shared/src/inventory.ts`; 190 testes no total). Migração testada sobre um banco da versão 3 com crédito: versão 4, crédito apagado, personagens preservados e o vivo recebe o kit. Verificado por script num servidor de teste: personagem novo chega à cidade com 3 rações; comer na cidade gasta uma e fica gravado (saiu e voltou: 2); no labirinto leva as 2, sem kit extra; com o servidor derrubado no meio da run (depois de comer mais uma), o personagem voltou com as 2 de antes da run; extraiu e o inventário na cidade é exatamente o extraído.
+- **2026-10-14** — Passo 9a.2 concluído. Cidade 80x60 com arte LPC (pacotes do dono do projeto), gerada por script (`tools/city/`). Cliente: carrega todas as folhas de `assets/tilesets/` pelo nome, desenha camadas `above*` por cima do jogador e ganhou um painel escuro atrás dos textos do HUD (o branco sumia sobre fachadas claras); `VITE_SERVER_PORT` aponta o cliente para um servidor de teste. O mapa do Gemini que tinha substituído `city.json` (80x80, com um `city_tileset.png` que não estava no projeto) foi trocado a pedido do dono do projeto; continua salvo em `Desktop/Gemini/`. Verificado: o servidor aceita o mapa (spawns e portal livres); colisão conferida numa renderização com as paredes pintadas; no navegador (servidor e cliente de teste, banco descartável): cidade desenhada, andar pela praça, poste desenhado por cima do jogador ao passar atrás, E no portal levou ao labirinto, que continua desenhando normal.
+- **2026-10-14** — Correção da cidade. O servidor do dono do projeto tinha subido antes da troca do mapa e continuava com a colisão do mapa antigo (30x22): só dava para andar num quadrado. Agora o `dev:server` observa `assets/maps/*.json` e reinicia quando um mapa muda. No mapa: torres passaram para camadas próprias (`front`/`frontDetails`) e não deixam mais janelas e cornijas do prédio de trás aparecerem por cima; o gerador ganhou um detector de sobreposição, que achou 5 objetos em cima de casas (corrigidos); vaso das árvores, estandartes da guilda e placa da estalagem corrigidos. Verificado: nenhuma sobreposição; preenchimento a partir do spawn com a colisão do servidor alcança 1.868 tiles (ruas, praça, jardins, os quatro cantos), só o distrito real fica de fora, de propósito; no navegador, andando pela rua principal bem fora do antigo quadrado.
+- **2026-10-14** — Correções pedidas pelo dono do projeto. (1) A estalagem cobria a viela SE: o gerador agora acusa qualquer estrutura em cima de rua (teste de mutação: com a largura antiga, acusa "cobre viela SE") e tira o calçamento de baixo dos prédios. As torres da muralha sul também cortavam a rua sul; a muralha desceu (57-59) e a área alcançável passou de 1.868 para 1.972 tiles. (2) Pontas das torres: o corpo começava abaixo do telhado, e os cantos transparentes do cone e da pirâmide mostravam a rua (parecia uma bola sobre uma caixa); agora o corpo sobe por trás do telhado, e a peça que não encaixava na pirâmide saiu. (3) Tela inteira: o jogo ocupa a janela do navegador; a área do mundo visível mantém a meia-diagonal de 500 px (`SCREEN_HALF_DIAGONAL`, `viewportSize` em `shared/src/visibility.ts`; 194 testes). Verificado no navegador: 1024x768, 1600x820 e 1300x900 preenchidos sem tarja nem rolagem, HUD reposicionado ao redimensionar.
+- **2026-10-14** — Cidade refeita com a arte nova do dono do projeto (dark fantasy, casas isométricas). Python (`tools/assets/`): fundo tirado (inclusive buracos presos na arte), recorte, redução por média de área; tileset de chão com guias em todas as direções e vinheta corrigida; mapa 80x60 com ruas, calçadas automáticas, praça com chafariz, portal na borda norte entre correntes, 10 casas, enfeites. Servidor: colisão de objetos pelo retângulo da base (`parseObjectFootprints`; 201 testes). Cliente: objetos do mapa desenhados e Y-sorting. Verificado: o servidor recusou spawns encostados em bancos (corrigidos) e aceitou o mapa; 4.541 células alcançáveis do spawn; no navegador: cidade desenhada, colisão no chafariz, jogador escondido atrás dele vindo do norte, E no portal levou ao labirinto, que continua normal.
+- **2026-10-14** — Ficha de registro (nome e classe) com o pacote Paper UI recolorido para dark fantasy (`tools/assets/process_ui.py`, `client/src/registration.ts`). Classe guardada no personagem (migração 5; `shared/src/classes.ts`; 203 testes), escolhida uma vez, só por personagem novo; entrada sem classe recusada com 428. Nome de 2 a 16. Jogador desenhado com o sprite da classe, virado para onde anda, com o nome em cima. Verificado no navegador (servidor e banco de teste): nome novo -> ficha de classe; setas/D trocam card, prévia, faixa, descrição e barras; confirmar toca o carimbo, grava `barbaro` no banco (versão 5) e entra na cidade com o sprite do bárbaro; recarregar vai direto para a cidade, sem ficha; andar para o leste e para o norte vira o personagem.
+- **2026-10-14** — 1º andar do labirinto: Caverna de Cristal. Python: `process_labyrinth.py` tira o fundo, recorta os 16 blocos de chão e os 15 enfeites (cada um só com os próprios pixels, mesmo quando a caixa dele pega pedaço do vizinho); `build_labyrinth.py` escava a caverna (128x96, 5 regiões, túneis do centro e dois anéis), gera os tiles de parede com face de pedra e sombra no chão, espalha enfeites por região e grava áreas, chegadas (7, em volta do portal do centro) e saídas (8 candidatas, 2 por região de fora). Regras: lobo, gnomo e slime em `MOB_KINDS`, drops e itens novos, rato fora do andar. Cliente: saída ativa desenhada com a arte do portal (azul), luz no chão em volta de cristais, tochas, minério, cogumelos e portais. Verificado: o servidor aceita o mapa; com a colisão do servidor, 4.494 tiles alcançáveis da chegada e nenhum preso; todas as chegadas, saídas e tiles de mob alcançáveis; 203 testes. No navegador (servidor e banco de teste): chegada no centro com cristais e luzes, andar até o fosso dos slimes e o covil dos lobos, morto por um lobo ("Morto por um lobo.") e, de novo, por um goblin no centro; portal de saída conferido injetando uma saída falsa no desenho do cliente (nenhuma ativa caiu perto). **Não verificado:** uma extração de verdade neste mapa.
+- **2026-10-14** — Sprites dos inimigos (goblin, lobo, gnomo, slime), lidos direto de `assets/tilesets/Inimigos/<Tipo>/Idle/rotations/` (64x64, 8 direções). Cliente: desenhados em 1:1 como as classes, pés na base da caixa de colisão, Y-sorting; olham para onde andam e, preparando o golpe, para onde vão bater; barra de vida acima da cabeça. As cores por tipo (`MOB_COLORS`) saíram. Verificado no navegador (servidor de teste): as 32 imagens carregadas; goblin, gnomo, slime e lobo desenhados no centro do labirinto, slime virado para o jogador enquanto batia (e matou: "Morto por um slime.").
+- **2026-10-14** — Caminhada dos personagens. Os GIFs de `walk/` (8 direções, 6 quadros de 96x96, nas 4 classes) viram fitas PNG (`process_ui.py`). Cliente: animação de andar a 10 FPS na direção do movimento; parado, o sprite parado da última direção. "Andando" = posição mudou nos últimos 150 ms (o servidor manda 20x/s, a tela desenha 60x/s). Pivô nos pés nas duas folhas (61/64 parado, 78/96 andando), alinhado com a colisão e o Y-sorting. Verificado no navegador (servidor de teste): segurando A o bárbaro troca de quadro andando para oeste; ao soltar, fica parado virado para oeste.

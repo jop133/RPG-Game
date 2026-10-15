@@ -534,7 +534,7 @@ O cliente recebe `windup` e `attackAngle` e desenha o arco no chão: o contorno 
 - **Linhagem** = o nome. Guarda o crédito extraído e, no 7b, o bestiário (sobrevive à morte)
 - **Personagem**: um vivo por linhagem. Sobrevive à extração. Morreu, a próxima entrada com o nome cria um herdeiro
 - **XP é por personagem** (7b): o herdeiro reganha nível matando de novo cada tipo; o bestiário (conhecimento) é que é da linhagem
-- **Entre runs, o inventário zera.** O que foi extraído vira crédito da linhagem, sem uso até baú e loja
+- ~~**Entre runs, o inventário zera.** O que foi extraído vira crédito da linhagem, sem uso até baú e loja~~ (substituído: ver "Inventário vai com o personagem")
 - **Um personagem não entra duas vezes ao mesmo tempo:** o `onAuth` recusa o nome de quem já está numa sala (incluindo desconectado esperando voltar)
 
 **Por quê:** jogo entre amigos; login com senha seria muito código para o problema de agora. O risco aceito é que qualquer um que digitar o seu nome entra como você.
@@ -565,8 +565,162 @@ O cliente recebe `windup` e `attackAngle` e desenha o arco no chão: o contorno 
 - Consumir pela tecla do slot (`useSlot`, mesmo caminho da comida) ocupa um slot de essência se houver livre (slots = nível); senão é recusado com aviso e nada é gasto
 - Efeitos iguais se somam (porcentagens somam, não multiplicam). `playerStats` em `shared/src/essences.ts` calcula velocidade, dano e vida máxima; o servidor aplica no movimento, no golpe (contra mob e contra jogador) e na vida
 - Consumir a de vida aumenta a vida máxima e a atual na mesma quantidade
-- Equipadas ficam no personagem, no banco (migração 3). Sobrevivem à extração; somem com a morte. Essências não consumidas, no inventário, viram crédito ao extrair, como qualquer item
+- Equipadas ficam no personagem, no banco (migração 3). Sobrevivem à extração; somem com a morte. Essências não consumidas, no inventário, viram crédito ao extrair, como qualquer item (hoje: ficam no inventário do personagem)
 
 **Por quê:** um único caminho de "usar o slot" para comida e essência; a regra de recusa vive numa função pura testável; o cliente não calcula nada disso (regra 1), só mostra.
 
 **Em aberto:** habilidades únicas e afinidade de área (GDD) entram quando houver escuridão e mais mobs; tirar essência vem com o NPC de purificação.
+
+---
+
+## 2026-10 — Cidade: sala própria, uma para todos, segura; portal com tecla E
+
+**Decisão (dono do projeto):** a cidade é uma sala Colyseus própria (`city`, `server/src/CityRoom.ts`) com o mapa `assets/maps/city.json`. Existe **uma cidade para todos** os jogadores conectados. Nela não há combate, fome nem mobs (o GDD diz que cidades são seguras). O portal para o labirinto é um ponto na camada `portal` do mapa; apertar **E** com o centro dentro do raio (`CITY_PORTAL_RADIUS`) tira o jogador da cidade, e o cliente entra numa run **aberta com vaga** do labirinto (`joinOrCreate("game")`, como antes).
+
+**Fluxo:** nome → cidade → E no portal → labirinto → extraiu ou morreu → cidade (o morto volta como herdeiro, como já era).
+
+**Como:**
+- O controle de "personagem já está dentro" saiu do `GameRoom` para `server/src/presence.ts`, comum às duas salas: ninguém fica na cidade e no labirinto ao mesmo tempo. O servidor libera o personagem **antes** de mandar a mensagem de saída, para a entrada na próxima sala não ser recusada
+- A cidade não tem `onDrop`: quem cai sai, e volta pelo nome. Não há corpo exposto num lugar seguro
+- No cliente, cada visita a um lugar é uma cena nova do Phaser (a anterior é removida inteira). O nome fica guardado por aba (`sessionStorage`), e as viagens entram com ele sem perguntar de novo
+- O portal da cidade é desenhado a partir do mapa, como as paredes (é fixo). A dica "E: entrar" é só visual; quem confere é o servidor
+- Interest management continua valendo na cidade (regra 5), mesmo sendo pequena
+
+**Por quê:**
+- Sala própria: "cidade = sala" já estava na decisão do Colyseus; a cidade não carrega nada da simulação do labirinto
+- Tecla em vez de ficar parado: entrar no labirinto é uma escolha deliberada; passar perto do portal não deve levar ninguém por engano
+- Cena nova por lugar: zerar campo por campo de uma cena reaproveitada é fonte de bug (desenhos e teclas de um lugar vazando no outro)
+
+**Limites conhecidos:**
+- Como a identidade é só o nome, dá para entrar direto no labirinto sem passar pela cidade. Hoje a cidade não tem nada a preparar; quando houver loja, amarrar a entrada do labirinto à saída pela cidade
+- Os 3 prédios da cidade são só paredes, à espera de loja, hotel e igreja
+
+---
+
+## 2026-10 — MUDANÇA: inventário vai com o personagem; fim do crédito da linhagem
+
+**Contraria** a decisão "Identidade por nome; personagem e linhagem entre runs", que dizia: entre runs o inventário zera e o extraído vira crédito da linhagem. Aquilo era provisório porque não havia para onde voltar; com a cidade, há. Escolha do dono do projeto.
+
+**Nova decisão:**
+- O inventário é do **personagem** (coluna `characters.inventory`, migração 4). Extraiu: chega à cidade com tudo. Entra no labirinto com o que tem
+- **Kit inicial uma vez só:** personagem novo (o primeiro da linhagem ou um herdeiro) recebe `STARTING_ITEMS`; depois disso, comida só vem dos goblins, até existir loja. No banco, `inventory` NULL quer dizer "nunca gravado" e vira o kit (`restoreInventory` em `shared/src/inventory.ts`)
+- **Na cidade, as teclas de slot funcionam como no labirinto:** dá para consumir essência e também comer, mas comer lá gasta a ração sem efeito (não há fome na cidade)
+- **O crédito da linhagem foi apagado** (`DROP TABLE lineage_credit` na migração 4), com o que já tinha nele
+- Morte não muda: o inventário cai no chão e o personagem morto o leva
+
+**Quando o banco é gravado:**
+- No labirinto, **só na extração.** Se o servidor cair no meio de uma run, ela "não aconteceu": o loot pego se perde e a comida comida volta. Ninguém lucra com queda de servidor (escolha do dono do projeto)
+- Na cidade, **na hora**, a cada item usado: não existe run para desfazer
+
+**Limite conhecido:** sair do labirinto com saída intencional (`leave` com código de consentimento, que o cliente oficial nunca usa) tira o personagem da sala sem morte nem extração, e ele volta com o inventário de antes da run. Um cliente modificado escaparia de uma luta perdida assim. Já existia antes desta mudança (o personagem sobrevivia), mas agora o inventário torna isso mais valioso.
+
+---
+
+## 2026-10 — Arte real na cidade (LPC), gerada por script; labirinto segue com placeholder
+
+**Contraria** a decisão "Arte: placeholders primeiro" só para a cidade. A fatia mínima jogável já existia e o dono do projeto pediu a cidade com arte.
+
+**Decisão:**
+- A cidade usa pacotes **LPC** (Liberated Pixel Cup) escolhidos pelo dono do projeto: terrenos, prédios e decoração vitorianos, decoração medieval. Todos seguem o mesmo guia de estilo do LPC, então misturar os pacotes não deixa o visual "remendado" (preocupação da decisão de placeholders)
+- Estilo e estrutura inspirados na ilustração da capital do manhwa (muralha, avenida, praça redonda, palácio ao fundo), sem nomes nem arte da obra (decisão "tom, não conteúdo")
+- O mapa é **gerado por script** (`tools/city/`), não desenhado à mão: deixa o layout reproduzível e fácil de mudar em bloco. Ajustes finos podem ser feitos no Tiled depois, sabendo que gerar de novo sobrescreve
+- Colisão continua pela propriedade `solid` de cada tile (decisão anterior); o gerador marca `solid` em todo tile de prédio, muralha e objeto
+- **Créditos obrigatórios:** as licenças (CC-BY-SA na maioria) exigem atribuição; ficam em `assets/tilesets/CREDITS.md`. Modificações dessa arte precisam sair sob a mesma licença
+
+**Mudanças no cliente que vieram junto:**
+- Tilesets: o nome do tileset no mapa é o nome do arquivo em `assets/tilesets/`, e o cliente carrega todas as PNGs da pasta. Serve para qualquer mapa sem regra por lugar
+- Camadas `above*` são desenhadas por cima do jogador; é o que faz passar "atrás" de poste, árvore e toldo. Só visual: a colisão continua vindo do servidor
+- `VITE_SERVER_PORT` aponta o cliente para outro servidor (testes em porta própria sem tocar no servidor e no banco do dono do projeto)
+
+**Custo aceito:** as folhas LPC são grandes (a de janelas e portas tem 1024x5120). São 8 imagens, cerca de 2 MB no total, carregadas uma vez.
+
+---
+
+## 2026-10 — Tela inteira com a mesma distância de visão para todos
+
+**Decisão:** o jogo ocupa a janela inteira do navegador, em qualquer formato. O tamanho do jogo em pixels do mundo segue o formato da janela, mas sempre com **meia-diagonal de 500 px** (`SCREEN_HALF_DIAGONAL`, `viewportSize` em `shared/src/visibility.ts`); o Phaser amplia a imagem (modo FIT) para preencher. Janela 4:3 continua mostrando 800x600; janela larga mostra mais dos lados e menos em cima e embaixo.
+
+**Por quê:**
+- Aumentar a tela sem fixar a área visível faria monitor grande ver mais longe: vantagem para quem tem tela maior, e mobs surgindo do nada dentro da tela, porque o servidor só envia até `VIEW_RADIUS` (520). Com a meia-diagonal fixa abaixo do raio, a regra "nada surge do nada dentro da tela" (decisão de interest management) continua valendo em qualquer janela
+- Zoom de câmera foi descartado: no Phaser ele também amplia o HUD fixo, o que exigiria uma segunda câmera ou cena só para o HUD
+
+**Detalhe:** ao redimensionar, o cliente espera um quadro e mede o `#app` de novo antes de mudar o tamanho; no próprio evento o layout novo ainda não terminou e o jogo ficava com tarja preta.
+
+---
+
+## 2026-10 — Cidade com a arte nova (dark fantasy): objetos com Y-sorting e colisão na base
+
+**Substitui** a cidade LPC (decisão "Arte real na cidade (LPC)"), a pedido do dono do projeto, que trouxe arte própria (`assets/tilesets/novos tilesets/`): 10 casas, chão, enfeites e portal.
+
+**Contraria em parte** a decisão "Top-down, não isométrico": as casas e a maioria dos enfeites são desenhados em perspectiva **isométrica** (quina virada para a tela). O jogo continua top-down (movimento, colisão, câmera, chão); só a arte desses objetos é isométrica. Escolha consciente do dono do projeto, avisado de que as casas ficam "giradas" em relação às ruas e de que a colisão perto das quinas do losango é aproximada.
+
+**Como:**
+- **Processamento em Python** (`tools/assets/`, Pillow + NumPy num ambiente local): tira o fundo (quadriculado "falso" das imagens geradas e buracos brancos presos na arte), recorta e reduz por **média de área** (não Nearest: a arte é pintada em alta resolução, e reduzir 8x com Nearest vira ruído)
+- **Chão** continua tile de 32 px. As peças de guia que faltam (espelhadas e o canto de quarteirão) são geradas; vinheta tirada e variantes igualadas para o chão não parecer um xadrez
+- **Casas, enfeites e portal são objetos** de uma coleção de imagens do Tiled. A colisão de cada um é um retângulo na base, desenhado no próprio tile (o jeito do Tiled: segue o objeto se ele for movido). O servidor lê esses retângulos (`parseObjectFootprints`) e marca como parede as células cujo centro cai dentro; base menor que uma célula (poste) bloqueia a célula onde fica. A colisão continua sendo a grade de 32 px de sempre
+- **Y-sorting no cliente**: jogadores, mobs, casas e enfeites ficam com profundidade = y da base. Quem está mais embaixo na tela é desenhado na frente: dá para passar atrás do telhado e na frente da porta. Só visual
+
+**Limites aceitos:** colisão em células de 32 px (bordas da colisão não seguem o losango da casa); objetos isométricos ao lado de ruas retas.
+
+---
+
+## 2026-10 — Ficha de registro (nome e classe) em HTML; classe guardada pelo servidor
+
+**Decisão (dono do projeto):** ao entrar, o jogador passa por uma "ficha de registro de aventureiro" com a arte do pacote Paper UI recolorida para dark fantasy: tela do nome e, **só para personagem novo** (primeiro da linhagem ou herdeiro), tela de classe com as 4 classes (mago, elfo, bárbaro, homem fera), carimbo e fade para a cidade. Quem volta com um personagem vivo que já tem classe vai direto para a cidade.
+
+**Contraria dois pontos do pedido original, de propósito:**
+- O pedido falava em guardar classe e atributos no `localStorage`. Isso contraria a **regra 1** (o cliente não decide nada que importa): a classe fica **no personagem, no banco** (migração 5), escolhida uma vez e sem troca. O servidor recusa a entrada de personagem sem classe com `CLASS_REQUIRED_CODE` (428); o cliente então mostra a ficha e entra de novo mandando a classe (`admit` em `server/src/presence.ts`)
+- O nome passou de 2–20 para **2–16** caracteres (pedido do dono do projeto), mudando a decisão "Identidade por nome". Nenhuma linhagem existente tinha nome maior que 16
+
+**Por quê HTML e não Phaser:** as peças do pacote são grandes (caixa de diálogo de 688 px, ficha de 448 px de altura) e não cabem na área do mundo (~870x490 numa tela larga). Em HTML a ficha tem layout fixo de 1280x720 ampliado por **fator inteiro** com `image-rendering: pixelated` (nítida em qualquer tela), e o campo de nome é um input de verdade.
+
+**Por enquanto a classe só fica registrada (escolha do dono do projeto):** não muda vida, dano nem velocidade. As barras da ficha são descritivas. Fúria, Mana, Instinto Bestial e os números de cada classe entram no passo 10, no `balance.ts`.
+
+**No jogo:** o jogador é desenhado com o sprite da classe (64x64, 8 direções), virado para onde andou (só visual) e com o nome em cima; `name` e `classId` são públicos no estado (os outros jogadores veem).
+
+**Licença do Paper UI:** uso e modificação em jogos liberados; redistribuição do pacote (mesmo modificado) proibida. O repositório não tem remoto hoje; se um dia for publicado, `assets/tilesets/interface/` e `assets/ui/` precisam ficar de fora.
+
+---
+
+## 2026-10 — 1º andar do labirinto: Caverna de Cristal, gerada por script
+
+**Decisão (dono do projeto):** o labirinto deixa o mapa de teste (`test.json`) e passa a ser a Caverna de Cristal (`assets/maps/dungeon_floor1.json`, 128x96 tiles), com a arte nova de `assets/tilesets/labirinto/`. Cinco regiões: centro (chegada), norte (acampamento goblin), leste (covil dos lobos), oeste (minas dos gnomos) e sul (fosso dos slimes).
+
+**Escolhas do dono do projeto:**
+- O portal do centro é **só a chegada** (decorativo). As saídas continuam sorteadas entre candidatas (8, duas por região de fora; `EXITS_ACTIVE` = 2); a saída ativa é desenhada com a arte do portal, puxada para o azul.
+- Quarto mob: **slime**.
+- O **rato sai** do 1º andar e a essência de velocidade (+15%) passa para o **lobo** (`essencia_lobo`). `pele_de_rato` e `essencia_rato` continuam em `ITEMS`: há personagens com eles.
+- Gnomo e slime ainda sem essência, só material (`fragmento_de_cristal`, `gosma_de_slime`); o gnomo às vezes carrega ração.
+
+**Como:**
+- Mapa gerado por `tools/assets/build_labyrinth.py`, como a cidade: salas de borda irregular e túneis que serpenteiam, suavizados. Um túnel sai do centro para cada região, e dois anéis (um por dentro, outro por fora) ligam regiões vizinhas: sempre há outro caminho para fugir.
+- Paredes: tiles gerados por combinação de vizinhas. Topo da rocha escuro, beirada clara onde encosta no chão e, na parede que tem chão embaixo, uma face de pedra (fatias da arte do paredão) que dá altura à caverna. O chão encostado na parede ganha sombra.
+- Enfeites são objetos com retângulo de colisão na base (mesma regra da cidade). Um enfeite sólido só entra se não isolar nenhum pedaço da caverna; os paredões encostados nas paredes só entram onde a base já é rocha (não mudam a colisão).
+- Áreas do servidor: cinco nomes, em retângulos que cobrem o mapa inteiro.
+- Luz: cristais, tochas, minério, cogumelos e portais têm uma mancha de luz somada ao chão no cliente. **Não contraria a regra 4:** é só desenho e não esconde nem revela nada; a escuridão de verdade (raio de replicação) continua pendente.
+
+**Números dos mobs novos são iniciais** (`MOB_KINDS`): lobo rápido e frágil, gnomo com golpe largo, slime lento e resistente com golpe quase em volta.
+
+---
+
+## 2026-10 — Sprites e animação: só visual, direção deduzida do movimento
+
+**Como:** personagens (das classes) e inimigos são desenhados com sprites de 64x64 em 8 direções, em 1:1 (arte de pixel nítida com `pixelArt`), com os pés na base da caixa de colisão e profundidade pelo y dos pés (Y-sorting).
+- A **direção** não vem do servidor: o cliente olha para onde a entidade andou desde o último quadro. Inimigo preparando golpe olha para onde vai bater (`attackAngle`, que o servidor já mandava para o aviso no chão)
+- **Andando** = a posição mudou nos últimos 150 ms (o servidor manda 20x/s e a tela desenha 60x/s; sem essa folga a animação piscaria). Personagens têm caminhada (fitas geradas dos GIFs de `walk/`); inimigos por enquanto só têm a pose parada
+- Os sprites dos inimigos são lidos direto de `assets/tilesets/Inimigos/<Tipo>/Idle/rotations/`: o nome da pasta é o tipo do mob. As cores por tipo (quadrados) saíram
+
+**Por quê:** é informação só de desenho; mandar direção pelo servidor gastaria rede sem mudar nenhuma regra (regra 1 continua: o cliente não decide nada que importa).
+
+**Limite aceito:** em 1:1, gnomo e goblin ficam quase da altura do jogador. Reduzir arte de pixel por fator não inteiro a deixa borrada ou com pixels irregulares; se incomodar, o caminho é arte no tamanho certo.
+
+---
+
+## 2026-10 — Arte original fora do git; sobras da cidade LPC apagadas
+
+**Decisão (dono do projeto):**
+- As imagens originais grandes (`assets/tilesets/novos tilesets/`, ~35 MB; `labirinto/`, ~10 MB; o pacote Paper UI em `interface/`, ~12 MB) ficam **fora do git** (`.gitignore`). O jogo só usa o que os scripts de `tools/assets/` geram a partir delas, e isso vai para o git. Para gerar de novo, as originais precisam estar no disco: o dono do projeto guarda uma cópia
+- A cidade LPC (decisão "Arte real na cidade (LPC)") já tinha sido substituída pela arte nova; as sobras foram **apagadas** (PNGs LPC, `CREDITS.md`, `tools/city/`), junto com o mapa de teste antigo (`test.json` e `placeholder.png`). Sem arte LPC no jogo, a obrigação de créditos dessa licença deixa de existir
+- O pacote Paper UI fora do git também resolve metade do problema de licença (não redistribuir). As peças recoloridas em `assets/ui/` continuam no git; o repositório não tem remoto, mas se um dia for público, elas precisam sair
+
+**Por quê:** histórico do git é para sempre; 57 MB de originais que o jogo não usa deixariam cada clone pesado. E o cliente carrega todas as PNGs de `assets/tilesets/`: as sobras LPC eram baixadas à toa ao abrir o jogo.
