@@ -157,6 +157,7 @@ export const SPAWN_LAYER = "spawns";
 export const AREA_LAYER = "areas";
 export const EXIT_LAYER = "exits";
 export const PORTAL_LAYER = "portal";
+export const LIGHT_LAYER = "luzes";
 
 function objectsIn(map: TiledMap, layerName: string): TiledObject[] {
   const layer = map.layers.find((l) => l.type === "objectgroup" && l.name === layerName);
@@ -185,6 +186,16 @@ export function parseExitPoints(map: TiledMap): Vec2[] {
 // Portais da cidade para o labirinto: pontos na camada "portal".
 export function parsePortalPoints(map: TiledMap): Vec2[] {
   return pointsIn(map, PORTAL_LAYER);
+}
+
+// Luzes do mapa: pontos na camada "luzes", com o tipo da luz no nome (o raio de cada tipo fica em LIGHT_RADIUS).
+export function parseLights(map: TiledMap): (Vec2 & { kind: string })[] {
+  const objects = objectsIn(map, LIGHT_LAYER);
+  return pointsIn(map, LIGHT_LAYER).map((point, i) => {
+    const name = objects[i]?.name;
+    if (!name) throw new Error(`Ponto ${objects[i]?.id} na camada "${LIGHT_LAYER}" está sem nome (o nome é o tipo da luz).`);
+    return { kind: name, ...point };
+  });
 }
 
 // No JSON do Tiled, ponto, elipse, polígono, texto e tile também têm x/y; retângulo é o que não tem marca nenhuma.

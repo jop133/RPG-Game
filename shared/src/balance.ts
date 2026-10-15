@@ -101,6 +101,28 @@ export const VIEW_RADIUS = 520;
 // Folga para deixar de ver: quem já é visto só some além de VIEW_RADIUS + isto. Evita piscar na borda.
 export const VIEW_HYSTERESIS = 32;
 
+// Escuridão (regra 4). No labirinto, o servidor só envia a um jogador os mobs e as pilhas que estão iluminados: perto
+// de algum jogador (cada um carrega luz até PLAYER_LIGHT_RADIUS), dentro do raio de uma luz do mapa ou de uma saída
+// ativa. Jogadores e saídas brilham: continuam sendo vistos até VIEW_RADIUS. O cliente desenha a escuridão com estes
+// mesmos raios, então a máscara escura só cobre o mapa, que todo mundo já tem. Na cidade a luz é só desenho.
+export const PLAYER_LIGHT_RADIUS = 240;
+export const EXIT_LIGHT_RADIUS = 200;
+// Raio de cada tipo de luz da camada "luzes" dos mapas (o nome do ponto é o tipo), em pixels.
+export const LIGHT_RADIUS = {
+  "cristal-grande": 170,
+  "cristal-medio": 130,
+  "cristal-pequeno": 90,
+  minerio: 110,
+  cogumelos: 100,
+  tocha: 180,
+  portal: 230,
+  poste: 150,
+  chafariz: 120,
+  janela: 70,
+} satisfies Record<string, number>;
+
+export type LightKind = keyof typeof LIGHT_RADIUS;
+
 // Tipos de mob do 1º andar (Caverna de Cristal). Números iniciais, para ajustar jogando.
 // size: lado da caixa de colisão em pixels (não pode passar do tamanho do tile). speed: pixels por segundo.
 // aggroRadius: distância em que o mob nota um jogador (precisa também de linha de visão).

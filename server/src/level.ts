@@ -9,14 +9,17 @@ import {
   areaFloorCells,
   boxFits,
   entrySpawnPoints,
+  lightRadius,
   parseAreas,
   parseCollisionGrid,
   parseExitPoints,
+  parseLights,
   parsePortalPoints,
   parseSpawnPoints,
   validateAreas,
   type Area,
   type CollisionGrid,
+  type LightSource,
   type TiledMap,
   type Vec2,
 } from "shared";
@@ -29,6 +32,8 @@ export interface Level {
   floorCells: Map<string, Vec2[]>;
   // Candidatos a portal de saída; os ativos são sorteados por sala (run).
   exitCandidates: Vec2[];
+  // Luzes do mapa (camada "luzes"), já com o raio do tipo: o que elas iluminam, os jogadores enxergam (regra 4).
+  lights: LightSource[];
 }
 
 export interface City {
@@ -49,6 +54,7 @@ export function loadLevel(file: URL): Level {
   const areas = parseAreas(map);
   const spawnPoints = parseSpawnPoints(map);
   const exitCandidates = parseExitPoints(map);
+  const mapLights = parseLights(map);
   const floorCells = new Map(areas.map((area) => [area.name, areaFloorCells(area, grid)]));
 
   const errors = [
@@ -56,6 +62,7 @@ export function loadLevel(file: URL): Level {
     ...spawnErrors(grid, spawnPoints),
     ...mobErrors(grid, floorCells),
     ...exitErrors(grid, exitCandidates),
+    ...lightErrors(mapLights),
   ];
   const playerEntryPoints = entrySpawnPoints(spawnPoints, areas, AREAS);
   if (spawnPoints.length > 0 && playerEntryPoints.length === 0) {
@@ -63,7 +70,8 @@ export function loadLevel(file: URL): Level {
   }
   if (errors.length > 0) throw new Error(`Mapa inválido (${file.pathname}):\n- ${errors.join("\n- ")}`);
 
-  return { grid, areas, playerEntryPoints, floorCells, exitCandidates };
+  const lights = mapLights.map(({ kind, x, y }) => ({ x, y, radius: lightRadius(kind) ?? 0 }));
+  return { grid, areas, playerEntryPoints, floorCells, exitCandidates, lights };
 }
 
 // A cidade não tem áreas, mobs nem saídas: só onde se chega e os portais para o labirinto.
@@ -72,9 +80,16 @@ export function loadCity(file: URL): City {
   const grid = parseCollisionGrid(map);
   const spawnPoints = parseSpawnPoints(map);
   const portals = parsePortalPoints(map);
-  const errors = [...spawnErrors(grid, spawnPoints), ...portalErrors(grid, portals)];
+  const errors = [...spawnErrors(grid, spawnPoints), ...portalErrors(grid, portals), ...lightErrors(parseLights(map))];
   if (errors.length > 0) throw new Error(`Mapa inválido (${file.pathname}):\n- ${errors.join("\n- ")}`);
   return { grid, spawnPoints, portals };
+}
+
+// Na cidade a luz é só desenho, mas um tipo errado no mapa é erro de digitação do mesmo jeito.
+function lightErrors(lights: { kind: string; x: number; y: number }[]): string[] {
+  return lights
+    .filter((light) => lightRadius(light.kind) === undefined)
+    .map((light) => `A luz "${light.kind}" em (${light.x}, ${light.y}) não existe em LIGHT_RADIUS (shared/src/balance.ts).`);
 }
 
 function portalErrors(grid: CollisionGrid, portals: Vec2[]): string[] {

@@ -4,6 +4,7 @@ import {
   parseAreas,
   parseCollisionGrid,
   parseExitPoints,
+  parseLights,
   parseObjectFootprints,
   parsePortalPoints,
   parseSpawnPoints,
@@ -175,6 +176,24 @@ describe("parsePortalPoints", () => {
   it("retângulo na camada 'portal' dá erro dizendo a camada e o objeto", () => {
     const map = mapWith([{ type: "objectgroup", name: "portal", objects: [{ id: 3, x: 0, y: 0 }] }]);
     expect(() => parsePortalPoints(map)).toThrow(/Objeto 3 na camada "portal"/);
+  });
+});
+
+describe("parseLights", () => {
+  it("lê os pontos da camada 'luzes' com o tipo no nome", () => {
+    const map = mapWith([
+      { type: "objectgroup", name: "luzes", objects: [{ id: 1, name: "tocha", x: 40, y: 72, point: true }] },
+    ]);
+    expect(parseLights(map)).toEqual([{ kind: "tocha", x: 40, y: 72 }]);
+  });
+
+  it("mapa sem a camada não tem luzes", () => {
+    expect(parseLights(mapWith([]))).toEqual([]);
+  });
+
+  it("ponto sem nome dá erro dizendo o objeto", () => {
+    const map = mapWith([{ type: "objectgroup", name: "luzes", objects: [{ id: 7, x: 0, y: 0, point: true }] }]);
+    expect(() => parseLights(map)).toThrow(/Ponto 7 na camada "luzes" está sem nome/);
   });
 });
 

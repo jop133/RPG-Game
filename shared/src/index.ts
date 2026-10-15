@@ -10,6 +10,7 @@ export * from "./extraction";
 export * from "./hunger";
 export * from "./identity";
 export * from "./inventory";
+export * from "./light";
 export * from "./lineOfSight";
 export * from "./loot";
 export * from "./mobAi";

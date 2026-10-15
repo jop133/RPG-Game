@@ -2,6 +2,7 @@ import { StateView } from "@colyseus/schema";
 import { CloseCode, Room, type Client } from "colyseus";
 import {
   AREAS,
+  EXIT_LIGHT_RADIUS,
   EXITS_ACTIVE,
   HUNGER_MAX,
   INVENTORY_SLOTS,
@@ -9,6 +10,7 @@ import {
   NO_INPUT,
   PICKUP_RADIUS,
   PLAYER_ATTACK,
+  PLAYER_LIGHT_RADIUS,
   PLAYER_SIZE,
   TICK_RATE,
   applyDamage,
@@ -16,6 +18,7 @@ import {
   isInSwing,
   inventoryToPile,
   isInsideExit,
+  isLit,
   isOffCooldown,
   levelForXp,
   mobStrikeArc,
@@ -31,6 +34,7 @@ import {
   planMobSpawns,
   rollDrops,
   startIdle,
+  staticLitMap,
   starvationDamage,
   stepExtraction,
   stepMob,
@@ -44,6 +48,7 @@ import {
   type Inventory,
   type ItemId,
   type ItemStack,
+  type LitMap,
   type PlayerStats,
   type MobKind,
   type MobMind,
@@ -81,6 +86,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   private nextLootId = 1;
   // Portais ativos desta run (sorteados uma vez) e contagem de extração de cada jogador.
   private activeExits: Vec2[] = [];
+  // Luz fixa desta run: luzes do mapa e saídas ativas (regra 4). Calculada ao abrir as saídas.
+  private lit: LitMap = staticLitMap([], 0, 0, 1);
   private extractProgress = new Map<string, number>();
   // Quem é cada sessão no banco.
   private characters = new Map<string, CharacterRecord>();
@@ -171,6 +178,9 @@ export class GameRoom extends Room<{ state: GameState }> {
   private openExits() {
     this.activeExits = pickActiveExits(level.exitCandidates, EXITS_ACTIVE, Math.random);
     this.activeExits.forEach((exit, i) => this.state.exits.set(`exit-${i + 1}`, new ExitState(exit)));
+    const exitLights = this.activeExits.map((exit) => ({ ...exit, radius: EXIT_LIGHT_RADIUS }));
+    const { width, height, tileSize } = level.grid;
+    this.lit = staticLitMap([...level.lights, ...exitLights], width, height, tileSize);
   }
 
   // Só conta para quem está conectado: um corpo largado num portal não extrai sozinho.
@@ -424,7 +434,12 @@ export class GameRoom extends Room<{ state: GameState }> {
   }
 
   // O próprio jogador entra na visão no onJoin e nunca sai; aqui só os outros e os mobs.
+  // Jogadores e saídas brilham: são vistos até o raio de visão. Mobs e pilhas só se estiverem na luz (regra 4).
   private updateViews() {
+    const carriers: Vec2[] = [];
+    this.state.players.forEach((player) => carriers.push(player));
+    const lit = (entity: MobState | LootState, view: StateView) =>
+      isLit(entity, this.lit, carriers, PLAYER_LIGHT_RADIUS, view.has(entity));
     for (const client of this.clients) {
       const view = client.view;
       const self = this.state.players.get(client.sessionId);
@@ -432,8 +447,8 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.state.players.forEach((other, sessionId) => {
         if (sessionId !== client.sessionId) updateVisibility(view, self, other);
       });
-      this.state.mobs.forEach((mob) => updateVisibility(view, self, mob));
-      this.state.loot.forEach((pile) => updateVisibility(view, self, pile));
+      this.state.mobs.forEach((mob) => updateVisibility(view, self, mob, lit(mob, view)));
+      this.state.loot.forEach((pile) => updateVisibility(view, self, pile, lit(pile, view)));
       this.state.exits.forEach((exit) => updateVisibility(view, self, exit));
     }
   }

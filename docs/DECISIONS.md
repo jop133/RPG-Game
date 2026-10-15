@@ -724,3 +724,21 @@ O cliente recebe `windup` e `attackAngle` e desenha o arco no chão: o contorno 
 - O pacote Paper UI fora do git também resolve metade do problema de licença (não redistribuir). As peças recoloridas em `assets/ui/` continuam no git; o repositório não tem remoto, mas se um dia for público, elas precisam sair
 
 **Por quê:** histórico do git é para sempre; 57 MB de originais que o jogo não usa deixariam cada clone pesado. E o cliente carrega todas as PNGs de `assets/tilesets/`: as sobras LPC eram baixadas à toa ao abrir o jogo.
+
+---
+
+## 2026-10 — Escuridão de verdade no labirinto; luz desenhada (polimento visual, etapa 1)
+
+**Pedido do dono do projeto:** iluminação dinâmica (cidade ao entardecer, caverna escura com luz do jogador, cristais, tochas e portais), vinheta e sombras nos pés. A especificação pedia uma máscara escura (0,82) só desenhada; isso contrariaria a **regra 4**: o servidor mandava tudo até 520 px, e quem tirasse a máscara no navegador veria tudo. **Escolha do dono do projeto: escuridão de verdade.**
+
+**Como (servidor, regra 4):**
+- No labirinto, mobs e pilhas só são enviados a um jogador se estiverem **iluminados**: a até `PLAYER_LIGHT_RADIUS` (240 px) de algum jogador, num tile de luz fixa (luzes do mapa) ou perto de uma saída ativa (`EXIT_LIGHT_RADIUS`). Jogadores e saídas brilham: continuam vistos até `VIEW_RADIUS`
+- A luz fixa vira uma grade por tile, calculada uma vez por run (`staticLitMap`); consultar é olhar a célula. Funções puras em `shared/src/light.ts`, com testes
+- As luzes ficam numa camada de pontos `luzes` nos mapas, com o tipo no nome; o raio de cada tipo fica em `LIGHT_RADIUS` (`balance.ts`), porque decide o que se vê. Os scripts de `tools/assets/` geram a camada (janelas acesas e lanternas são achadas na arte pelos pixels quentes); dá para editar no Tiled
+- Resultado no 1º andar: centro 73% iluminado, acampamento 58%, minas 60%, fosso 47%, covil dos lobos 0% (lobos só aparecem na luz de quem chega)
+
+**Como (cliente, só desenho):** uma camada do tamanho da tela, por cima do mundo e por baixo de barras, nomes e HUD, começa com a cor do ambiente e recebe cada luz somada; depois multiplica o mundo (`client/src/lighting.ts`). Os raios desenhados são os mesmos do servidor e nunca passam deles (o tremor da chama só encolhe): a escuridão cobre só o mapa, que é público. Vinheta na mesma faixa de profundidade (não escurece o HUD). Sombras: elipse no chão sob jogadores, mobs e enfeites em pé, pulsando com o passo. Os brilhos aditivos do chão da etapa anterior saíram (a luz de verdade os substitui).
+
+**Limites aceitos:** a luz atravessa paredes (círculo simples, sem sombra projetada), igual no servidor e no desenho; lobos notam o jogador a 256 px, um pouco antes de entrar na luz dele (240), e aparecem já vindo.
+
+**Também decidido:** sem golpe crítico por enquanto (não existe a regra); recuo ao levar golpe só visual. Etapas 2 (flash, números, tremor, golpes por classe) e 3 (partículas) a seguir.

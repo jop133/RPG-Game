@@ -81,3 +81,10 @@ tools/assets/.venv/Scripts/python.exe -I tools/assets/render_map.py assets/maps/
    rodar de novo dá o mesmo mapa; trocar a semente dá outro.
 
 > **Atenção:** rodar o `build_labyrinth.py` sobrescreve `dungeon_floor1.json`, inclusive o que tiver sido editado à mão no Tiled.
+
+## Luzes dos mapas
+
+`lights.py` é usado pelos dois geradores: escreve a camada de pontos `luzes` (nome do ponto = tipo da luz). Na cidade,
+as janelas acesas das casas e as lanternas dos postes são achadas na própria arte (manchas de pixels claros e
+alaranjados); chafariz e portal têm uma luz cada. No labirinto, cada cristal, rocha de minério, cogumelo, tocha e o
+portal ganham a sua (`GLOWING` em `build_labyrinth.py`). O raio de cada tipo fica em `LIGHT_RADIUS` (`shared/src/balance.ts`).

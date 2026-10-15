@@ -29,6 +29,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build_city import even_out, point_layer  # noqa: E402
+from lights import light_layer  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 TILESETS = ROOT / "assets" / "tilesets"
@@ -563,6 +564,27 @@ def decorate(decor: Decor) -> dict[str, int]:
     return counts
 
 
+# ---------------------------------------------------------------- luzes
+
+# Enfeites que brilham: tipo de luz (LIGHT_RADIUS em balance.ts) e altura do centro da luz, em fração da imagem
+# a partir da base (a luz fica no meio do cristal, na chama da tocha...).
+GLOWING = {
+    "cristal-grande": ("cristal-grande", 0.4),
+    "cristal-medio": ("cristal-medio", 0.4),
+    "cristal-pequeno": ("cristal-pequeno", 0.4),
+    "rocha-minerio": ("minerio", 0.4),
+    "cogumelos-a": ("cogumelos", 0.35),
+    "cogumelos-b": ("cogumelos", 0.35),
+    "tocha": ("tocha", 0.6),
+    "portal": ("portal", 0.45),
+}
+
+
+def cave_lights(decor: Decor) -> list[tuple[str, float, float]]:
+    return [(GLOWING[o["name"]][0], o["x"] + o["width"] / 2, o["y"] - o["height"] * GLOWING[o["name"]][1])
+            for o in decor.placed if o["name"] in GLOWING]
+
+
 # ---------------------------------------------------------------- pontos
 
 SPAWNS = [(-3, 2), (3, 2), (-4, -1), (4, -1), (0, 3), (-2, 4), (2, 4)]  # em volta do portal de chegada
@@ -618,10 +640,11 @@ def main() -> None:
         area_layer(3, next_id),
         point_layer(4, "spawns", [center_px(p) for p in spawns], next_id),
         point_layer(5, "exits", [center_px(p) for p in EXITS], next_id),
+        light_layer(6, cave_lights(decor), next_id),
     ]
     level = {"compressionlevel": -1, "width": W, "height": H, "tilewidth": T, "tileheight": T, "infinite": False,
              "orientation": "orthogonal", "renderorder": "right-down", "type": "map", "version": "1.10",
-             "tiledversion": "1.12.2", "nextlayerid": 6, "nextobjectid": next_id[0], "layers": layers,
+             "tiledversion": "1.12.2", "nextlayerid": 7, "nextobjectid": next_id[0], "layers": layers,
              "tilesets": [floor_ts, objects_ts]}
     MAP_OUT.write_text(json.dumps(level) + "\n", encoding="utf-8")
 

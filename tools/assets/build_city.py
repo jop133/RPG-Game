@@ -13,10 +13,14 @@ from __future__ import annotations
 
 import json
 import random
+import sys
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lights import light_layer, warm_spots  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 CITY = ROOT / "assets" / "tilesets" / "city"
@@ -355,6 +359,23 @@ def place_city(objects: Objects) -> None:
         objects.prop(name, cx, bottom)
 
 
+# ---------------------------------------------------------------- luzes
+
+
+def city_lights(objects: Objects) -> list[tuple[str, float, float]]:
+    """Janelas acesas das casas e lanternas dos postes (achadas na arte pelos pixels quentes), chafariz e portal."""
+    lights = []
+    for obj in objects.placed:
+        image = MAP_OUT.parent / objects.tiles[obj["gid"] - objects.firstgid]["image"]
+        top = obj["y"] - obj["height"]
+        if obj["name"].startswith(("casa", "poste")):
+            kind = "janela" if obj["name"].startswith("casa") else "poste"
+            lights += [(kind, obj["x"] + sx, top + sy) for sx, sy in warm_spots(image)]
+        elif obj["name"] in ("chafariz", "portal"):
+            lights.append((obj["name"], obj["x"] + obj["width"] / 2, obj["y"] - obj["height"] * 0.45))
+    return lights
+
+
 # ---------------------------------------------------------------- montagem
 
 
@@ -391,10 +412,11 @@ def main() -> None:
          "visible": True, "x": 0, "y": 0, "objects": placed},
         point_layer(3, "spawns", [(37 * T, 34 * T), (43 * T, 34 * T), (40 * T, 37 * T), (40 * T, 27 * T)], next_id),
         point_layer(4, "portal", [(40 * T, 23 * T)], next_id),
+        light_layer(5, city_lights(objects), next_id),
     ]
     city = {"compressionlevel": -1, "width": W, "height": H, "tilewidth": T, "tileheight": T, "infinite": False,
             "orientation": "orthogonal", "renderorder": "right-down", "type": "map", "version": "1.10",
-            "tiledversion": "1.12.2", "nextlayerid": 5, "nextobjectid": next_id[0], "layers": layers,
+            "tiledversion": "1.12.2", "nextlayerid": 6, "nextobjectid": next_id[0], "layers": layers,
             "tilesets": [floor_ts, objects.tileset()]}
     MAP_OUT.write_text(json.dumps(city) + "\n", encoding="utf-8")
     check_overlaps(objects)

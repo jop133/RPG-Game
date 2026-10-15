@@ -11,11 +11,15 @@ import {
   INVENTORY_SLOTS,
   ITEMS,
   MOB_KINDS,
+  EXIT_LIGHT_RADIUS,
+  LIGHT_LAYER,
   PLAYER_ATTACK,
+  PLAYER_LIGHT_RADIUS,
   PLAYER_MAX_HP,
   PLAYER_SIZE,
   PORTAL_LAYER,
   isAtPortal,
+  lightRadius,
   mobStrikeArc,
   viewportSize,
   xpForNextLevel,
@@ -24,11 +28,13 @@ import {
   type ExtractionResult,
   type FirstKillMessage,
   type ItemId,
+  type LightKind,
   type MobKind,
   type MoveInput,
   type TiledMap,
   type Vec2,
 } from "shared";
+import { Lighting, darkness, phaseAt, type Light, type LightLook } from "./lighting";
 import { openRegistration, type Registration } from "./registration";
 import cityMapUrl from "../../assets/maps/city.json?url";
 import labyrinthMapUrl from "../../assets/maps/dungeon_floor1.json?url";
@@ -102,13 +108,13 @@ const MOB_URLS = Object.entries(
   return { key: mobKey(kind.toLowerCase(), direction), url };
 });
 const MOB_FRAME = 64;
-// Linha dos pés e altura do bicho em cada sprite (medidas nas imagens, em pixels de 64). Os pés ficam na base da
-// caixa de colisão, como os do jogador; a altura põe a barra de vida acima da cabeça. Desenhados em 1:1, como as classes.
-const MOB_ART: Record<MobKind, { feet: number; height: number }> = {
-  goblin: { feet: 61, height: 59 },
-  lobo: { feet: 62, height: 60 },
-  gnomo: { feet: 61, height: 60 },
-  slime: { feet: 58, height: 44 },
+// Linha dos pés, altura do bicho e largura da sombra em cada sprite (medidas nas imagens, em pixels de 64). Os pés
+// ficam na base da caixa de colisão, como os do jogador; a altura põe a barra de vida acima da cabeça. Desenhados em 1:1.
+const MOB_ART: Record<MobKind, { feet: number; height: number; shadow: number }> = {
+  goblin: { feet: 61, height: 59, shadow: 28 },
+  lobo: { feet: 62, height: 60, shadow: 36 },
+  gnomo: { feet: 61, height: 60, shadow: 24 },
+  slime: { feet: 58, height: 44, shadow: 40 },
 };
 const WALK_URLS = CHARACTER_URLS.filter(({ key }) => key.includes("/walk-"));
 // Mesma escala nos dois (personagem com ~60 px de altura); muda só a margem do quadro. O pivô fica nos pés:
@@ -141,6 +147,7 @@ function characterKey(classId: string | undefined, facing: string, walking = fal
 // Personagem de um jogador: sprite da classe, virado para onde andou, parado ou andando, com o nome em cima.
 interface Avatar {
   body: Phaser.GameObjects.Sprite;
+  shadow: Phaser.GameObjects.Ellipse;
   label: Phaser.GameObjects.Text;
   facing: string;
   lastX: number;
@@ -151,9 +158,11 @@ interface Avatar {
 // Inimigo: sprite do tipo, virado para onde andou (ou, preparando o golpe, para onde vai bater).
 interface MobSprite {
   body: Phaser.GameObjects.Image;
+  shadow: Phaser.GameObjects.Ellipse;
   facing: string;
   lastX: number;
   lastY: number;
+  lastMoveAt: number;
 }
 
 // "../../assets/tilesets/city/props/poste.png" ou "../tilesets/city/props/poste.png" -> "city/props/poste".
@@ -179,27 +188,39 @@ const NAME_KEY = "rpg-extracao:name";
 const LAST_NAME_KEY = "rpg-extracao:lastName";
 const MOB_NAMES: Record<MobKind, string> = { lobo: "um lobo", gnomo: "um gnomo", slime: "um slime", goblin: "um goblin" };
 
-// Luz no chão em volta do que brilha (cristais, tochas, minério, cogumelos, portais). Só desenho: clareia o chão,
-// não esconde nem revela nada do que o servidor manda. Chave = nome da imagem do objeto no mapa.
-const GLOWS: Record<string, { color: number; radius: number; alpha: number }> = {
-  "cristal-grande": { color: 0x4fc3f7, radius: 120, alpha: 0.45 },
-  "cristal-medio": { color: 0x4fc3f7, radius: 85, alpha: 0.4 },
-  "cristal-pequeno": { color: 0x4fc3f7, radius: 55, alpha: 0.35 },
-  "rocha-minerio": { color: 0x4fc3f7, radius: 75, alpha: 0.35 },
-  tocha: { color: 0x80d8ff, radius: 100, alpha: 0.5 },
-  "cogumelos-a": { color: 0x26c6da, radius: 65, alpha: 0.35 },
-  "cogumelos-b": { color: 0x26c6da, radius: 65, alpha: 0.35 },
-  portal: { color: 0xb388ff, radius: 130, alpha: 0.5 },
+// Luz de cada lugar (só desenho; ver client/src/lighting.ts). Ambiente = a escuridão onde não chega luz.
+// Cidade: crepúsculo azulado. Labirinto: caverna escura; cada jogador carrega luz (PLAYER_LIGHT_RADIUS).
+const AMBIENT: Record<Place, number> = { city: darkness(18, 20, 32, 0.55), labyrinth: darkness(8, 12, 22, 0.82) };
+const VIGNETTE_ALPHA: Record<Place, number> = { city: 0.55, labyrinth: 0.7 };
+// Cor, força e jeito de cada tipo de luz da camada "luzes". O raio vem de LIGHT_RADIUS (balance.ts): no labirinto é
+// ele que decide o que o servidor manda, então o desenho não pode mudar.
+const LIGHT_LOOKS: Record<LightKind, LightLook> = {
+  "cristal-grande": { color: 0x00e5ff, intensity: 0.85, effect: "steady" },
+  "cristal-medio": { color: 0x00e5ff, intensity: 0.75, effect: "steady" },
+  "cristal-pequeno": { color: 0x00e5ff, intensity: 0.65, effect: "steady" },
+  minerio: { color: 0x00e5ff, intensity: 0.65, effect: "steady" },
+  cogumelos: { color: 0x00e5ff, intensity: 0.55, effect: "pulse" },
+  tocha: { color: 0x6fa8ff, intensity: 0.9, effect: "flicker" },
+  portal: { color: 0xa855f7, intensity: 1, effect: "pulse" },
+  poste: { color: 0xff9d42, intensity: 0.85, effect: "flicker" },
+  chafariz: { color: 0xff9d42, intensity: 0.5, effect: "flicker" },
+  janela: { color: 0xff9d42, intensity: 0.6, effect: "flicker" },
 };
-const GLOW_KEY = "glow";
-const GLOW_TEXTURE = 128;
+const PLAYER_LIGHT: LightLook = { color: 0xfff0dc, intensity: 1, effect: "steady" };
+const EXIT_LIGHT: LightLook = { color: 0x40c4ff, intensity: 1, effect: "pulse" };
 // Portal de saída ativo: a mesma arte do portal da cidade, puxada para o azul da extração.
 const EXIT_PORTAL_KEY = "city/portal";
 const EXIT_PORTAL_TINT = 0x80d8ff;
-const EXIT_GLOW = { color: 0x40c4ff, radius: 110, alpha: 0.5 };
 
-// Ordem de desenho: aviso de golpe no chão, mobs por baixo dos jogadores, barras e golpes por cima de tudo.
-const GLOW_DEPTH = 0.3;
+// Sombra nos pés: elipse escura no chão, embaixo de jogadores, mobs e enfeites em pé.
+const SHADOW_ALPHA = 0.45;
+const AVATAR_SHADOW = { width: 26, height: 9 };
+// Enfeites deitados no chão (ou grandes demais para uma elipse) ficam sem sombra.
+const FLAT_PROPS = new Set(["esqueleto", "ossada", "cogumelos-a", "cogumelos-b"]);
+
+// Ordem de desenho: sombras e aviso de golpe no chão, mobs por baixo dos jogadores, luz por cima do mundo,
+// barras, nomes e golpes por cima da luz, HUD por cima de tudo.
+const SHADOW_DEPTH = 0.2;
 const EXIT_DEPTH = 0.4;
 const TELEGRAPH_DEPTH = 0.5;
 const LOOT_DEPTH = 0.8;
@@ -207,6 +228,7 @@ const LOOT_DEPTH = 0.8;
 // embaixo na tela é desenhado na frente: dá para passar atrás do telhado e na frente da porta.
 const SORT_DEPTH = 10;
 const ABOVE_DEPTH = 100_000;
+const LIGHT_DEPTH = 100_000.5;
 const OVERLAY_DEPTH = 100_001;
 const HUD_DEPTH = 200_000;
 
@@ -292,8 +314,11 @@ class WorldScene extends Phaser.Scene {
   private telegraphs?: Phaser.GameObjects.Graphics;
   private hud?: Phaser.GameObjects.Graphics;
   private exitsLayer?: Phaser.GameObjects.Graphics;
-  // Portal e luz de cada saída ativa que este jogador vê.
-  private exitSprites = new Map<string, Phaser.GameObjects.Image[]>();
+  // Portal de cada saída ativa que este jogador vê.
+  private exitSprites = new Map<string, Phaser.GameObjects.Image>();
+  private lighting?: Lighting;
+  // Luzes fixas do mapa (camada "luzes"); as que se mexem (jogadores, saídas) entram a cada quadro.
+  private mapLights: Light[] = [];
   private extractLabel?: Phaser.GameObjects.Text;
   private levelLabel?: Phaser.GameObjects.Text;
   private essenceLabel?: Phaser.GameObjects.Text;
@@ -324,6 +349,8 @@ class WorldScene extends Phaser.Scene {
   create() {
     this.createWalkAnimations();
     const map = this.createMap();
+    this.mapLights = this.readMapLights();
+    this.lighting = new Lighting(this, AMBIENT[this.place], LIGHT_DEPTH, VIGNETTE_ALPHA[this.place]);
     this.hud = this.add.graphics().setDepth(HUD_DEPTH).setScrollFactor(0);
     this.levelLabel = this.add
       .text(HUD_MARGIN, HUD_MARGIN + 34, "", { fontSize: "12px", color: "#ffffff" })
@@ -367,6 +394,7 @@ class WorldScene extends Phaser.Scene {
 
   private onResize(gameSize: Phaser.Structs.Size) {
     this.cameras.main.setSize(gameSize.width, gameSize.height);
+    this.lighting?.resize(gameSize.width, gameSize.height);
     this.layoutHud();
   }
 
@@ -453,6 +481,31 @@ Subiu para o nível ${info.level}!` : "";
     this.drawHud(room, this.hud);
     if (this.place === "city") this.updateCity(room);
     else this.updateLabyrinth(room, time);
+    this.lighting?.draw(this.currentLights(room), time);
+  }
+
+  // Luzes deste quadro: as do mapa e, no labirinto, a de cada jogador e a de cada saída ativa que chegaram do servidor.
+  private currentLights(room: Room<unknown, ServerState>): Light[] {
+    if (this.place === "city") return this.mapLights;
+    const moving: Light[] = [];
+    room.state.players.forEach((player) => {
+      moving.push({ x: player.x, y: player.y, radius: PLAYER_LIGHT_RADIUS, look: PLAYER_LIGHT, phase: 0 });
+    });
+    room.state.exits?.forEach((exit) => {
+      moving.push({ x: exit.x, y: exit.y, radius: EXIT_LIGHT_RADIUS, look: EXIT_LIGHT, phase: phaseAt(exit.x, exit.y) });
+    });
+    return [...this.mapLights, ...moving];
+  }
+
+  private readMapLights(): Light[] {
+    const data = (this.cache.tilemap.get(this.place) as { data?: TiledMap } | undefined)?.data;
+    const layer = data?.layers.find((l) => l.type === "objectgroup" && l.name === LIGHT_LAYER);
+    return (layer?.objects ?? []).flatMap((object) => {
+      const radius = lightRadius(object.name ?? "");
+      if (radius === undefined) return [];
+      const look = LIGHT_LOOKS[object.name as LightKind];
+      return [{ x: object.x, y: object.y, radius, look, phase: phaseAt(object.x, object.y) }];
+    });
   }
 
   // E dentro do portal pede para entrar no labirinto. A dica é só visual; o servidor confere de novo.
@@ -469,7 +522,7 @@ Subiu para o nível ${info.level}!` : "";
   private updateLabyrinth(room: Room<unknown, ServerState>, time: number) {
     if (!this.overlay || !this.telegraphs) return;
     if (this.pickupKey && Phaser.Input.Keyboard.JustDown(this.pickupKey)) room.send("pickup");
-    if (room.state.mobs) this.syncMobs(room.state.mobs);
+    if (room.state.mobs) this.syncMobs(room.state.mobs, time);
     if (room.state.loot) syncSprites(room.state.loot, this.lootSprites, () => this.createLootSprite());
     this.collectSwings(room, time);
     this.drawOverlay(room, this.overlay, time);
@@ -490,11 +543,11 @@ Subiu para o nível ${info.level}!` : "";
       seen.add(id);
       if (this.exitSprites.has(id)) return;
       const portal = this.add.image(exit.x, exit.y, EXIT_PORTAL_KEY).setOrigin(0.5, 1).setTint(EXIT_PORTAL_TINT);
-      this.exitSprites.set(id, [portal.setDepth(sortDepth(exit.y)), this.addGlow(exit.x, exit.y, EXIT_GLOW)]);
+      this.exitSprites.set(id, portal.setDepth(sortDepth(exit.y)));
     });
-    for (const [id, images] of this.exitSprites) {
+    for (const [id, portal] of this.exitSprites) {
       if (seen.has(id)) continue;
-      for (const image of images) image.destroy();
+      portal.destroy();
       this.exitSprites.delete(id);
     }
   }
@@ -675,33 +728,16 @@ ${slot.count}` : "";
         if (!key) continue;
         const image = this.add.image(object.x, object.y, key).setOrigin(0, 1).setDepth(sortDepth(object.y));
         if (object.width && object.height) image.setDisplaySize(object.width, object.height);
-        const glow = GLOWS[key.slice(key.lastIndexOf("/") + 1)];
-        if (glow) this.addGlow(object.x + image.displayWidth / 2, object.y - Math.min(image.displayHeight * 0.3, 24), glow);
+        const name = key.slice(key.lastIndexOf("/") + 1);
+        if (!FLAT_PROPS.has(name) && !name.startsWith("casa")) this.addPropShadow(object.x + image.displayWidth / 2, object.y, image.displayWidth);
       }
     }
   }
 
-  // Mancha de luz no chão: um degradê radial branco (gerado uma vez), tingido e somado à cor do chão.
-  private addGlow(x: number, y: number, glow: { color: number; radius: number; alpha: number }) {
-    const texture = this.textures.exists(GLOW_KEY) ? undefined : this.textures.createCanvas(GLOW_KEY, GLOW_TEXTURE, GLOW_TEXTURE);
-    const ctx = texture?.getContext();
-    if (texture && ctx) {
-      const half = GLOW_TEXTURE / 2;
-      const gradient = ctx.createRadialGradient(half, half, 0, half, half, half);
-      gradient.addColorStop(0, "rgba(255,255,255,1)");
-      gradient.addColorStop(0.4, "rgba(255,255,255,0.45)");
-      gradient.addColorStop(1, "rgba(255,255,255,0)");
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, GLOW_TEXTURE, GLOW_TEXTURE);
-      texture.refresh();
-    }
-    return this.add
-      .image(x, y, GLOW_KEY)
-      .setScale((glow.radius * 2) / GLOW_TEXTURE)
-      .setTint(glow.color)
-      .setAlpha(glow.alpha)
-      .setBlendMode(Phaser.BlendModes.ADD)
-      .setDepth(GLOW_DEPTH);
+  // Sombra de enfeite em pé: elipse achatada na base, mais estreita que a imagem.
+  private addPropShadow(x: number, baseY: number, imageWidth: number) {
+    const width = Math.min(imageWidth * 0.7, 110);
+    this.add.ellipse(x, baseY - 3, width, width * 0.28, 0x000000, SHADOW_ALPHA).setDepth(SHADOW_DEPTH);
   }
 
   private sendInputIfChanged(room: Room<unknown, ServerState>, keys: MoveKeys) {
@@ -747,11 +783,13 @@ ${slot.count}` : "";
       const feet = player.y + PLAYER_SIZE / 2;
       this.animateAvatar(avatar, player.classId, time - avatar.lastMoveAt < WALK_LINGER_MS);
       avatar.body.setPosition(player.x, feet).setDepth(sortDepth(feet));
+      avatar.shadow.setPosition(player.x, feet - 1).setScale(stepSquash(avatar.body));
       avatar.label.setPosition(player.x, feet - AVATAR_HEIGHT - HP_BAR_GAP - HP_BAR_HEIGHT - 2);
     });
     for (const [sessionId, avatar] of this.avatars) {
       if (seen.has(sessionId)) continue;
       avatar.body.destroy();
+      avatar.shadow.destroy();
       avatar.label.destroy();
       this.avatars.delete(sessionId);
     }
@@ -776,6 +814,8 @@ ${slot.count}` : "";
   private createAvatar(player: PlayerView, isSelf: boolean): Avatar {
     const feet = player.y + PLAYER_SIZE / 2;
     const body = this.add.sprite(player.x, feet, characterKey(player.classId, "south")).setOrigin(0.5, AVATAR_FEET);
+    const { width, height } = AVATAR_SHADOW;
+    const shadow = this.add.ellipse(player.x, feet - 1, width, height, 0x000000, SHADOW_ALPHA).setDepth(SHADOW_DEPTH);
     const label = this.add
       .text(player.x, feet - AVATAR_HEIGHT, player.name ?? "", {
         fontFamily: "Palatino Linotype, Georgia, serif",
@@ -788,36 +828,43 @@ ${slot.count}` : "";
       .setOrigin(0.5, 1)
       .setDepth(OVERLAY_DEPTH);
     if (isSelf) this.cameras.main.startFollow(body, true);
-    return { body, label, facing: "south", lastX: player.x, lastY: player.y, lastMoveAt: -Infinity };
+    return { body, shadow, label, facing: "south", lastX: player.x, lastY: player.y, lastMoveAt: -Infinity };
   }
 
   // Como syncAvatars, para os inimigos. A direção é só visual: preparando o golpe, olha para onde vai bater
   // (attackAngle, o mesmo do aviso no chão); senão, para onde andou desde o último quadro.
-  private syncMobs(mobs: { forEach(callback: (mob: MobView, id: string) => void): void }) {
+  private syncMobs(mobs: { forEach(callback: (mob: MobView, id: string) => void): void }, time: number) {
     const seen = new Set<string>();
     mobs.forEach((mob, id) => {
       seen.add(id);
       const kind = mob.kind as MobKind;
       let sprite = this.mobSprites.get(id);
       if (!sprite) {
-        const body = this.add.image(mob.x, mob.y, mobKey(kind, "south")).setOrigin(0.5, MOB_ART[kind].feet / MOB_FRAME);
-        sprite = { body, facing: "south", lastX: mob.x, lastY: mob.y };
+        const art = MOB_ART[kind];
+        const body = this.add.image(mob.x, mob.y, mobKey(kind, "south")).setOrigin(0.5, art.feet / MOB_FRAME);
+        const shadow = this.add.ellipse(mob.x, mob.y, art.shadow, art.shadow * 0.32, 0x000000, SHADOW_ALPHA).setDepth(SHADOW_DEPTH);
+        sprite = { body, shadow, facing: "south", lastX: mob.x, lastY: mob.y, lastMoveAt: -Infinity };
         this.mobSprites.set(id, sprite);
       }
       const dx = mob.x - sprite.lastX;
       const dy = mob.y - sprite.lastY;
       if (mob.windup) sprite.facing = facingFor(Math.cos(mob.attackAngle), Math.sin(mob.attackAngle));
       else if (Math.hypot(dx, dy) > 0.5) sprite.facing = facingFor(dx, dy);
+      if (Math.hypot(dx, dy) > 0.5) sprite.lastMoveAt = time;
       sprite.lastX = mob.x;
       sprite.lastY = mob.y;
       const feet = mob.y + MOB_KINDS[kind].size / 2;
       const key = mobKey(kind, sprite.facing);
       if (sprite.body.texture.key !== key) sprite.body.setTexture(key);
       sprite.body.setPosition(mob.x, feet).setDepth(sortDepth(feet));
+      // Sem animação de andar, a sombra pulsa no ritmo de passos enquanto o mob se mexe.
+      const walking = time - sprite.lastMoveAt < WALK_LINGER_MS;
+      sprite.shadow.setPosition(mob.x, feet - 1).setScale(walking ? 1 - 0.1 * Math.abs(Math.sin(time / 90)) : 1);
     });
     for (const [id, sprite] of this.mobSprites) {
       if (seen.has(id)) continue;
       sprite.body.destroy();
+      sprite.shadow.destroy();
       this.mobSprites.delete(id);
     }
   }
@@ -830,6 +877,13 @@ ${slot.count}` : "";
 // Deixa os desenhos iguais à coleção que o servidor mandou: cria o que chegou, move o que já existe
 // e destrói o que saiu (foi pego ou saiu do raio de visão).
 // halfHeight: com ele, a profundidade segue a base da entidade (Y-sorting); sem ele, fica a de criação.
+// Sombra encolhe um pouco nos quadros em que o pé está no ar (fita de 6 quadros: pés no chão no 3º e no 6º).
+function stepSquash(body: Phaser.GameObjects.Sprite): number {
+  if (!body.anims.isPlaying) return 1;
+  const frame = body.anims.currentFrame?.index ?? 0;
+  return 1 - 0.12 * Math.abs(Math.sin((frame * Math.PI) / 3));
+}
+
 function syncSprites<T extends Vec2>(
   collection: { forEach(callback: (entity: T, id: string) => void): void },
   sprites: Map<string, Phaser.GameObjects.Rectangle>,
