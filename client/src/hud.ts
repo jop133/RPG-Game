@@ -1,5 +1,6 @@
-import { HUNGER_MAX, INVENTORY_SLOTS } from "shared";
+import { HUNGER_MAX, INVENTORY_SLOTS, type BuildingId } from "shared";
 import layout from "../../assets/ui/hud/layout.json";
+import { GuildWindow, InnWindow, type Send } from "./cityWindows";
 import "./hud.css";
 import { ART, SlotView, Tooltip, el, image, place, setText, size, type HudSlot } from "./hudParts";
 import { InventoryWindow } from "./inventoryWindow";
@@ -27,6 +28,8 @@ export interface HudView {
   // Moedas da linhagem.
   coins: number;
   inventory: readonly (HudSlot | undefined)[];
+  // Baú da linhagem: só na cidade.
+  stash?: readonly (HudSlot | undefined)[];
 }
 
 const DOCK_SLOTS = 6;
@@ -49,6 +52,9 @@ export class Hud {
   private readonly root = el("div", "hud");
   private readonly tooltip: Tooltip;
   private readonly window: InventoryWindow;
+  // Janelas dos prédios da cidade (E na porta). No máximo uma janela aberta por vez, contando a de inventário.
+  private readonly buildings: Partial<Record<BuildingId, GuildWindow | InnWindow>>;
+  private openBuilding: BuildingId | undefined;
   private readonly portrait: HTMLImageElement;
   private readonly fills = new Map<string, HTMLDivElement>();
   private readonly ghost: HTMLDivElement;
@@ -68,7 +74,7 @@ export class Hud {
   private lastTime = 0;
   private classId = "";
 
-  constructor(onUse: (slot: number) => void) {
+  constructor(onUse: (slot: number) => void, send: Send) {
     document.body.append(this.root);
     this.root.hidden = true;
 
@@ -117,6 +123,10 @@ export class Hud {
     windowButton.addEventListener("click", () => this.toggleWindow());
 
     this.window = new InventoryWindow(this.root, this.tooltip, onUse);
+    this.buildings = {
+      guild: new GuildWindow(this.root, this.tooltip, send),
+      inn: new InnWindow(this.root, this.tooltip, send),
+    };
 
     window.addEventListener("resize", () => this.applyScale());
     window.addEventListener("keydown", (event) => this.onKey(event));
@@ -142,6 +152,7 @@ export class Hud {
   hide() {
     this.root.hidden = true;
     this.window.close();
+    this.closeBuilding();
     this.tooltip.hide();
     this.hint("");
   }
@@ -193,10 +204,36 @@ export class Hud {
     }
     // A janela aberta acompanha na hora (comer, pegar loot, absorver essência); fechada, não gasta nada.
     if (this.window.open) this.window.update(view);
+    if (this.openBuilding) this.buildings[this.openBuilding]?.update(view);
   }
 
   toggleWindow() {
+    this.closeBuilding();
     this.window.toggle();
+    this.tooltip.hide();
+  }
+
+  // Qual janela de prédio está aberta (a cena a fecha quando o jogador sai da porta).
+  get building(): BuildingId | undefined {
+    return this.openBuilding;
+  }
+
+  // E na porta: abre a janela do prédio, ou fecha se já estava aberta. A Forja ainda não tem janela.
+  toggleBuilding(id: BuildingId) {
+    if (this.openBuilding === id) return this.closeBuilding();
+    const next = this.buildings[id];
+    if (!next) return this.notice("Forja do Ferreiro: em breve.");
+    this.closeBuilding();
+    this.window.close();
+    next.root.hidden = false;
+    this.openBuilding = id;
+  }
+
+  closeBuilding() {
+    if (!this.openBuilding) return;
+    const current = this.buildings[this.openBuilding];
+    if (current) current.root.hidden = true;
+    this.openBuilding = undefined;
     this.tooltip.hide();
   }
 
@@ -209,6 +246,7 @@ export class Hud {
       this.toggleWindow();
     } else if (event.code === "Escape") {
       this.window.close();
+      this.closeBuilding();
       this.tooltip.hide();
     }
   }

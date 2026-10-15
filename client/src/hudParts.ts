@@ -131,7 +131,8 @@ export function rarityStyle(rarity: Rarity): { name: string; color: string } {
   return { name: RARITY_NAMES[rarity], color: RARITY_COLORS[rarity] };
 }
 
-export function itemTooltip(itemId: string, count: number, key?: string): TooltipContent | undefined {
+// key: tecla do slot (o clique usa o item). hint: o que o clique faz em outro lugar (ex.: guardar no baú).
+export function itemTooltip(itemId: string, count: number, key?: string, hint?: string): TooltipContent | undefined {
   const stats = ITEMS[itemId as ItemId] as (typeof ITEMS)[ItemId] | undefined;
   if (!stats) return undefined;
   const food = "food" in stats ? stats.food : undefined;
@@ -151,7 +152,7 @@ export function itemTooltip(itemId: string, count: number, key?: string): Toolti
     titleColor: rarity.color,
     subtitle: rarity.name,
     lines,
-    hint: usable && key ? `Clique ou pressione [${key}] para usar` : undefined,
+    hint: hint ?? (usable && key ? `Clique ou pressione [${key}] para usar` : undefined),
   };
 }
 
@@ -162,6 +163,9 @@ export interface SlotOptions {
   iconScale: 1 | 2;
   // Mostrar a moldura comum mesmo vazio (na mochila sim; na barra rápida o vão do dock já é o slot).
   emptyFrame: boolean;
+  // Slot das janelas dos prédios: o clique não usa o item, faz outra coisa (guardar, retirar). Sem tecla no canto;
+  // a dica diz o que o clique faz agora (undefined = nada).
+  clickHint?: () => string | undefined;
 }
 
 // Moldura de raridade, ícone, tecla e quantidade; clique usa o item e a dica explica o item. Barra e mochila.
@@ -195,12 +199,14 @@ export class SlotView {
     const offset = (options.frameSize - iconSize) / 2;
     place(this.icon, offset, offset, iconSize, iconSize);
     this.label = el("span", "hud-slot-sigla", this.root);
-    el("span", "hud-slot-key", this.root).textContent = KEY_LABELS[index] ?? "";
+    if (!options.clickHint) el("span", "hud-slot-key", this.root).textContent = KEY_LABELS[index] ?? "";
     this.count = el("span", "hud-slot-count", this.root);
     this.root.addEventListener("click", () => onUse(index));
-    tooltip.attach(this.root, () =>
-      this.slot ? itemTooltip(this.slot.item, this.slot.count, KEY_LABELS[this.index]) : { title: "Slot vazio", lines: [] },
-    );
+    tooltip.attach(this.root, () => {
+      if (!this.slot) return { title: "Slot vazio", lines: [] };
+      if (options.clickHint) return itemTooltip(this.slot.item, this.slot.count, undefined, options.clickHint());
+      return itemTooltip(this.slot.item, this.slot.count, KEY_LABELS[this.index]);
+    });
     this.set(undefined);
   }
 
@@ -221,3 +227,49 @@ export class SlotView {
     this.count.textContent = slot && slot.count > 1 ? `x${slot.count}` : "";
   }
 }
+
+// ---------------------------------------------------------------- peças das janelas dos prédios
+
+// Ícone de item com a moldura da raridade, sem clique (listas da loja). A dica explica o item.
+export class ItemBadge {
+  readonly root: HTMLDivElement;
+  private readonly frame: HTMLImageElement;
+  private readonly icon: HTMLImageElement;
+  private item = "";
+  private count = 0;
+
+  constructor(parent: HTMLElement, tooltip: Tooltip, private readonly frameSize: 48 | 34 | 28) {
+    this.root = size(el("div", "hud-abs hud-badge-item", parent), frameSize, frameSize);
+    this.frame = size(image(frameName("common", frameSize), "hud-abs", this.root), frameSize, frameSize);
+    this.icon = el("img", "hud-abs", this.root);
+    this.icon.alt = "";
+    this.icon.draggable = false;
+    place(this.icon, (frameSize - 16) / 2, (frameSize - 16) / 2, 16, 16);
+    tooltip.attach(this.root, () => itemTooltip(this.item, this.count));
+  }
+
+  set(item: string, count: number) {
+    this.count = count;
+    if (item === this.item) return;
+    this.item = item;
+    const stats = ITEMS[item as ItemId] as (typeof ITEMS)[ItemId] | undefined;
+    this.frame.src = ART.get(frameName(stats?.rarity ?? "common", this.frameSize)) ?? "";
+    this.icon.src = ICONS.get(item) ?? "";
+  }
+}
+
+export function button(parent: HTMLElement, label: string, onClick: () => void): HTMLButtonElement {
+  const node = el("button", "hud-abs hud-btn", parent);
+  node.type = "button";
+  node.textContent = label;
+  node.addEventListener("click", onClick);
+  return node;
+}
+
+// Ícone de moeda e o número, em linha (o número muda com setText no span devolvido).
+export function coinAmount(parent: HTMLElement, className = ""): HTMLSpanElement {
+  const box = el("span", `hud-coins ${className}`, parent);
+  image("icon_coin", "hud-coin", box);
+  return el("span", "", box);
+}
+

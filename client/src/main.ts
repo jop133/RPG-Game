@@ -73,8 +73,9 @@ interface PlayerView extends Vec2 {
   extractMs?: number;
   xp?: number;
   level?: number;
-  // Moedas da linhagem.
+  // Moedas da linhagem; o baú, só na cidade.
   coins?: number;
+  stash?: { forEach(callback: (slot: { item: string; count: number }, index: number) => void): void };
   essences?: { forEach(callback: (item: string) => void): void };
   inventory?: { forEach(callback: (slot: { item: string; count: number }, index: number) => void): void };
 }
@@ -415,6 +416,11 @@ class WorldScene extends Phaser.Scene {
     this.room?.send("use", { slot });
   }
 
+  // Cliques nas janelas dos prédios (vender, comprar, baú). Quem decide é o servidor.
+  send(type: string, message: unknown) {
+    this.room?.send(type, message);
+  }
+
   private onResize(gameSize: Phaser.Structs.Size) {
     this.cameras.main.setSize(gameSize.width, gameSize.height);
     this.lighting?.resize(gameSize.width, gameSize.height);
@@ -532,14 +538,18 @@ Subiu para o nível ${info.level}!` : "";
     });
   }
 
-  // E dentro do portal pede para entrar no labirinto; na porta de um prédio, dá a dica do prédio. A dica é só
-  // visual; o servidor confere de novo onde o jogador está.
+  // E dentro do portal pede para entrar no labirinto; na porta de um prédio, abre (ou fecha) a janela dele. Saiu
+  // da porta, a janela fecha. Dica e janela são só visuais; o servidor confere onde o jogador está a cada pedido.
   private updateCity(room: Room<unknown, ServerState>) {
     const self = room.state.players.get(room.sessionId);
     const atPortal = self !== undefined && isAtPortal(self, this.portals);
     const building = self && !atPortal ? buildingAt(self, this.buildings) : undefined;
-    hud.hint(atPortal ? "[E] Entrar no labirinto" : building ? `[E] ${BUILDING_NAMES[building]}` : "");
-    if (this.portalKey && Phaser.Input.Keyboard.JustDown(this.portalKey) && atPortal) room.send("enterPortal");
+    if (hud.building && hud.building !== building) hud.closeBuilding();
+    const open = building !== undefined && hud.building === building;
+    hud.hint(atPortal ? "[E] Entrar no labirinto" : building && !open ? `[E] ${BUILDING_NAMES[building]}` : "");
+    if (!this.portalKey || !Phaser.Input.Keyboard.JustDown(this.portalKey)) return;
+    if (atPortal) room.send("enterPortal");
+    else if (building) hud.toggleBuilding(building);
   }
 
   private updateLabyrinth(room: Room<unknown, ServerState>, time: number) {
@@ -583,6 +593,8 @@ Subiu para o nível ${info.level}!` : "";
     self.essences?.forEach((item) => essences.push(item as ItemId));
     const inventory: { item: string; count: number }[] = [];
     self.inventory?.forEach((slot, i) => (inventory[i] = { item: slot.item, count: slot.count }));
+    const stash: { item: string; count: number }[] = [];
+    self.stash?.forEach((slot, i) => (stash[i] = { item: slot.item, count: slot.count }));
     const level = self.level ?? 1;
     const maxHp = self.maxHp ?? playerStats(essences).maxHp;
     hud.update(
@@ -598,6 +610,7 @@ Subiu para o nível ${info.level}!` : "";
         hunger: self.hunger,
         coins: self.coins ?? 0,
         inventory,
+        stash,
       },
       time,
     );
@@ -1067,7 +1080,10 @@ function drawHpBar(g: Phaser.GameObjects.Graphics, centerX: number, top: number,
 const client = new Client(SERVER_URL);
 // O HUD é um só para a página (HTML); cada cena que entra numa sala passa a ser a "ativa" e recebe os cliques.
 let activeScene: WorldScene | undefined;
-const hud = new Hud((slot) => activeScene?.useSlot(slot));
+const hud = new Hud(
+  (slot) => activeScene?.useSlot(slot),
+  (type, message) => activeScene?.send(type, message),
+);
 // O jogo ocupa a janela inteira. O tamanho em pixels do mundo segue o formato da janela com a mesma meia-diagonal
 // (SCREEN_HALF_DIAGONAL), e o Phaser amplia a imagem para preencher: monitor maior não vê mais longe.
 const initialSize = viewportSize(window.innerWidth, window.innerHeight);

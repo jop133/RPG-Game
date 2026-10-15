@@ -860,5 +860,11 @@ Slot vazio usa a moldura comum.
 - **Preços** em `balance.ts`: `SELL_PRICES` (pele de rato 1, gosma 2, dente de goblin 3, pele de lobo 4, fragmento 8, essências 15, essência rara 40) e `BUY_PRICES` (ração 10). A ração não se vende. Valores iniciais: uma run com uns 5 drops paga mais ou menos 2 rações
 - **Testes do banco** em `server/src/db.test.ts` (SQLite em memória ou em pasta temporária): migração e herança são gravação, não regra pura, então não cabem em `shared/`. O `npm test` passou a rodar `shared` e `server`
 
+**Janelas (etapa 2):**
+- HTML, como a HUD e a janela de inventário, com a mesma arte (painel de ferro e couro) e a mesma escala inteira. Uma janela aberta por vez, contando a de inventário
+- **Abrir e fechar é só do cliente** (E na porta, Esc, sair da porta); o que vale é cada pedido, conferido pelo servidor. Botão apagado (Taverna sem moedas) é só aviso
+- **Estalagem em dois painéis lado a lado** (mochila | baú ou Taverna), como pedido: clicar num slot leva a pilha para o outro lado. Na Taverna, a mochila só mostra (a comida comprada chega ali)
+- **Mercador por linha de item**, não por slot: as pilhas do mesmo item somam, e "Tudo" vende todas. A venda tira das últimas pilhas primeiro (`removeItems`)
+
 **Limites conhecidos:** a identidade continua sendo só o nome: quem digitar o seu nome mexe no seu baú. Dá para entrar no labirinto sem passar pela cidade (o caminho é o mesmo de antes).
 
