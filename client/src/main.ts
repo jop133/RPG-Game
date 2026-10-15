@@ -12,6 +12,7 @@ import {
   ITEMS,
   MOB_KINDS,
   EXIT_LIGHT_RADIUS,
+  FIRST_KILL_XP,
   LIGHT_LAYER,
   PLAYER_ATTACK,
   PLAYER_LIGHT_RADIUS,
@@ -34,6 +35,19 @@ import {
   type TiledMap,
   type Vec2,
 } from "shared";
+import {
+  FloatingNumbers,
+  ScreenShake,
+  applyFlash,
+  drawSwing,
+  newReaction,
+  recoilOffset,
+  startReaction,
+  swingDuration,
+  type HitReaction,
+  type NumberKind,
+  type Swing,
+} from "./juice";
 import { Lighting, darkness, phaseAt, type Light, type LightLook } from "./lighting";
 import { openRegistration, type Registration } from "./registration";
 import cityMapUrl from "../../assets/maps/city.json?url";
@@ -64,7 +78,10 @@ interface MobView extends Vec2 {
 }
 // O formato da cidade (server/src/state.ts, CityState) é o do labirinto sem mobs, pilhas e saídas.
 interface ServerState {
-  players: { forEach(callback: (player: PlayerView, sessionId: string) => void): void };
+  players: {
+    forEach(callback: (player: PlayerView, sessionId: string) => void): void;
+    get(sessionId: string): PlayerView | undefined;
+  };
   mobs?: { forEach(callback: (mob: MobView, id: string) => void): void };
   loot?: { forEach(callback: (pile: Vec2, id: string) => void): void };
   exits?: { forEach(callback: (exit: Vec2, id: string) => void): void };
@@ -153,6 +170,9 @@ interface Avatar {
   lastX: number;
   lastY: number;
   lastMoveAt: number;
+  reaction: HitReaction;
+  // Última vida vista: a diferença é o dano (ou a cura) que aparece em número. Undefined na cidade.
+  lastHp?: number;
 }
 
 // Inimigo: sprite do tipo, virado para onde andou (ou, preparando o golpe, para onde vai bater).
@@ -163,6 +183,8 @@ interface MobSprite {
   lastX: number;
   lastY: number;
   lastMoveAt: number;
+  reaction: HitReaction;
+  lastHp: number;
 }
 
 // "../../assets/tilesets/city/props/poste.png" ou "../tilesets/city/props/poste.png" -> "city/props/poste".
@@ -282,19 +304,21 @@ const SLOT_KEYS = [
 
 const HP_BAR_HEIGHT = 3;
 const HP_BAR_GAP = 4;
-const SWING_VISIBLE_MS = 150;
+// Impacto (só desenho). Tremor quando você leva um golpe forte; tremor leve quando o golpe do bárbaro acerta
+// (é a classe "pesada"). Flash branco em quem apanha; avermelhado em você.
+const SHAKE_MIN_DAMAGE = 12;
+const SHAKE_PER_DAMAGE = 0.45;
+const BARBARIAN_HIT_SHAKE = 2.5;
+const HIT_FLASH_COLOR = 0xffffff;
+const SELF_FLASH_COLOR = 0xff8a80;
+// Golpe que "acabou de sair": janela para ligar um mob sumido (morto no mesmo tick) ao golpe que o matou.
+const RECENT_SWING_MS = 300;
+const NUMBER_GAP = 8;
 const SWING_RADIUS = PLAYER_ATTACK.range + PLAYER_SIZE / 2;
 const SWING_HALF_ARC = (PLAYER_ATTACK.arcDegrees * Math.PI) / 180 / 2;
 const TELEGRAPH_COLOR = 0xff1744;
 
 type MoveKeys = Record<keyof MoveInput, Phaser.Input.Keyboard.Key>;
-
-interface Swing {
-  x: number;
-  y: number;
-  angle: number;
-  untilMs: number;
-}
 
 // Uma cena por visita a um lugar (ver `show`): ao trocar de sala, a cena anterior é jogada fora inteira.
 class WorldScene extends Phaser.Scene {
@@ -331,6 +355,9 @@ class WorldScene extends Phaser.Scene {
   private windupStartedAt = new Map<string, number>();
   private lastAttackSeq = new Map<string, number>();
   private swings: Swing[] = [];
+  private numbers?: FloatingNumbers;
+  private shake = new ScreenShake();
+  private lastOwnSwingAt = -Infinity;
 
   init(data: SceneData) {
     this.place = data.place;
@@ -351,6 +378,7 @@ class WorldScene extends Phaser.Scene {
     const map = this.createMap();
     this.mapLights = this.readMapLights();
     this.lighting = new Lighting(this, AMBIENT[this.place], LIGHT_DEPTH, VIGNETTE_ALPHA[this.place]);
+    this.numbers = new FloatingNumbers(this, OVERLAY_DEPTH + 1);
     this.hud = this.add.graphics().setDepth(HUD_DEPTH).setScrollFactor(0);
     this.levelLabel = this.add
       .text(HUD_MARGIN, HUD_MARGIN + 34, "", { fontSize: "12px", color: "#ffffff" })
@@ -454,6 +482,8 @@ class WorldScene extends Phaser.Scene {
       const levelUp = info.leveledUp ? `
 Subiu para o nível ${info.level}!` : "";
       this.showToast(`Primeira morte: ${MOB_NAMES[info.mob]} (+XP)${levelUp}`);
+      const self = room.state.players.get(room.sessionId);
+      if (self) this.popNumber(self.x, self.y + PLAYER_SIZE / 2 - AVATAR_HEIGHT, `+${FIRST_KILL_XP} XP`, "xp");
     });
     room.onMessage("death", (cause: DeathCause) => {
       this.room = undefined;
@@ -470,7 +500,9 @@ Subiu para o nível ${info.level}!` : "";
 
   private lastToastText = "";
 
-  update(time: number) {
+  update(time: number, delta: number) {
+    this.numbers?.update(time, delta);
+    this.shake.update(this.cameras.main, delta);
     const room = this.room;
     if (!room || !this.keys || !this.hud) return;
     this.sendInputIfChanged(room, this.keys);
@@ -522,7 +554,7 @@ Subiu para o nível ${info.level}!` : "";
   private updateLabyrinth(room: Room<unknown, ServerState>, time: number) {
     if (!this.overlay || !this.telegraphs) return;
     if (this.pickupKey && Phaser.Input.Keyboard.JustDown(this.pickupKey)) room.send("pickup");
-    if (room.state.mobs) this.syncMobs(room.state.mobs, time);
+    if (room.state.mobs) this.syncMobs(room, room.state.mobs, time);
     if (room.state.loot) syncSprites(room.state.loot, this.lootSprites, () => this.createLootSprite());
     this.collectSwings(room, time);
     this.drawOverlay(room, this.overlay, time);
@@ -667,18 +699,17 @@ ${slot.count}` : "";
       const previous = this.lastAttackSeq.get(sessionId);
       this.lastAttackSeq.set(sessionId, seq);
       if (previous === undefined || seq === previous) return;
-      this.swings.push({ x: player.x, y: player.y, angle: player.attackAngle ?? 0, untilMs: time + SWING_VISIBLE_MS });
+      if (sessionId === room.sessionId) this.lastOwnSwingAt = time;
+      const classId = player.classId ?? "";
+      const seed = Math.floor(Math.random() * 1e9);
+      this.swings.push({ x: player.x, y: player.y, angle: player.attackAngle ?? 0, classId, startMs: time, seed });
     });
-    this.swings = this.swings.filter((swing) => swing.untilMs > time);
+    this.swings = this.swings.filter((swing) => time - swing.startMs < swingDuration(swing.classId));
   }
 
   private drawOverlay(room: Room<unknown, ServerState>, g: Phaser.GameObjects.Graphics, time: number) {
     g.clear();
-    for (const swing of this.swings) {
-      g.fillStyle(0xffffff, 0.35 * ((swing.untilMs - time) / SWING_VISIBLE_MS));
-      g.slice(swing.x, swing.y, SWING_RADIUS, swing.angle - SWING_HALF_ARC, swing.angle + SWING_HALF_ARC);
-      g.fillPath();
-    }
+    for (const swing of this.swings) drawSwing(g, swing, time, SWING_RADIUS, SWING_HALF_ARC);
     // Barra de vida do jogador acima da cabeça do sprite.
     room.state.players.forEach((player) => {
       const top = player.y + PLAYER_SIZE / 2 - AVATAR_HEIGHT - HP_BAR_GAP - HP_BAR_HEIGHT;
@@ -781,8 +812,17 @@ ${slot.count}` : "";
       avatar.lastX = player.x;
       avatar.lastY = player.y;
       const feet = player.y + PLAYER_SIZE / 2;
+      const isSelf = sessionId === room.sessionId;
+      if (player.hp !== undefined) {
+        if (avatar.lastHp !== undefined && player.hp !== avatar.lastHp) {
+          this.onPlayerHp(room, player, avatar, player.hp - avatar.lastHp, isSelf, time);
+        }
+        avatar.lastHp = player.hp;
+      }
       this.animateAvatar(avatar, player.classId, time - avatar.lastMoveAt < WALK_LINGER_MS);
-      avatar.body.setPosition(player.x, feet).setDepth(sortDepth(feet));
+      const recoil = recoilOffset(avatar.reaction, time);
+      avatar.body.setPosition(player.x + recoil.x, feet + recoil.y).setDepth(sortDepth(feet));
+      applyFlash(avatar.body, avatar.reaction, time, isSelf ? SELF_FLASH_COLOR : HIT_FLASH_COLOR);
       avatar.shadow.setPosition(player.x, feet - 1).setScale(stepSquash(avatar.body));
       avatar.label.setPosition(player.x, feet - AVATAR_HEIGHT - HP_BAR_GAP - HP_BAR_HEIGHT - 2);
     });
@@ -828,12 +868,17 @@ ${slot.count}` : "";
       .setOrigin(0.5, 1)
       .setDepth(OVERLAY_DEPTH);
     if (isSelf) this.cameras.main.startFollow(body, true);
-    return { body, shadow, label, facing: "south", lastX: player.x, lastY: player.y, lastMoveAt: -Infinity };
+    const reaction = newReaction();
+    return { body, shadow, label, facing: "south", lastX: player.x, lastY: player.y, lastMoveAt: -Infinity, reaction };
   }
 
   // Como syncAvatars, para os inimigos. A direção é só visual: preparando o golpe, olha para onde vai bater
   // (attackAngle, o mesmo do aviso no chão); senão, para onde andou desde o último quadro.
-  private syncMobs(mobs: { forEach(callback: (mob: MobView, id: string) => void): void }, time: number) {
+  private syncMobs(
+    room: Room<unknown, ServerState>,
+    mobs: { forEach(callback: (mob: MobView, id: string) => void): void },
+    time: number,
+  ) {
     const seen = new Set<string>();
     mobs.forEach((mob, id) => {
       seen.add(id);
@@ -843,7 +888,8 @@ ${slot.count}` : "";
         const art = MOB_ART[kind];
         const body = this.add.image(mob.x, mob.y, mobKey(kind, "south")).setOrigin(0.5, art.feet / MOB_FRAME);
         const shadow = this.add.ellipse(mob.x, mob.y, art.shadow, art.shadow * 0.32, 0x000000, SHADOW_ALPHA).setDepth(SHADOW_DEPTH);
-        sprite = { body, shadow, facing: "south", lastX: mob.x, lastY: mob.y, lastMoveAt: -Infinity };
+        const reaction = newReaction();
+        sprite = { body, shadow, facing: "south", lastX: mob.x, lastY: mob.y, lastMoveAt: -Infinity, reaction, lastHp: mob.hp };
         this.mobSprites.set(id, sprite);
       }
       const dx = mob.x - sprite.lastX;
@@ -854,19 +900,74 @@ ${slot.count}` : "";
       sprite.lastX = mob.x;
       sprite.lastY = mob.y;
       const feet = mob.y + MOB_KINDS[kind].size / 2;
+      if (mob.hp < sprite.lastHp) this.onMobHit(room, mob, sprite, sprite.lastHp - mob.hp, time);
+      sprite.lastHp = mob.hp;
       const key = mobKey(kind, sprite.facing);
       if (sprite.body.texture.key !== key) sprite.body.setTexture(key);
-      sprite.body.setPosition(mob.x, feet).setDepth(sortDepth(feet));
+      const recoil = recoilOffset(sprite.reaction, time);
+      sprite.body.setPosition(mob.x + recoil.x, feet + recoil.y).setDepth(sortDepth(feet));
+      applyFlash(sprite.body, sprite.reaction, time, HIT_FLASH_COLOR);
       // Sem animação de andar, a sombra pulsa no ritmo de passos enquanto o mob se mexe.
       const walking = time - sprite.lastMoveAt < WALK_LINGER_MS;
       sprite.shadow.setPosition(mob.x, feet - 1).setScale(walking ? 1 - 0.1 * Math.abs(Math.sin(time / 90)) : 1);
     });
     for (const [id, sprite] of this.mobSprites) {
       if (seen.has(id)) continue;
+      // O servidor tira o mob no mesmo tick do golpe final, então a vida nunca chega a 0 aqui. Se ele sumiu logo
+      // depois de um golpe que o alcançava, foi morto: o número é a vida que restava.
+      if (this.swingReached(sprite.lastX, sprite.lastY, time)) {
+        this.popNumber(sprite.lastX, sprite.body.y - sprite.body.displayHeight * sprite.body.originY, `${sprite.lastHp}`, "dealt");
+      }
       sprite.body.destroy();
       sprite.shadow.destroy();
       this.mobSprites.delete(id);
     }
+  }
+
+  // Vida de um jogador mudou: número em cima dele, flash e recuo. Em você, golpe forte treme a tela.
+  private onPlayerHp(
+    room: Room<unknown, ServerState>,
+    player: PlayerView,
+    avatar: Avatar,
+    change: number,
+    isSelf: boolean,
+    time: number,
+  ) {
+    const top = player.y + PLAYER_SIZE / 2 - AVATAR_HEIGHT;
+    if (change > 0) {
+      if (isSelf) this.popNumber(player.x, top, `+${change}`, "heal");
+      return;
+    }
+    const damage = -change;
+    this.popNumber(player.x, top, `${damage}`, isSelf ? "taken" : "dealt");
+    const away = awayFromNearest(player, mobPositions(room));
+    startReaction(avatar.reaction, time, away.x, away.y);
+    if (isSelf && damage >= SHAKE_MIN_DAMAGE) this.shake.kick(damage * SHAKE_PER_DAMAGE);
+  }
+
+  // Mob levou dano: número, flash e recuo para longe do jogador mais perto. Golpe do bárbaro que acerta treme leve.
+  private onMobHit(room: Room<unknown, ServerState>, mob: MobView, sprite: MobSprite, damage: number, time: number) {
+    const kind = mob.kind as MobKind;
+    const top = mob.y + MOB_KINDS[kind].size / 2 - MOB_ART[kind].height;
+    this.popNumber(mob.x, top, `${damage}`, "dealt");
+    const players: Vec2[] = [];
+    room.state.players.forEach((player) => players.push(player));
+    const away = awayFromNearest(mob, players);
+    startReaction(sprite.reaction, time, away.x, away.y);
+    const self = room.state.players.get(room.sessionId);
+    if (self?.classId === "barbaro" && time - this.lastOwnSwingAt < RECENT_SWING_MS && this.swingReached(mob.x, mob.y, time)) {
+      this.shake.kick(BARBARIAN_HIT_SHAKE);
+    }
+  }
+
+  // Algum golpe recente alcançava este ponto (raio do golpe mais a metade do maior mob)?
+  private swingReached(x: number, y: number, time: number): boolean {
+    const reach = SWING_RADIUS + TILE_HALF;
+    return this.swings.some((swing) => time - swing.startMs < RECENT_SWING_MS && Math.hypot(swing.x - x, swing.y - y) <= reach);
+  }
+
+  private popNumber(x: number, top: number, label: string, kind: NumberKind) {
+    this.numbers?.spawn(x, top - NUMBER_GAP, label, kind, this.time.now);
   }
 
   private createLootSprite() {
@@ -877,6 +978,28 @@ ${slot.count}` : "";
 // Deixa os desenhos iguais à coleção que o servidor mandou: cria o que chegou, move o que já existe
 // e destrói o que saiu (foi pego ou saiu do raio de visão).
 // halfHeight: com ele, a profundidade segue a base da entidade (Y-sorting); sem ele, fica a de criação.
+const TILE_HALF = 16;
+
+function mobPositions(room: Room<unknown, ServerState>): Vec2[] {
+  const positions: Vec2[] = [];
+  room.state.mobs?.forEach((mob) => positions.push(mob));
+  return positions;
+}
+
+// Direção para longe de quem está mais perto (para o recuo). Sem ninguém por perto, (0, 0): sem recuo.
+function awayFromNearest(from: Vec2, others: readonly Vec2[]): Vec2 {
+  let best: Vec2 | undefined;
+  let bestDistance = Infinity;
+  for (const other of others) {
+    const d = Math.hypot(other.x - from.x, other.y - from.y);
+    if (d > 0 && d < bestDistance) {
+      best = other;
+      bestDistance = d;
+    }
+  }
+  return best ? { x: from.x - best.x, y: from.y - best.y } : { x: 0, y: 0 };
+}
+
 // Sombra encolhe um pouco nos quadros em que o pé está no ar (fita de 6 quadros: pés no chão no 3º e no 6º).
 function stepSquash(body: Phaser.GameObjects.Sprite): number {
   if (!body.anims.isPlaying) return 1;

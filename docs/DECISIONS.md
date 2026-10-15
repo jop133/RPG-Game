@@ -742,3 +742,19 @@ O cliente recebe `windup` e `attackAngle` e desenha o arco no chão: o contorno 
 **Limites aceitos:** a luz atravessa paredes (círculo simples, sem sombra projetada), igual no servidor e no desenho; lobos notam o jogador a 256 px, um pouco antes de entrar na luz dele (240), e aparecem já vindo.
 
 **Também decidido:** sem golpe crítico por enquanto (não existe a regra); recuo ao levar golpe só visual. Etapas 2 (flash, números, tremor, golpes por classe) e 3 (partículas) a seguir.
+
+---
+
+## 2026-10 — Impacto (polimento visual, etapa 2): tudo deduzido no cliente, nada novo no servidor
+
+**Como:** o cliente compara a vida de cada jogador e mob com a do quadro anterior. Caiu: número de dano, flash e recuo; subiu (só em você): número verde. Golpe novo (`attackSeq`) desenha o rastro da classe de quem bateu; primeira morte mostra "+XP". Código em `client/src/juice.ts`.
+
+**Por quê assim:** são só efeitos (regra 1): o servidor já mandava tudo o que precisa (vida, golpes). Mandar eventos de dano novos só serviria para casos raros (dois golpes no mesmo pacote viram um número só, somado).
+
+**Detalhes decididos:**
+- Recuo só visual (escolha do dono do projeto): o sprite dá um tranco de 4 px e volta; a posição de verdade não muda
+- Sem golpe crítico (escolha do dono do projeto): não há regra de crítico; o número dourado entra quando houver
+- Tremor: quando você leva golpe de 12 ou mais (goblin, slime, gnomo; o lobo não treme) e, leve, quando o golpe do bárbaro acerta (a classe "pesada"; não há habilidades ainda, passo 10)
+- Rastros de golpe por classe são enfeite por cima da área de acerto de verdade, que continua desenhada: a arma é a mesma para todos até o passo 8
+- O servidor tira o mob morto no mesmo tick do golpe final, então o cliente nunca vê a vida chegar a 0: se o mob some logo depois de um golpe que o alcançava, o número mostrado é a vida que restava
+
