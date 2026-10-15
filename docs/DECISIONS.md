@@ -809,3 +809,16 @@ Slot vazio usa a moldura comum.
 
 **Detalhes do pedido adaptados:** `orelha_de_goblin` não existe (é `dente_de_goblin`). A janela é maior que a da etapa anterior (360x518 pixels de HUD) para caber as três seções; em 1920x1080 (escala 2) ela encosta na barra rápida, que fica na frente: atrás dela só a base de ferro do painel.
 
+---
+
+## 2026-10 — Caminhada dos inimigos; gnomo anda em 4 direções
+
+**Como:** igual à caminhada das classes (decisão "Sprites e animação: só visual"). Andando = a posição mudou nos últimos 150 ms **e** o mob não está preparando golpe; toca a fita da direção a 10 FPS. Parado ou preparando golpe: o sprite parado da direção (8 direções; preparando, olha para `attackAngle`). Pivô nos pés nas duas folhas, medido nas imagens: o bicho não pula ao trocar.
+
+**Arte só nas direções que existem:** `tools/assets/process_mobs.py` converte os GIFs de `walk/` em fitas e **não inventa** as que faltam (as classes, em `process_ui.py`, preenchem com espelho ou cópia). O cliente carrega só os arquivos que existem e escolhe na hora:
+- Lobo e goblin: as 8 direções
+- **Gnomo: só as 4 cardeais.** Andando na diagonal, usa a cardeal do lado para onde vai (nordeste e sudeste: leste; noroeste e sudoeste: oeste). Continua mexendo as pernas e nada pede arquivo inexistente. Quando chegar a arte das diagonais, basta pôr os GIFs e rodar o script: o cliente passa a usá-las sem mudar código
+- Slime: sem caminhada; continua com o sprite parado
+
+**Muda a decisão "Sprites e animação":** os sprites dos inimigos deixam de ser lidos direto de `assets/tilesets/Inimigos/`. Agora o script copia o parado e gera a caminhada em `assets/mobs/<tipo>/` (como `assets/characters/` para as classes), e o cliente lê tudo de lá: uma pasta só por bicho, com o que o jogo usa. `Inimigos/` vira só a arte de origem.
+

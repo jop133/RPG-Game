@@ -102,3 +102,14 @@ das calhas, o rosto de cada classe (recortado do sprite parado, centrado pela te
 (`ICONS`, desenhados no código: item novo sem ícone aparece com a sigla). Os vãos medidos na arte vão para `layout.json`,
 que o cliente (`client/src/hud.ts`) usa para posicionar retrato, barras e slots.
 
+## Inimigos (parado e caminhada)
+
+```bash
+tools/assets/.venv/Scripts/python.exe -I tools/assets/process_mobs.py
+```
+
+Lê `assets/tilesets/Inimigos/<Tipo>/` (`Idle/rotations/` com as 8 direções paradas e, se houver, `walk/<direção>.gif` com
+quadros 96x96) e grava em `assets/mobs/<tipo>/` (tipo em minúsculas): o parado copiado e uma fita `walk-<direção>.png` para
+cada GIF que existir, sem reamostrar. Direção sem GIF fica sem fita (o cliente usa a cardeal do lado, ou o sprite parado).
+Mob novo: pasta em `Inimigos/` com o nome do tipo de `MOB_KINDS`, rodar o script e medir os pés em `MOB_ART` (`client/src/main.ts`).
+

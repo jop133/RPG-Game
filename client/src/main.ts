@@ -113,26 +113,31 @@ const CHARACTER_URLS = Object.entries(
   import.meta.glob<string>("../../assets/characters/*/*.png", { eager: true, query: "?url", import: "default" }),
 ).map(([path, url]) => ({ key: path.slice(path.indexOf("characters/"), -".png".length), url }));
 const IDLE_URLS = CHARACTER_URLS.filter(({ key }) => !key.includes("/walk-"));
-// Sprites dos inimigos (64x64, 8 direções, parados): "mobs/<tipo>/<direção>". A pasta de cada um tem o nome do tipo
-// (assets/tilesets/Inimigos/Lobo -> "lobo").
+// Sprites dos inimigos (tools/assets/process_mobs.py): parado "mobs/<tipo>/<direção>" (64x64, 8 direções) e
+// caminhada "mobs/<tipo>/walk-<direção>" (fita de quadros 96x96), só nas direções que têm arte: o lobo e o goblin
+// andam nas 8, o gnomo só nas 4 cardeais, o slime não tem caminhada. Só se carrega o que existe (nada de 404).
 const MOB_URLS = Object.entries(
-  import.meta.glob<string>("../../assets/tilesets/Inimigos/*/Idle/rotations/*.png", {
-    eager: true,
-    query: "?url",
-    import: "default",
-  }),
-).map(([path, url]) => {
-  const [, kind = "", direction = ""] = /Inimigos\/([^/]+)\/Idle\/rotations\/([^/]+)\.png$/.exec(path) ?? [];
-  return { key: mobKey(kind.toLowerCase(), direction), url };
-});
+  import.meta.glob<string>("../../assets/mobs/*/*.png", { eager: true, query: "?url", import: "default" }),
+).map(([path, url]) => ({ key: path.slice(path.indexOf("mobs/"), -".png".length), url }));
+const MOB_IDLE_URLS = MOB_URLS.filter(({ key }) => !key.includes("/walk-"));
+const MOB_WALK_URLS = MOB_URLS.filter(({ key }) => key.includes("/walk-"));
 const MOB_FRAME = 64;
-// Linha dos pés, altura do bicho e largura da sombra em cada sprite (medidas nas imagens, em pixels de 64). Os pés
-// ficam na base da caixa de colisão, como os do jogador; a altura põe a barra de vida acima da cabeça. Desenhados em 1:1.
-const MOB_ART: Record<MobKind, { feet: number; height: number; shadow: number }> = {
-  goblin: { feet: 61, height: 59, shadow: 28 },
-  lobo: { feet: 62, height: 60, shadow: 36 },
-  gnomo: { feet: 61, height: 60, shadow: 24 },
+// Linha dos pés parado (de 64) e andando (de 96, mediana dos quadros), altura do bicho e largura da sombra, medidas
+// nas imagens. O pivô fica nos pés nas duas folhas (como nas classes): trocar de parado para andando não pula.
+// A altura põe a barra de vida acima da cabeça. Desenhados em 1:1. Slime não anda: sem walkFeet.
+const MOB_ART: Record<MobKind, { feet: number; walkFeet?: number; height: number; shadow: number }> = {
+  goblin: { feet: 61, walkFeet: 77, height: 59, shadow: 28 },
+  lobo: { feet: 62, walkFeet: 78, height: 60, shadow: 36 },
+  gnomo: { feet: 61, walkFeet: 78, height: 60, shadow: 24 },
   slime: { feet: 58, height: 44, shadow: 40 },
+};
+// Diagonal sem caminhada (gnomo): anda com a da cardeal do lado para onde vai. Parado ou preparando golpe, o sprite
+// parado tem as 8 direções e é ele que aparece.
+const WALK_FALLBACK: Record<string, string> = {
+  "north-east": "east",
+  "south-east": "east",
+  "north-west": "west",
+  "south-west": "west",
 };
 const WALK_URLS = CHARACTER_URLS.filter(({ key }) => key.includes("/walk-"));
 // Mesma escala nos dois (personagem com ~60 px de altura); muda só a margem do quadro. O pivô fica nos pés:
@@ -178,7 +183,7 @@ interface Avatar {
 
 // Inimigo: sprite do tipo, virado para onde andou (ou, preparando o golpe, para onde vai bater).
 interface MobSprite {
-  body: Phaser.GameObjects.Image;
+  body: Phaser.GameObjects.Sprite;
   shadow: Phaser.GameObjects.Ellipse;
   facing: string;
   lastX: number;
@@ -353,8 +358,8 @@ class WorldScene extends Phaser.Scene {
   // Mapas e folhas de tiles ficam no cache do jogo: só a primeira visita baixa os arquivos.
   preload() {
     if (!this.cache.tilemap.exists(this.place)) this.load.tilemapTiledJSON(this.place, MAP_URLS[this.place]);
-    for (const { key, url } of [...TILESET_URLS, ...IDLE_URLS, ...MOB_URLS]) if (!this.textures.exists(key)) this.load.image(key, url);
-    for (const { key, url } of WALK_URLS) {
+    for (const { key, url } of [...TILESET_URLS, ...IDLE_URLS, ...MOB_IDLE_URLS]) if (!this.textures.exists(key)) this.load.image(key, url);
+    for (const { key, url } of [...WALK_URLS, ...MOB_WALK_URLS]) {
       if (!this.textures.exists(key)) this.load.spritesheet(key, url, { frameWidth: WALK_FRAME, frameHeight: WALK_FRAME });
     }
   }
@@ -706,7 +711,7 @@ Subiu para o nível ${info.level}!` : "";
 
   // Uma animação por fita de caminhada, com a mesma chave da textura. As animações são do jogo todo: cria uma vez.
   private createWalkAnimations() {
-    for (const { key } of WALK_URLS) {
+    for (const { key } of [...WALK_URLS, ...MOB_WALK_URLS]) {
       if (this.anims.exists(key)) continue;
       this.anims.create({ key, frames: this.anims.generateFrameNumbers(key, {}), frameRate: WALK_FPS, repeat: -1 });
     }
@@ -806,7 +811,7 @@ Subiu para o nível ${info.level}!` : "";
       let sprite = this.mobSprites.get(id);
       if (!sprite) {
         const art = MOB_ART[kind];
-        const body = this.add.image(mob.x, mob.y, mobKey(kind, "south")).setOrigin(0.5, art.feet / MOB_FRAME);
+        const body = this.add.sprite(mob.x, mob.y, mobKey(kind, "south")).setOrigin(0.5, art.feet / MOB_FRAME);
         const shadow = this.add.ellipse(mob.x, mob.y, art.shadow, art.shadow * 0.32, 0x000000, SHADOW_ALPHA).setDepth(SHADOW_DEPTH);
         const reaction = newReaction();
         sprite = { body, shadow, facing: "south", lastX: mob.x, lastY: mob.y, lastMoveAt: -Infinity, reaction, lastHp: mob.hp };
@@ -822,14 +827,15 @@ Subiu para o nível ${info.level}!` : "";
       const feet = mob.y + MOB_KINDS[kind].size / 2;
       if (mob.hp < sprite.lastHp) this.onMobHit(room, mob, sprite, sprite.lastHp - mob.hp, time);
       sprite.lastHp = mob.hp;
-      const key = mobKey(kind, sprite.facing);
-      if (sprite.body.texture.key !== key) sprite.body.setTexture(key);
+      // Andando = mudou de lugar nos últimos WALK_LINGER_MS e não está parado preparando o golpe.
+      const walking = time - sprite.lastMoveAt < WALK_LINGER_MS && !mob.windup;
+      this.animateMob(sprite, kind, walking);
       const recoil = recoilOffset(sprite.reaction, time);
       sprite.body.setPosition(mob.x + recoil.x, feet + recoil.y).setDepth(sortDepth(feet));
       applyFlash(sprite.body, sprite.reaction, time, HIT_FLASH_COLOR);
-      // Sem animação de andar, a sombra pulsa no ritmo de passos enquanto o mob se mexe.
-      const walking = time - sprite.lastMoveAt < WALK_LINGER_MS;
-      sprite.shadow.setPosition(mob.x, feet - 1).setScale(walking ? 1 - 0.1 * Math.abs(Math.sin(time / 90)) : 1);
+      // A sombra pulsa com o passo da caminhada; quem não tem caminhada (slime) pulsa no ritmo do relógio.
+      const squash = sprite.body.anims.isPlaying ? stepSquash(sprite.body) : 1 - 0.1 * Math.abs(Math.sin(time / 90));
+      sprite.shadow.setPosition(mob.x, feet - 1).setScale(walking ? squash : 1);
     });
     for (const [id, sprite] of this.mobSprites) {
       if (seen.has(id)) continue;
@@ -883,6 +889,31 @@ Subiu para o nível ${info.level}!` : "";
     }
   }
 
+  // Andando: a caminhada da direção (ou da cardeal ao lado, se a diagonal não tem arte), continuando do mesmo quadro
+  // ao virar. Parado, preparando golpe ou sem caminhada nenhuma (slime): o sprite parado da direção, nas 8.
+  private animateMob(sprite: MobSprite, kind: MobKind, walking: boolean) {
+    const body = sprite.body;
+    const art = MOB_ART[kind];
+    const walk = walking && art.walkFeet !== undefined ? this.mobWalkKey(kind, sprite.facing) : undefined;
+    if (walk && art.walkFeet !== undefined) {
+      if (body.anims.currentAnim?.key === walk && body.anims.isPlaying) return;
+      const frame = body.anims.isPlaying ? (body.anims.currentFrame?.index ?? 1) - 1 : 0;
+      body.setOrigin(0.5, art.walkFeet / WALK_FRAME).play({ key: walk, startFrame: frame });
+      return;
+    }
+    if (body.anims.isPlaying) body.stop();
+    const idle = mobKey(kind, sprite.facing);
+    if (body.texture.key !== idle) body.setTexture(idle).setOrigin(0.5, art.feet / MOB_FRAME);
+  }
+
+  private mobWalkKey(kind: MobKind, facing: string): string | undefined {
+    for (const direction of [facing, WALK_FALLBACK[facing]]) {
+      const key = direction && mobKey(kind, `walk-${direction}`);
+      if (key && this.anims.exists(key)) return key;
+    }
+    return undefined;
+  }
+
   // Gotas saltando do meio do corpo do mob, para longe de quem bateu, na frente dele.
   private splatter(mob: Vec2, kind: MobKind, away: Vec2, time: number) {
     const feet = mob.y + MOB_KINDS[kind].size / 2;
@@ -930,11 +961,13 @@ function awayFromNearest(from: Vec2, others: readonly Vec2[]): Vec2 {
   return best ? { x: from.x - best.x, y: from.y - best.y } : { x: 0, y: 0 };
 }
 
-// Sombra encolhe um pouco nos quadros em que o pé está no ar (fita de 6 quadros: pés no chão no 3º e no 6º).
+// Sombra encolhe um pouco nos quadros em que o pé está no ar. Uma volta da fita são dois passos (pés no chão na
+// metade e no fim): 6 quadros nas classes e no goblin, 4 no lobo e no gnomo.
 function stepSquash(body: Phaser.GameObjects.Sprite): number {
-  if (!body.anims.isPlaying) return 1;
+  const anim = body.anims.currentAnim;
+  if (!body.anims.isPlaying || !anim) return 1;
   const frame = body.anims.currentFrame?.index ?? 0;
-  return 1 - 0.12 * Math.abs(Math.sin((frame * Math.PI) / 3));
+  return 1 - 0.12 * Math.abs(Math.sin((frame * 2 * Math.PI) / anim.frames.length));
 }
 
 function syncSprites<T extends Vec2>(
