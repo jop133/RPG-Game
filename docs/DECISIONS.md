@@ -758,3 +758,13 @@ O cliente recebe `windup` e `attackAngle` e desenha o arco no chão: o contorno 
 - Rastros de golpe por classe são enfeite por cima da área de acerto de verdade, que continua desenhada: a arma é a mesma para todos até o passo 8
 - O servidor tira o mob morto no mesmo tick do golpe final, então o cliente nunca vê a vida chegar a 0: se o mob some logo depois de um golpe que o alcançava, o número mostrado é a vida que restava
 
+---
+
+## 2026-10 — Partículas (polimento visual, etapa 3): sistema próprio, pequeno
+
+**Como:** `client/src/particles.ts` cuida de três movimentos: gotas (saltam do mob atingido para longe de quem bateu e caem com gravidade), esporos (sobem devagar oscilando, acendem e apagam) e espiral (dá voltas subindo em volta do portal). Cada partícula é um quadradinho de 1 pixel de textura (feito no código) ampliado, nítido como o resto da arte. No máximo 400 vivas; só luzes na tela soltam partículas, numa taxa por segundo por tipo de luz (`SPORE_RATE`, `SPIRAL_RATE` em `main.ts`).
+
+**Por quê não o emissor do Phaser:** cada tipo tem um movimento próprio (a espiral precisa de ângulo e raio por partícula), e escrever os três à mão ficou mais curto e legível do que configurar o emissor para cada caso. Se um dia o número de partículas pesar, trocar por emissores é uma mudança só dentro deste arquivo.
+
+**Só desenho:** nada disso vem do servidor nem muda o jogo. Esporos e faíscas ficam entre a camada de luz e a vinheta, somando cor: brilham no escuro, como os cristais.
+

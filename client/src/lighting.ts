@@ -21,6 +21,8 @@ export interface Light {
   look: LightLook;
   // Para luzes iguais não piscarem juntas.
   phase: number;
+  // Tipo da luz no mapa ("cristal-grande", "portal"...; "saida" para saída ativa). As partículas usam.
+  kind?: string;
 }
 
 const LIGHT_KEY = "light";

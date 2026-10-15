@@ -49,6 +49,7 @@ import {
   type Swing,
 } from "./juice";
 import { Lighting, darkness, phaseAt, type Light, type LightLook } from "./lighting";
+import { Particles } from "./particles";
 import { openRegistration, type Registration } from "./registration";
 import cityMapUrl from "../../assets/maps/city.json?url";
 import labyrinthMapUrl from "../../assets/maps/dungeon_floor1.json?url";
@@ -314,6 +315,23 @@ const SELF_FLASH_COLOR = 0xff8a80;
 // Golpe que "acabou de sair": janela para ligar um mob sumido (morto no mesmo tick) ao golpe que o matou.
 const RECENT_SWING_MS = 300;
 const NUMBER_GAP = 8;
+
+// Partículas (só desenho). Gotas ao atingir um mob: sangue escuro; ácido no slime.
+const BLOOD_COLORS = [0x5d0a0a, 0x8b0000, 0x6d1010];
+const ACID_COLORS = [0x76ff03, 0x64dd17, 0xb2ff59];
+// Esporos por segundo em cada luz deste tipo que esteja na tela; espiral por segundo em cada portal.
+const SPORE_RATE: Record<string, number> = {
+  "cristal-grande": 1.4,
+  "cristal-medio": 0.9,
+  "cristal-pequeno": 0.5,
+  minerio: 0.6,
+  cogumelos: 1.0,
+};
+const SPORE_COLOR = 0x80f8ff;
+const SPIRAL_RATE = 12;
+const SPIRAL_COLORS: Record<string, number> = { portal: 0xe0aaff, saida: 0x80d8ff };
+// A luz do portal fica no meio da arte; a espiral nasce perto do pé dele.
+const SPIRAL_START_BELOW: Record<string, number> = { portal: 30, saida: 0 };
 const SWING_RADIUS = PLAYER_ATTACK.range + PLAYER_SIZE / 2;
 const SWING_HALF_ARC = (PLAYER_ATTACK.arcDegrees * Math.PI) / 180 / 2;
 const TELEGRAPH_COLOR = 0xff1744;
@@ -357,6 +375,7 @@ class WorldScene extends Phaser.Scene {
   private swings: Swing[] = [];
   private numbers?: FloatingNumbers;
   private shake = new ScreenShake();
+  private particles?: Particles;
   private lastOwnSwingAt = -Infinity;
 
   init(data: SceneData) {
@@ -379,6 +398,8 @@ class WorldScene extends Phaser.Scene {
     this.mapLights = this.readMapLights();
     this.lighting = new Lighting(this, AMBIENT[this.place], LIGHT_DEPTH, VIGNETTE_ALPHA[this.place]);
     this.numbers = new FloatingNumbers(this, OVERLAY_DEPTH + 1);
+    // Entre a camada de luz (LIGHT_DEPTH) e a vinheta (LIGHT_DEPTH + 0.1): brilham no escuro, a vinheta ainda os cobre.
+    this.particles = new Particles(this, LIGHT_DEPTH + 0.05);
     this.hud = this.add.graphics().setDepth(HUD_DEPTH).setScrollFactor(0);
     this.levelLabel = this.add
       .text(HUD_MARGIN, HUD_MARGIN + 34, "", { fontSize: "12px", color: "#ffffff" })
@@ -502,6 +523,7 @@ Subiu para o nível ${info.level}!` : "";
 
   update(time: number, delta: number) {
     this.numbers?.update(time, delta);
+    this.particles?.update(time, delta);
     this.shake.update(this.cameras.main, delta);
     const room = this.room;
     if (!room || !this.keys || !this.hud) return;
@@ -513,7 +535,30 @@ Subiu para o nível ${info.level}!` : "";
     this.drawHud(room, this.hud);
     if (this.place === "city") this.updateCity(room);
     else this.updateLabyrinth(room, time);
-    this.lighting?.draw(this.currentLights(room), time);
+    const lights = this.currentLights(room);
+    this.lighting?.draw(lights, time);
+    this.emitAmbient(lights, time, delta);
+  }
+
+  // Esporos perto do que brilha e espiral nos portais, só para luzes na tela. Cada luz solta, em média,
+  // a taxa do tipo por segundo (sorteio a cada quadro).
+  private emitAmbient(lights: readonly Light[], time: number, delta: number) {
+    if (!this.particles) return;
+    const view = this.cameras.main.worldView;
+    const dt = delta / 1000;
+    for (const light of lights) {
+      if (!light.kind || !view.contains(light.x, light.y)) continue;
+      const spores = SPORE_RATE[light.kind];
+      if (spores && Math.random() < spores * dt) {
+        const spread = light.radius * 0.35;
+        const x = light.x + Phaser.Math.FloatBetween(-spread, spread);
+        this.particles.spore(x, light.y + Phaser.Math.FloatBetween(-10, 20), SPORE_COLOR, time);
+      }
+      const spiralColor = SPIRAL_COLORS[light.kind];
+      if (spiralColor !== undefined && Math.random() < SPIRAL_RATE * dt) {
+        this.particles.spiral(light.x, light.y + (SPIRAL_START_BELOW[light.kind] ?? 0), spiralColor, time);
+      }
+    }
   }
 
   // Luzes deste quadro: as do mapa e, no labirinto, a de cada jogador e a de cada saída ativa que chegaram do servidor.
@@ -524,7 +569,8 @@ Subiu para o nível ${info.level}!` : "";
       moving.push({ x: player.x, y: player.y, radius: PLAYER_LIGHT_RADIUS, look: PLAYER_LIGHT, phase: 0 });
     });
     room.state.exits?.forEach((exit) => {
-      moving.push({ x: exit.x, y: exit.y, radius: EXIT_LIGHT_RADIUS, look: EXIT_LIGHT, phase: phaseAt(exit.x, exit.y) });
+      const phase = phaseAt(exit.x, exit.y);
+      moving.push({ x: exit.x, y: exit.y, radius: EXIT_LIGHT_RADIUS, look: EXIT_LIGHT, phase, kind: "saida" });
     });
     return [...this.mapLights, ...moving];
   }
@@ -536,7 +582,7 @@ Subiu para o nível ${info.level}!` : "";
       const radius = lightRadius(object.name ?? "");
       if (radius === undefined) return [];
       const look = LIGHT_LOOKS[object.name as LightKind];
-      return [{ x: object.x, y: object.y, radius, look, phase: phaseAt(object.x, object.y) }];
+      return [{ x: object.x, y: object.y, radius, look, phase: phaseAt(object.x, object.y), kind: object.name }];
     });
   }
 
@@ -917,6 +963,8 @@ ${slot.count}` : "";
       // depois de um golpe que o alcançava, foi morto: o número é a vida que restava.
       if (this.swingReached(sprite.lastX, sprite.lastY, time)) {
         this.popNumber(sprite.lastX, sprite.body.y - sprite.body.displayHeight * sprite.body.originY, `${sprite.lastHp}`, "dealt");
+        const kind = sprite.body.texture.key.split("/")[1] as MobKind;
+        if (MOB_KINDS[kind]) this.splatter({ x: sprite.lastX, y: sprite.lastY }, kind, { x: 0, y: -1 }, time);
       }
       sprite.body.destroy();
       sprite.shadow.destroy();
@@ -954,10 +1002,18 @@ ${slot.count}` : "";
     room.state.players.forEach((player) => players.push(player));
     const away = awayFromNearest(mob, players);
     startReaction(sprite.reaction, time, away.x, away.y);
+    this.splatter(mob, kind, away, time);
     const self = room.state.players.get(room.sessionId);
     if (self?.classId === "barbaro" && time - this.lastOwnSwingAt < RECENT_SWING_MS && this.swingReached(mob.x, mob.y, time)) {
       this.shake.kick(BARBARIAN_HIT_SHAKE);
     }
+  }
+
+  // Gotas saltando do meio do corpo do mob, para longe de quem bateu, na frente dele.
+  private splatter(mob: Vec2, kind: MobKind, away: Vec2, time: number) {
+    const feet = mob.y + MOB_KINDS[kind].size / 2;
+    const colors = kind === "slime" ? ACID_COLORS : BLOOD_COLORS;
+    this.particles?.burst(mob.x, feet - MOB_ART[kind].height / 2, colors, away.x, away.y, sortDepth(feet) + 1, time);
   }
 
   // Algum golpe recente alcançava este ponto (raio do golpe mais a metade do maior mob)?
