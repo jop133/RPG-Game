@@ -1,4 +1,4 @@
-import { ITEMS, type EssenceEffect, type ItemId, type Rarity } from "shared";
+import { ITEMS, type EquipSlot, type EssenceEffect, type ItemId, type Rarity } from "shared";
 
 // Peças comuns do HUD (hud.ts e inventoryWindow.ts): arte, montagem de elementos, slot clicável e dica (tooltip).
 
@@ -10,6 +10,23 @@ export const FRONT_SPRITES = new Map(
     import.meta.glob<string>("../../assets/characters/*/south.png", { eager: true, query: "?url", import: "default" }),
   ).map(([path, url]) => [path.split("/").at(-2) ?? "", url]),
 );
+
+// Sprite parado de frente de cada mob (cards do Bestiário), pela pasta do tipo.
+export const MOB_SPRITES = new Map(
+  Object.entries(import.meta.glob<string>("../../assets/mobs/*/south.png", { eager: true, query: "?url", import: "default" })).map(
+    ([path, url]) => [path.split("/").at(-2) ?? "", url],
+  ),
+);
+
+// Nome de cada slot de equipamento (janela de inventário e vitrine da Forja). A arte de cada um é "equip_<slot>".
+export const EQUIP_NAMES: Record<EquipSlot, string> = {
+  helm: "Elmo",
+  chest: "Peitoral",
+  boots: "Botas",
+  weapon: "Arma principal",
+  shield: "Escudo / Secundária",
+  ring: "Relíquia / Anel",
+};
 
 function urls(files: Record<string, string>): Map<string, string> {
   return new Map(Object.entries(files).map(([path, url]) => [path.slice(path.lastIndexOf("/") + 1, -".png".length), url]));

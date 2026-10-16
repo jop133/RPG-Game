@@ -866,5 +866,11 @@ Slot vazio usa a moldura comum.
 - **Estalagem em dois painéis lado a lado** (mochila | baú ou Taverna), como pedido: clicar num slot leva a pilha para o outro lado. Na Taverna, a mochila só mostra (a comida comprada chega ali)
 - **Mercador por linha de item**, não por slot: as pilhas do mesmo item somam, e "Tudo" vende todas. A venda tira das últimas pilhas primeiro (`removeItems`)
 
+**Bestiário, Rank e Forja (etapa 3):**
+- **Rank de Aventureiro é da linhagem e sai do bestiário** (`adventurerRank`): conta os tipos de `MOB_KINDS` que alguém da linhagem já matou. Degraus em `ADVENTURER_RANKS` (F 0, E 2, D 4 tipos); C, B, A e S quando houver mais andares. Por enquanto é só título, não abre nada
+- O bestiário guarda tipos que saíram do jogo (o rato): não contam para o Rank nem aparecem nos cards
+- **Bestiário e primeiras mortes vão ao cliente pelo estado da cidade**, privados ao dono, lidos uma vez ao entrar (na cidade não se mata nada). O card mostra o que o jogo já sabe do mob (`MOB_KINDS` e `MOB_DROPS`, que o cliente já tem); o selo diz se este personagem já levou o XP de primeira morte daquele tipo
+- **Forja é vitrine** (escolha do dono do projeto): `FORGE_CATALOG` e `FORGE_RECIPES` ficam em `balance.ts` com nomes, preços e materiais **provisórios**, só para mostrar o que vem; nenhuma regra compra ou forja. Os slots são os da janela de inventário (`EquipSlot`). O passo 8 decide o equipamento de verdade
+
 **Limites conhecidos:** a identidade continua sendo só o nome: quem digitar o seu nome mexe no seu baú. Dá para entrar no labirinto sem passar pela cidade (o caminho é o mesmo de antes).
 

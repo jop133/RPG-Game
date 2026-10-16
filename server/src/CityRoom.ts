@@ -117,6 +117,8 @@ export class CityRoom extends Room<{ state: CityState }> {
       coins: lineage.coins,
     });
     for (const essence of essences) player.essences.push(essence);
+    for (const kind of store.bestiary(record.lineageId)) player.bestiary.push(kind);
+    for (const kind of store.characterKills(record.characterId)) player.kills.push(kind);
     for (let i = 0; i < INVENTORY_SLOTS; i++) player.inventory.push(new ItemSlotState({ item: "", count: 0 }));
     for (let i = 0; i < STASH_SLOTS; i++) player.stash.push(new ItemSlotState({ item: "", count: 0 }));
     this.setInventory(client.sessionId, player, store.inventory(record.characterId));

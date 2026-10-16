@@ -70,6 +70,19 @@ describe("baú e moedas da linhagem", () => {
     store.close();
   });
 
+  it("bestiário fica com a linhagem; as primeiras mortes (XP) recomeçam no herdeiro", () => {
+    const store = new Store(":memory:");
+    const first = store.enter("Duda");
+    store.recordKill(first, "lobo");
+    store.recordKill(first, "slime");
+    expect(store.characterKills(first.characterId)).toEqual(["lobo", "slime"]);
+    store.markDead(first.characterId, { kind: "starvation" });
+    const heir = store.enter("Duda");
+    expect(store.bestiary(heir.lineageId)).toEqual(["lobo", "slime"]);
+    expect(store.characterKills(heir.characterId)).toEqual([]);
+    store.close();
+  });
+
   it("linhagens diferentes não dividem baú nem moedas", () => {
     const store = new Store(":memory:");
     const ana = store.enter("Ana");

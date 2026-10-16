@@ -455,6 +455,85 @@
   font-weight: bold;
 }
 
+/* Bestiário (bestiaryView.ts) */
+.hud-rank-title {
+  font-size: 11px;
+  font-weight: bold;
+  text-align: center;
+  letter-spacing: 1px;
+  color: #ffd98a;
+  text-shadow: 1px 1px 0 #000;
+}
+
+.hud-card {
+  pointer-events: auto;
+  background: rgba(12, 8, 6, 0.5);
+  border: 1px solid rgba(201, 162, 39, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.6);
+}
+
+.hud-card-name {
+  font-size: 9px;
+  font-weight: bold;
+  text-align: center;
+  color: #e9d6a8;
+  text-shadow: 1px 1px 0 #000;
+}
+
+.hud-card-text,
+.hud-card-seal {
+  font-size: 8px;
+  text-align: center;
+  white-space: nowrap;
+  color: #cbb994;
+  text-shadow: 1px 1px 0 #000;
+}
+
+.hud-card-seal {
+  font-weight: bold;
+  color: #8b7a62;
+}
+
+.hud-seal-done {
+  color: #8fd18f;
+}
+
+.hud-seal-open {
+  color: #ffd98a;
+}
+
+.hud-silhouette {
+  filter: brightness(0);
+  opacity: 0.7;
+}
+
+.hud-card-drop {
+  pointer-events: auto;
+}
+
+/* Forja (vitrine) */
+.hud-forge-name {
+  color: #e9d6a8;
+}
+
+/* A arte do slot já é uma silhueta escura: clareada para aparecer no couro. */
+.hud-equip-locked {
+  filter: brightness(1.6);
+}
+
+.hud-forge-material {
+  width: 16px;
+  height: 16px;
+  pointer-events: auto;
+}
+
+.hud-forge-soon {
+  font-size: 8px;
+  font-style: italic;
+  text-align: center;
+  color: #a8957a;
+}
+
 /* ---- dica (tooltip) ---- */
 
 .hud-tooltip {

@@ -2,6 +2,7 @@ import { INVENTORY_SLOTS, ITEMS, LEVEL_XP, PLAYER_ATTACK, PLAYER_SPEED, playerSt
 import layout from "../../assets/ui/hud/layout.json";
 import {
   ART,
+  EQUIP_NAMES,
   FRONT_SPRITES,
   ICONS,
   SlotView,
@@ -43,14 +44,14 @@ const MAX_ESSENCE_SLOTS = LEVEL_XP.length + 1;
 const SOON = "Slot de Equipamento (em breve na Cidade)";
 // Colunas do equipamento: esquerda de cima para baixo, depois a direita.
 const EQUIP_LEFT = [
-  ["equip_helm", "Elmo"],
-  ["equip_chest", "Peitoral"],
-  ["equip_boots", "Botas"],
+  ["equip_helm", EQUIP_NAMES.helm],
+  ["equip_chest", EQUIP_NAMES.chest],
+  ["equip_boots", EQUIP_NAMES.boots],
 ] as const;
 const EQUIP_RIGHT = [
-  ["equip_weapon", "Arma principal"],
-  ["equip_shield", "Escudo / Secundária"],
-  ["equip_ring", "Relíquia / Anel"],
+  ["equip_weapon", EQUIP_NAMES.weapon],
+  ["equip_shield", EQUIP_NAMES.shield],
+  ["equip_ring", EQUIP_NAMES.ring],
 ] as const;
 
 interface EssenceSlot {

@@ -80,6 +80,10 @@ export const CityPlayerState = schema(
     coins: t.number().view(OWNER_TAG),
     // Baú da linhagem (STASH_SLOTS slots). Espelha o servidor; só a Estalagem mexe nele.
     stash: t.array(ItemSlotState).view(OWNER_TAG),
+    // Para o Bestiário da Guilda: tipos que a linhagem já matou e os que este personagem já matou (XP já obtido).
+    // Na cidade não se mata nada: lidos uma vez, ao entrar.
+    bestiary: t.array("string").view(OWNER_TAG),
+    kills: t.array("string").view(OWNER_TAG),
   },
   "CityPlayerState",
 );

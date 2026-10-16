@@ -7,6 +7,7 @@ export * from "./combat";
 export * from "./death";
 export * from "./essences";
 export * from "./extraction";
+export * from "./forge";
 export * from "./hunger";
 export * from "./identity";
 export * from "./inventory";

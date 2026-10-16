@@ -1,4 +1,4 @@
-import { LEVEL_XP, type MobKind } from "./balance";
+import { ADVENTURER_RANKS, LEVEL_XP, MOB_KINDS, type MobKind } from "./balance";
 
 // Mensagem "firstKill": primeira morte deste tipo pelo personagem. O servidor diz se subiu de nível.
 export interface FirstKillMessage {
@@ -17,3 +17,22 @@ export function levelForXp(xp: number): number {
 export function xpForNextLevel(level: number): number | undefined {
   return LEVEL_XP[level - 1];
 }
+
+// Um degrau do Rank de Aventureiro: `bestiary` = tipos de mob no bestiário para chegar a ele (ADVENTURER_RANKS).
+export interface AdventurerRank {
+  rank: string;
+  title: string;
+  bestiary: number;
+}
+
+// Rank da linhagem pelo bestiário. Só contam tipos que existem em MOB_KINDS: o banco guarda tipos que saíram do jogo
+// (o rato). `next` = o próximo degrau, ou undefined no último.
+export function adventurerRank(bestiary: readonly string[]): { known: number; current: AdventurerRank; next?: AdventurerRank } {
+  const known = new Set(bestiary.filter((kind) => Object.hasOwn(MOB_KINDS, kind))).size;
+  const reached = ADVENTURER_RANKS.filter((step) => known >= step.bestiary);
+  const current = reached.at(-1) ?? (ADVENTURER_RANKS[0] as AdventurerRank);
+  return { known, current, next: ADVENTURER_RANKS[reached.length] };
+}
+
+// Tipos de mob que valem no bestiário (os do jogo agora), na ordem de MOB_KINDS.
+export const BESTIARY_KINDS = Object.keys(MOB_KINDS) as MobKind[];

@@ -76,6 +76,9 @@ interface PlayerView extends Vec2 {
   // Moedas da linhagem; o baú, só na cidade.
   coins?: number;
   stash?: { forEach(callback: (slot: { item: string; count: number }, index: number) => void): void };
+  // Só na cidade, para o Bestiário: tipos mortos pela linhagem e por este personagem.
+  bestiary?: { forEach(callback: (kind: string) => void): void };
+  kills?: { forEach(callback: (kind: string) => void): void };
   essences?: { forEach(callback: (item: string) => void): void };
   inventory?: { forEach(callback: (slot: { item: string; count: number }, index: number) => void): void };
 }
@@ -595,6 +598,10 @@ Subiu para o nível ${info.level}!` : "";
     self.inventory?.forEach((slot, i) => (inventory[i] = { item: slot.item, count: slot.count }));
     const stash: { item: string; count: number }[] = [];
     self.stash?.forEach((slot, i) => (stash[i] = { item: slot.item, count: slot.count }));
+    const bestiary: string[] = [];
+    self.bestiary?.forEach((kind) => bestiary.push(kind));
+    const kills: string[] = [];
+    self.kills?.forEach((kind) => kills.push(kind));
     const level = self.level ?? 1;
     const maxHp = self.maxHp ?? playerStats(essences).maxHp;
     hud.update(
@@ -611,6 +618,8 @@ Subiu para o nível ${info.level}!` : "";
         coins: self.coins ?? 0,
         inventory,
         stash,
+        bestiary,
+        kills,
       },
       time,
     );

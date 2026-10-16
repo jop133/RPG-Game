@@ -157,6 +157,12 @@ export class Store {
     return (rows as { mob_kind: MobKind }[]).map((row) => row.mob_kind);
   }
 
+  // Tipos que este personagem já matou (os que já deram XP de primeira morte a ele).
+  characterKills(characterId: number): MobKind[] {
+    const rows = this.db.prepare("SELECT mob_kind FROM character_kills WHERE character_id = ? ORDER BY mob_kind").all(characterId);
+    return (rows as { mob_kind: MobKind }[]).map((row) => row.mob_kind);
+  }
+
   essences(characterId: number): ItemId[] {
     const row = this.db.prepare("SELECT essences FROM characters WHERE id = ?").get(characterId) as { essences: string };
     return JSON.parse(row.essences) as ItemId[];

@@ -1,7 +1,9 @@
 import type { AreaConfig } from "./areas";
+import type { ForgeItem } from "./forge";
 import type { ItemStats } from "./inventory";
 import type { DropEntry } from "./loot";
 import type { MobStats } from "./mobs";
+import type { AdventurerRank } from "./progression";
 
 // Pixels por segundo.
 export const PLAYER_SPEED = 160;
@@ -95,6 +97,30 @@ export const PICKUP_RADIUS = 40;
 export const FIRST_KILL_XP = 1;
 // XP total para chegar a cada nível a partir do 2 (índice 0 = nível 2). Nível = número de slots de essência.
 export const LEVEL_XP = [1, 2, 4, 7, 11, 16];
+
+// Rank de Aventureiro da linhagem (Salão da Guilda): sobe com os tipos de mob no bestiário (`bestiary` = quantos tipos
+// de MOB_KINDS a linhagem já matou para chegar ao rank). Só título por enquanto. Com os 4 tipos do 1º andar, o máximo
+// é D; C, B, A e S vêm com os próximos andares.
+export const ADVENTURER_RANKS: readonly AdventurerRank[] = [
+  { rank: "F", title: "Recruta", bestiary: 0 },
+  { rank: "E", title: "Explorador de Cristal", bestiary: 2 },
+  { rank: "D", title: "Caçador Veterano", bestiary: 4 },
+];
+
+// Forja do Ferreiro: VITRINE até o passo 8 (armas e maestria). Nada disto se compra nem se forja ainda; nomes, preços
+// e receitas são provisórios, só para mostrar o que vem. `slot` é o slot de equipamento da janela de inventário.
+// Catálogo: comprado com moedas. Receitas: materiais da caverna mais moedas pelo trabalho do ferreiro.
+export const FORGE_CATALOG: readonly ForgeItem[] = [
+  { name: "Espada de Ferro", slot: "weapon", coins: 120 },
+  { name: "Elmo de Couro", slot: "helm", coins: 60 },
+  { name: "Escudo de Madeira", slot: "shield", coins: 80 },
+];
+export const FORGE_RECIPES: readonly ForgeItem[] = [
+  { name: "Peitoral de Pele de Lobo", slot: "chest", coins: 20, materials: { pele_de_lobo: 6, dente_de_goblin: 2 } },
+  { name: "Botas de Couro Selado", slot: "boots", coins: 15, materials: { pele_de_lobo: 4, gosma_de_slime: 3 } },
+  { name: "Lâmina Serrilhada", slot: "weapon", coins: 30, materials: { dente_de_goblin: 8, fragmento_de_cristal: 2 } },
+  { name: "Anel de Cristal", slot: "ring", coins: 40, materials: { fragmento_de_cristal: 5, gosma_de_slime: 2 } },
+];
 
 // Extração: dos pontos candidatos da camada "exits" do mapa, quantos ficam ativos em cada run (sorteados).
 export const EXITS_ACTIVE = 2;
