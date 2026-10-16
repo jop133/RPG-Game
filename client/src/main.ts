@@ -56,7 +56,7 @@ import {
 } from "./juice";
 import { LightIndex, StaticCuller } from "./culling";
 import { Hud } from "./hud";
-import { Lighting, darkness, phaseAt, type Light, type LightLook } from "./lighting";
+import { Lighting, mergeNearby, phaseAt, type Light, type LightLook } from "./lighting";
 import { Particles } from "./particles";
 import { openRegistration, type Registration } from "./registration";
 import cityMapUrl from "../../assets/maps/city.json?url";
@@ -231,8 +231,9 @@ const LAST_NAME_KEY = "rpg-extracao:lastName";
 const MOB_NAMES: Record<MobKind, string> = { lobo: "um lobo", gnomo: "um gnomo", slime: "um slime", goblin: "um goblin" };
 
 // Luz de cada lugar (só desenho; ver client/src/lighting.ts). Ambiente = a escuridão onde não chega luz.
-// Cidade: crepúsculo azulado. Labirinto: caverna escura; cada jogador carrega luz (PLAYER_LIGHT_RADIUS).
-const AMBIENT: Record<Place, number> = { city: darkness(18, 20, 32, 0.55), labyrinth: darkness(8, 12, 22, 0.82) };
+// Cidade: noite azulada, clara o bastante para ver a cidade. Labirinto: caverna escura; cada jogador carrega luz
+// (PLAYER_LIGHT_RADIUS).
+const AMBIENT: Record<Place, number> = { city: 0x2d3248, labyrinth: 0x0c101a };
 const VIGNETTE_ALPHA: Record<Place, number> = { city: 0.55, labyrinth: 0.7 };
 // Cor, força e jeito de cada tipo de luz da camada "luzes". O raio vem de LIGHT_RADIUS (balance.ts): no labirinto é
 // ele que decide o que o servidor manda, então o desenho não pode mudar.
@@ -566,12 +567,15 @@ Subiu para o nível ${info.level}!` : "";
   private readMapLights(): Light[] {
     const data = (this.cache.tilemap.get(this.place) as { data?: TiledMap } | undefined)?.data;
     const layer = data?.layers.find((l) => l.type === "objectgroup" && l.name === LIGHT_LAYER);
-    return (layer?.objects ?? []).flatMap((object) => {
-      const radius = lightRadius(object.name ?? "");
-      if (radius === undefined) return [];
-      const look = LIGHT_LOOKS[object.name as LightKind];
-      return [{ x: object.x, y: object.y, radius, look, phase: phaseAt(object.x, object.y), kind: object.name }];
-    });
+    // Lanternas do mesmo tipo quase coladas (poste duplo) viram uma luz só.
+    return mergeNearby(
+      (layer?.objects ?? []).flatMap((object) => {
+        const radius = lightRadius(object.name ?? "");
+        if (radius === undefined) return [];
+        const look = LIGHT_LOOKS[object.name as LightKind];
+        return [{ x: object.x, y: object.y, radius, look, phase: phaseAt(object.x, object.y), kind: object.name }];
+      }),
+    );
   }
 
   // E dentro do portal pede para entrar no labirinto; numa porta, pede para entrar ou sair do prédio; num móvel,

@@ -963,3 +963,21 @@ Slot vazio usa a moldura comum.
 
 **Limites conhecidos:** a luz dentro das salas é o entardecer da cidade mais as luzes delas (sem ambiente próprio por sala). Quem cai dentro de um prédio volta pela entrada da cidade.
 
+---
+
+## 2026-10 — Lightmap sem transparência: mancha sobre fundo preto, só ADD
+
+**Pedido do dono do projeto:** tirar as bordas quadradas e o anel escuro entre luzes próximas, seguindo um pipeline fixo (mancha 256 px sobre fundo preto opaco, ambiente opaco, só ADD, MULTIPLY no fim, brilho colorido sutil sem bordas e dentro do raio do servidor).
+
+**Por que o bug acontecia:** a mancha era branca com alfa decrescente sobre fundo transparente. Carimbada no lightmap, o alfa entrava na conta da mistura: o quadrado da textura (com alfa quase zero, mas não zero) e a sobreposição de duas manchas mudavam o alfa do lightmap, e ao multiplicar o mundo isso aparecia como quadrado e anel mais escuros.
+
+**Como:**
+- **Mancha:** degradê branco → preto sobre preto opaco. Em ADD, somar preto é somar zero: a borda da textura não existe para a conta
+- **Força na cor, não no alfa:** cada luz é carimbada com alfa 1 e tint = cor × intensidade × tremor. Nada transparente entra no lightmap
+- **Ambiente opaco** preenchido a cada quadro: cidade rgb(45, 50, 72), labirinto rgb(12, 16, 26) (antes "rgba(18, 20, 32, 0,55)" e "rgba(8, 12, 22, 0,82)" convertidos; os novos são mais escuros, como pedido)
+- **Luzes quase coladas viram uma** (`mergeNearby`, mesmo tipo, < 32 px), com a força de uma só: as duas lanternas de um poste duplo somadas estourariam no branco
+- **Brilho colorido** numa segunda camada ADD por cima do mundo (abaixo das partículas e da vinheta), só das luzes com tipo (mapa e saídas; a luz do jogador não), menor (55% do raio) e fraco (22%). Fica dentro do raio do servidor (regra 4): só colore o que já está na luz
+- **Uma camada de cada vez:** abrir as duas RenderTextures (beginDraw) ao mesmo tempo fazia o WebGL desenhar tudo no mesmo framebuffer (o brilho saía igual ao lightmap e estourava a alameda no branco)
+
+**Limite conhecido:** onde muitas luzes se cruzam (o portal com braseiros e postes) o lightmap chega a 1 e o mundo aparece com a cor original da arte, sem ficar mais claro que ela. Quem quiser mais contraste ali baixa a intensidade em `LIGHT_LOOKS` (`client/src/main.ts`).
+
