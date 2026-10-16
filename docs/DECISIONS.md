@@ -342,7 +342,7 @@ Se uma das duas mudar, a outra tem que acompanhar.
 - Não cortar quina é a mesma regra física da colisão: um caminho que corta quina mandaria o mob para um lugar onde a caixa dele trava na parede
 - Linha de visão e caminho com a mesma regra de quina evitam o mob "ver" por uma fresta que não consegue atravessar
 
-**Limite conhecido (pathfinding):** o A* explora o mapa inteiro se precisar. No mapa de teste (1.200 tiles) é instantâneo. Num andar grande, com muitos mobs recalculando caminho, pode pesar; aí entra um limite de tiles explorados ou recálculo menos frequente.
+**Limite conhecido (pathfinding):** ~~o A* explora o mapa inteiro se precisar~~ (resolvido: ver "Blindagem para andares grandes").
 
 ---
 
@@ -364,7 +364,7 @@ Se uma das duas mudar, a outra tem que acompanhar.
 - O caminho é recalculado só quando o tile do destino muda, não a cada tick
 - O mob precisa voltar para a própria área porque `stepWander` só funciona dentro dela
 
-**Limites conhecidos:** não há colisão entre mobs (vários perseguindo o mesmo jogador se sobrepõem). O caminho é recalculado conforme o alvo troca de tile; com muitos mobs perseguindo num andar grande, pode pesar (ver limite do pathfinding acima).
+**Limites conhecidos:** não há colisão entre mobs (vários perseguindo o mesmo jogador se sobrepõem). ~~O caminho é recalculado conforme o alvo troca de tile~~ (agora no máximo a cada `PATH_RECALC_MS`: ver "Blindagem para andares grandes").
 
 ---
 
@@ -873,4 +873,32 @@ Slot vazio usa a moldura comum.
 - **Forja é vitrine** (escolha do dono do projeto): `FORGE_CATALOG` e `FORGE_RECIPES` ficam em `balance.ts` com nomes, preços e materiais **provisórios**, só para mostrar o que vem; nenhuma regra compra ou forja. Os slots são os da janela de inventário (`EquipSlot`). O passo 8 decide o equipamento de verdade
 
 **Limites conhecidos:** a identidade continua sendo só o nome: quem digitar o seu nome mexe no seu baú. Dá para entrar no labirinto sem passar pela cidade (o caminho é o mesmo de antes).
+
+---
+
+## 2026-10 — Blindagem para andares grandes (500x500): A* com teto, recálculo espaçado, hibernação e culling
+
+**Pedido do dono do projeto:** preparar o código para um labirinto de 500x500 tiles **sem mudar nenhum número de jogo**. As constantes novas (`PATHFIND_MAX_NODES` 1.200, `PATH_RECALC_MS` 350, `MOB_WAKE_RADIUS` 1.000) ficam em `balance.ts`, marcadas como técnicas.
+
+**A\* (`findPath`):**
+- Heap binário e índices numéricos já existiam. O que pesava num mapa grande era alocar e preencher dois vetores do tamanho do mapa (250.000 posições) a cada chamada; agora só se guarda o que a busca toca
+- **Teto de tiles explorados com caminho parcial:** acabando o limite, ou se o destino estiver fora de alcance, devolve o caminho até o tile explorado mais perto do destino (menor distância octil; empate, menor custo). Quem segue anda na direção certa e pede o próximo trecho ao chegar. `[]` se nada explorado é mais perto que a partida; `undefined` só com partida ou destino dentro de parede
+- **Muda um comportamento:** destino fora de alcance não deixa mais o mob parado; ele vai até o ponto mais perto
+- Regra das 8 direções sem cortar quina, inalterada
+
+**IA:**
+- Perseguindo, o A* roda no máximo a cada `PATH_RECALC_MS` enquanto o alvo troca de tile, ou no tick seguinte ao fim do caminho. Um A* que devolveu `[]` não conta como "fim do caminho": senão um mob encostado no ponto mais perto de um alvo inalcançável rodaria o A* a cada tick
+- Voltando para casa: a busca do destino já olhava só os tiles da própria área (o servidor os calcula uma vez por mapa). Agora, ao terminar um trecho parcial fora da área, calcula o próximo; sem trecho que avance, volta a vagar onde está em vez de travar
+- **Hibernação:** mob **vagando** sem nenhum jogador a menos de `MOB_WAKE_RADIUS` não pensa nem anda naquele tick (`isDormant`, chamado pelo `GameRoom`). Perseguindo, voltando, preparando ou se recuperando, nunca hiberna. O raio é quase o dobro de `VIEW_RADIUS`: o mob acorda muito antes de aparecer na tela de alguém
+
+**Cliente:** índice espacial por blocos de 512 px (`client/src/culling.ts`). Imagens fixas do mapa e as sombras delas fora da câmera (com folga de 256 px) ficam invisíveis (o Phaser só descarta sozinho os tiles); as luzes fixas são consultadas por bloco, não percorridas todas a cada quadro. Só recalcula quando a câmera cruza a borda de um bloco.
+
+**Bugs de luz:**
+- **Linha no alto da tela: era da luz, corrigida.** O Phaser arredonda a textura da camada de luz para tamanho par; com o jogo de altura ímpar, a textura tinha uma linha vazia que, desenhada (o WebGL inverte a imagem), caía no alto da tela, sem escuridão. `viewportSize` agora devolve largura e altura pares (perde no máximo 1 px de cada lado; a meia-diagonal continua abaixo de `SCREEN_HALF_DIAGONAL`)
+- **Quadrados escuros: não são da luz.** Com a camada de luz desligada eles continuam: são tiles isolados do chão de cristal no meio do chão de pedra. Correção de arte, a decidir
+
+**Limites conhecidos:**
+- Caminho parcial é guloso: um beco sem saída mais perto do destino em linha reta, maior do que o A* consegue explorar, pode levar o mob para dentro. Perseguindo, ele desiste ao perder o alvo de vista (`MOB_LOSE_TRACK_MS`); voltando, vaga onde está. Se incomodar num andar real: aumentar o teto só para a volta, ou pré-calcular um mapa de distâncias até cada área (uma busca por área, no início da sala)
+- Mob hibernando fica parado onde estava. Ninguém vê (está a mais de 1.000 px de todos), mas o relógio dele também para
+- Os objetos fora da tela continuam na lista de desenho do Phaser (a ordenação por profundidade ainda passa por eles); com dezenas de milhares de enfeites, o próximo passo é tirá-los da lista, não só escondê-los
 

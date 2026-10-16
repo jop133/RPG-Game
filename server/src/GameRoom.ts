@@ -37,6 +37,7 @@ import {
   staticLitMap,
   starvationDamage,
   stepExtraction,
+  isDormant,
   stepMob,
   takeFromPile,
   tickHunger,
@@ -394,8 +395,11 @@ export class GameRoom extends Room<{ state: GameState }> {
       const brain = this.mobBrains.get(id);
       if (!brain) return;
       const stats = MOB_KINDS[brain.kind];
+      const thinking = { position: { x: mob.x, y: mob.y }, mind: brain.mind };
+      // Longe de todos e só vagando: hiberna neste tick (nem pensa nem se move). Acorda bem antes de alguém chegar.
+      if (isDormant(thinking, players)) return;
       const world = { grid: level.grid, home: brain.area, homeCells: brain.homeCells, stats, players };
-      const next = stepMob({ position: { x: mob.x, y: mob.y }, mind: brain.mind }, world, dtMs, Math.random);
+      const next = stepMob(thinking, world, dtMs, Math.random);
       mob.x = next.position.x;
       mob.y = next.position.y;
       mob.windup = next.mind.mode === "windup";

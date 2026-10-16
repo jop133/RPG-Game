@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { areaAt } from "./areas";
-import { MOB_LOSE_TRACK_MS, PLAYER_SIZE } from "./balance";
+import { MOB_LOSE_TRACK_MS, MOB_WAKE_RADIUS, PATH_RECALC_MS, PLAYER_SIZE } from "./balance";
 import { type CollisionGrid, boxFits } from "./collision";
-import { type MobWorld, type ThinkingMob, stepMob } from "./mobAi";
+import { type MobWorld, type ThinkingMob, isDormant, stepMob } from "./mobAi";
 import type { Vec2 } from "./movement";
 import { startIdle } from "./wander";
 
@@ -45,7 +45,7 @@ const world = (players: Record<string, Vec2>): MobWorld => ({
 const wandering = (position: Vec2): ThinkingMob => ({ position, mind: { mode: "wander", wander: startIdle(() => 0.5) } });
 const chasing = (position: Vec2, lastSeen: Vec2): ThinkingMob => ({
   position,
-  mind: { mode: "chase", targetId: "p", lastSeen, lostMs: 0, path: [] },
+  mind: { mode: "chase", targetId: "p", lastSeen, lostMs: 0, path: [], sinceRepathMs: PATH_RECALC_MS },
 });
 const distance = (a: Vec2, b: Vec2) => Math.hypot(b.x - a.x, b.y - a.y);
 
@@ -203,3 +203,30 @@ describe("stepMob: golpe telegrafado", () => {
     }
   });
 });
+
+describe("isDormant (hibernação de mob longe de todos)", () => {
+  const far = (mob: ThinkingMob, dx: number) => new Map([["p", { x: mob.position.x + dx, y: mob.position.y }]]);
+
+  it("vagando, sem ninguém a menos de MOB_WAKE_RADIUS: hiberna", () => {
+    const mob = wandering(center(2, 2));
+    expect(isDormant(mob, new Map())).toBe(true);
+    expect(isDormant(mob, far(mob, MOB_WAKE_RADIUS))).toBe(true);
+  });
+
+  it("alguém entrou no raio: acorda", () => {
+    const mob = wandering(center(2, 2));
+    expect(isDormant(mob, far(mob, MOB_WAKE_RADIUS - 1))).toBe(false);
+  });
+
+  it("perseguindo, voltando, preparando ou se recuperando: nunca hiberna, mesmo longe de todos", () => {
+    const position = center(2, 2);
+    const busy: ThinkingMob["mind"][] = [
+      chasing(position, position).mind,
+      { mode: "return", path: [center(1, 1)] },
+      { mode: "windup", targetId: "p", angle: 0, remainingMs: 100 },
+      { mode: "recover", targetId: "p", remainingMs: 100 },
+    ];
+    for (const mind of busy) expect(isDormant({ position, mind }, new Map())).toBe(false);
+  });
+});
+

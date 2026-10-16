@@ -248,6 +248,16 @@ export const WANDER_WALK_MS = { min: 800, max: 2500 };
 // Enquanto persegue, enxerga até VIEW_RADIUS, a mesma distância dos jogadores.
 export const MOB_LOSE_TRACK_MS = 3000;
 
+// Constantes técnicas (desempenho), não de jogo: preparam andares grandes (500x500 tiles) sem mudar o que o jogador
+// sente nos mapas de hoje.
+// A* explora no máximo isto de tiles por chamada; destino mais longe vira caminho parcial (ver findPath).
+export const PATHFIND_MAX_NODES = 1200;
+// Perseguindo: com o alvo trocando de tile, recalcula o A* no máximo a cada isto (ms), enquanto houver caminho.
+export const PATH_RECALC_MS = 350;
+// Mob vagando sem nenhum jogador a menos disto (px) hiberna: o servidor pula o tick dele. Bem acima de VIEW_RADIUS
+// e de qualquer aggroRadius: acorda muito antes de aparecer na tela de alguém ou de poder notar alguém.
+export const MOB_WAKE_RADIUS = 1000;
+
 // Uma entrada por área do mapa (camada "areas" no Tiled). Os nomes precisam bater com os do mapa.
 // mobs: quantos de cada tipo nascem na área quando a sala é criada.
 // Valores do 1º andar (assets/maps/dungeon_floor1.json, gerado por tools/assets/build_labyrinth.py).

@@ -1,5 +1,5 @@
 import { type Area, areaAt } from "./areas";
-import { MOB_LOSE_TRACK_MS, PLAYER_SIZE, VIEW_RADIUS } from "./balance";
+import { MOB_LOSE_TRACK_MS, MOB_WAKE_RADIUS, PATH_RECALC_MS, PLAYER_SIZE, VIEW_RADIUS } from "./balance";
 import { type CollisionGrid, moveWithCollision } from "./collision";
 import type { Arc } from "./combat";
 import { hasLineOfSight } from "./lineOfSight";
@@ -11,7 +11,8 @@ import { type WanderState, startIdle, stepWander } from "./wander";
 // O que o mob está fazendo. Fica no servidor; do golpe, o cliente recebe só "preparando" e a direção (o telegrafo).
 export type MobMind =
   | { mode: "wander"; wander: WanderState }
-  | { mode: "chase"; targetId: string; lastSeen: Vec2; lostMs: number; path: Vec2[] }
+  // sinceRepathMs: tempo desde o último A* da perseguição (o recálculo é limitado a um a cada PATH_RECALC_MS).
+  | { mode: "chase"; targetId: string; lastSeen: Vec2; lostMs: number; path: Vec2[]; sinceRepathMs: number }
   | { mode: "return"; path: Vec2[] }
   | { mode: "windup"; targetId: string; angle: number; remainingMs: number }
   | { mode: "recover"; targetId: string; remainingMs: number };
@@ -62,14 +63,24 @@ function noticeTarget(position: Vec2, world: MobWorld): [string, Vec2] | undefin
 }
 
 function startChase(position: Vec2, [targetId, target]: [string, Vec2], grid: CollisionGrid): MobMind {
-  return { mode: "chase", targetId, lastSeen: target, lostMs: 0, path: findPath(grid, position, target) ?? [] };
+  const path = findPath(grid, position, target) ?? [];
+  return { mode: "chase", targetId, lastSeen: target, lostMs: 0, path, sinceRepathMs: 0 };
 }
 
-// Reaproveita o caminho atual se ele ainda termina no tile do destino; senão calcula de novo.
-function pathTo(grid: CollisionGrid, from: Vec2, goal: Vec2, current: Vec2[]): Vec2[] {
+// Reaproveita o caminho atual se ele ainda termina no tile do destino. Se o destino trocou de tile, só recalcula
+// depois de PATH_RECALC_MS do último cálculo: um alvo andando não faz o mob rodar o A* a cada tick. (Quando o mob
+// termina de andar o caminho, stepChasing vence o intervalo na hora; ver lá.) `repathed` diz se calculou agora.
+function pathTo(
+  grid: CollisionGrid,
+  from: Vec2,
+  goal: Vec2,
+  current: Vec2[],
+  sinceRepathMs: number,
+): { path: Vec2[]; repathed: boolean } {
   const last = current.at(-1);
-  if (last ? sameTile(grid, last, goal) : sameTile(grid, from, goal)) return current;
-  return findPath(grid, from, goal) ?? [];
+  if (last ? sameTile(grid, last, goal) : sameTile(grid, from, goal)) return { path: current, repathed: false };
+  if (sinceRepathMs < PATH_RECALC_MS) return { path: current, repathed: false };
+  return { path: findPath(grid, from, goal) ?? [], repathed: true };
 }
 
 // Anda pelos centros de tile do caminho e, acabado o caminho, direto até `finalPoint`. Para se travar.
@@ -102,7 +113,10 @@ function followPath(
   return { position: pos, path: rest };
 }
 
-// Volta pelo caminho até o tile de chão da própria área mais perto de onde está.
+// Volta pelo caminho até o tile de chão da própria área mais perto de onde está. Só olha os tiles da área (o
+// servidor os calcula uma vez por mapa), nunca o mapa inteiro. Longe demais para o limite do A*, o caminho é um
+// trecho: ao acabar, stepReturning pede o próximo. Sem trecho que avance (beco sem saída maior que o limite, ou a
+// área fora de alcance), volta a vagar onde está em vez de travar.
 function giveUp(position: Vec2, world: MobWorld, random: () => number): MobMind {
   if (areaAt([world.home], position)) return { mode: "wander", wander: startIdle(random) };
   let nearest: Vec2 | undefined;
@@ -110,6 +124,7 @@ function giveUp(position: Vec2, world: MobWorld, random: () => number): MobMind 
     if (!nearest || distance(position, cell) < distance(position, nearest)) nearest = cell;
   }
   const path = nearest ? (findPath(world.grid, position, nearest) ?? []) : [];
+  if (path.length === 0) return { mode: "wander", wander: startIdle(random) };
   return { mode: "return", path };
 }
 
@@ -143,8 +158,14 @@ function stepChasing(
       mind: { mode: "windup", targetId: mind.targetId, angle, remainingMs: world.stats.windupMs },
     };
   }
-  const moved = followPath(mob.position, pathTo(world.grid, mob.position, lastSeen, mind.path), lastSeen, world, dtMs);
-  return { position: moved.position, mind: { ...mind, lastSeen, lostMs, path: moved.path } };
+  const since = mind.sinceRepathMs + dtMs;
+  const route = pathTo(world.grid, mob.position, lastSeen, mind.path, since);
+  const moved = followPath(mob.position, route.path, lastSeen, world, dtMs);
+  // Terminou de andar o caminho neste tick: o próximo recalcula na hora. Um A* que devolveu [] (já está no ponto mais
+  // perto de um alvo fora de alcance) não conta: aí espera o intervalo, em vez de rodar de novo a cada tick.
+  const ranOut = route.path.length > 0 && moved.path.length === 0;
+  const sinceRepathMs = ranOut ? PATH_RECALC_MS : route.repathed ? 0 : since;
+  return { position: moved.position, mind: { ...mind, lastSeen, lostMs, path: moved.path, sinceRepathMs } };
 }
 
 // Preparando: parado, direção travada. Não é interrompido por dano. Ao terminar, golpeia e passa a se recuperar.
@@ -164,7 +185,8 @@ function stepRecover(mob: ThinkingMob, mind: Extract<MobMind, { mode: "recover" 
   if (remainingMs > 0) return { position: mob.position, mind: { ...mind, remainingMs } };
   return {
     position: mob.position,
-    mind: { mode: "chase", targetId: mind.targetId, lastSeen: mob.position, lostMs: 0, path: [] },
+    // Sem caminho ainda: o intervalo já vencido, para calcular no primeiro tick.
+    mind: { mode: "chase", targetId: mind.targetId, lastSeen: mob.position, lostMs: 0, path: [], sinceRepathMs: PATH_RECALC_MS },
   };
 }
 
@@ -178,9 +200,18 @@ function stepReturning(
   const spotted = noticeTarget(mob.position, world);
   if (spotted) return { position: mob.position, mind: startChase(mob.position, spotted, world.grid) };
   const goal = path.at(-1);
-  if (!goal) return { position: mob.position, mind: { mode: "wander", wander: startIdle(random) } };
+  // Acabou o trecho: já em casa, vaga; ainda fora (trecho parcial), calcula o próximo.
+  if (!goal) return { position: mob.position, mind: giveUp(mob.position, world, random) };
   const moved = followPath(mob.position, path, goal, world, dtMs);
   return { position: moved.position, mind: { mode: "return", path: moved.path } };
+}
+
+// Hibernação: mob vagando sem nenhum jogador a menos de MOB_WAKE_RADIUS pode ficar parado, sem pensar (o servidor
+// pula o tick dele). Perseguindo, voltando, preparando ou se recuperando, nunca: termina o que estava fazendo.
+export function isDormant(mob: ThinkingMob, players: ReadonlyMap<string, Vec2>): boolean {
+  if (mob.mind.mode !== "wander") return false;
+  for (const player of players.values()) if (distance(mob.position, player) < MOB_WAKE_RADIUS) return false;
+  return true;
 }
 
 // Um tick da cabeça de um mob: vagar, perseguir, golpear ou voltar para casa. `random` vem de fora para ser testável.

@@ -55,6 +55,14 @@ describe("viewportSize", () => {
     expect(width / height).toBeCloseTo(1920 / 1080, 1);
   });
 
+  it("largura e altura sempre pares (a textura da camada de luz é par: ver viewportSize)", () => {
+    for (const [w, h] of [[1920, 969], [1366, 657], [1536, 730], [1280, 720], [707, 707], [2560, 1305]] as const) {
+      const size = viewportSize(w, h);
+      expect(size.width % 2).toBe(0);
+      expect(size.height % 2).toBe(0);
+    }
+  });
+
   it("janela de tamanho zero (minimizada) não quebra", () => {
     const size = viewportSize(0, 0);
     expect(size.width).toBeGreaterThan(0);

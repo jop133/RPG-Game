@@ -52,6 +52,7 @@ import {
   type NumberKind,
   type Swing,
 } from "./juice";
+import { LightIndex, StaticCuller } from "./culling";
 import { Hud } from "./hud";
 import { Lighting, darkness, phaseAt, type Light, type LightLook } from "./lighting";
 import { Particles } from "./particles";
@@ -361,7 +362,9 @@ class WorldScene extends Phaser.Scene {
   private exitSprites = new Map<string, Phaser.GameObjects.Image>();
   private lighting?: Lighting;
   // Luzes fixas do mapa (camada "luzes"); as que se mexem (jogadores, saídas) entram a cada quadro.
-  private mapLights: Light[] = [];
+  private mapLights?: LightIndex<Light>;
+  // Enfeites, prédios e sombras deles: só os perto da câmera ficam visíveis (mapas grandes).
+  private culler = new StaticCuller();
   private slotKeys: Phaser.Input.Keyboard.Key[] = [];
   // Quando este cliente viu cada mob começar a preparar: base para o aviso encher no ritmo certo.
   private windupStartedAt = new Map<string, number>();
@@ -389,7 +392,7 @@ class WorldScene extends Phaser.Scene {
   create() {
     this.createWalkAnimations();
     const map = this.createMap();
-    this.mapLights = this.readMapLights();
+    this.mapLights = new LightIndex(this.readMapLights());
     this.lighting = new Lighting(this, AMBIENT[this.place], LIGHT_DEPTH, VIGNETTE_ALPHA[this.place]);
     this.numbers = new FloatingNumbers(this, OVERLAY_DEPTH + 1);
     // Entre a camada de luz (LIGHT_DEPTH) e a vinheta (LIGHT_DEPTH + 0.1): brilham no escuro, a vinheta ainda os cobre.
@@ -477,6 +480,7 @@ Subiu para o nível ${info.level}!` : "";
   }
 
   update(time: number, delta: number) {
+    this.culler.update(this.cameras.main.worldView);
     this.numbers?.update(time, delta);
     this.particles?.update(time, delta);
     this.shake.update(this.cameras.main, delta);
@@ -518,7 +522,8 @@ Subiu para o nível ${info.level}!` : "";
 
   // Luzes deste quadro: as do mapa e, no labirinto, a de cada jogador e a de cada saída ativa que chegaram do servidor.
   private currentLights(room: Room<unknown, ServerState>): Light[] {
-    if (this.place === "city") return this.mapLights;
+    const fixed = this.mapLights?.around(this.cameras.main.worldView) ?? [];
+    if (this.place === "city") return [...fixed];
     const moving: Light[] = [];
     room.state.players.forEach((player) => {
       moving.push({ x: player.x, y: player.y, radius: PLAYER_LIGHT_RADIUS, look: PLAYER_LIGHT, phase: 0 });
@@ -527,7 +532,7 @@ Subiu para o nível ${info.level}!` : "";
       const phase = phaseAt(exit.x, exit.y);
       moving.push({ x: exit.x, y: exit.y, radius: EXIT_LIGHT_RADIUS, look: EXIT_LIGHT, phase, kind: "saida" });
     });
-    return [...this.mapLights, ...moving];
+    return [...fixed, ...moving];
   }
 
   private readMapLights(): Light[] {
@@ -728,16 +733,20 @@ Subiu para o nível ${info.level}!` : "";
         if (!key) continue;
         const image = this.add.image(object.x, object.y, key).setOrigin(0, 1).setDepth(sortDepth(object.y));
         if (object.width && object.height) image.setDisplaySize(object.width, object.height);
+        const box = { left: object.x, top: object.y - image.displayHeight, right: object.x + image.displayWidth, bottom: object.y };
+        this.culler.add(image, box);
         const name = key.slice(key.lastIndexOf("/") + 1);
-        if (!FLAT_PROPS.has(name) && !BUILDING.test(name)) this.addPropShadow(object.x + image.displayWidth / 2, object.y, image.displayWidth);
+        if (!FLAT_PROPS.has(name) && !BUILDING.test(name)) {
+          this.culler.add(this.addPropShadow(object.x + image.displayWidth / 2, object.y, image.displayWidth), box);
+        }
       }
     }
   }
 
   // Sombra de enfeite em pé: elipse achatada na base, mais estreita que a imagem.
-  private addPropShadow(x: number, baseY: number, imageWidth: number) {
+  private addPropShadow(x: number, baseY: number, imageWidth: number): Phaser.GameObjects.Ellipse {
     const width = Math.min(imageWidth * 0.7, 110);
-    this.add.ellipse(x, baseY - 3, width, width * 0.28, 0x000000, SHADOW_ALPHA).setDepth(SHADOW_DEPTH);
+    return this.add.ellipse(x, baseY - 3, width, width * 0.28, 0x000000, SHADOW_ALPHA).setDepth(SHADOW_DEPTH);
   }
 
   private sendInputIfChanged(room: Room<unknown, ServerState>, keys: MoveKeys) {

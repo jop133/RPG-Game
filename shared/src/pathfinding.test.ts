@@ -92,9 +92,14 @@ describe("findPath", () => {
     expect(path).toContainEqual(center(4, 2));
   });
 
-  it("sala fechada: sem caminho", () => {
+  it("destino fora de alcance (sala fechada): vai até o tile mais perto dele", () => {
     const grid = gridFrom(["..#..", "..#..", "..#.."]);
-    expect(findPath(grid, center(0, 1), center(4, 1))).toBeUndefined();
+    expect(findPath(grid, center(0, 1), center(4, 1))).toEqual([center(1, 1)]);
+  });
+
+  it("fora de alcance e já no tile mais perto: [] (fica onde está)", () => {
+    const grid = gridFrom([".#..", ".#..", ".#.."]);
+    expect(findPath(grid, center(0, 1), center(3, 1))).toEqual([]);
   });
 
   it("destino dentro de parede: sem caminho", () => {
@@ -117,5 +122,83 @@ describe("findPath", () => {
     const path = findPath(grid, from, center(36, 26));
     expect(path).toBeDefined();
     checkPath(grid, from, path as Vec2[]);
+  });
+});
+
+describe("findPath com limite de tiles explorados", () => {
+  // Corredor em U em volta de um bloco sólido: de baixo à esquerda até em cima à direita é preciso dar a volta.
+  // (Bolsão sem saída mais perto do destino que o limite consegue explorar prenderia o trecho parcial: ver DECISIONS.)
+  const corridor = gridFrom([
+    "..........",
+    ".########.",
+    ".########.",
+    ".########.",
+    ".########.",
+    "..........",
+  ]);
+
+  it("sem limite apertado, chega ao destino", () => {
+    const path = findPath(corridor, center(0, 0), center(9, 0));
+    expect(path?.at(-1)).toEqual(center(9, 0));
+  });
+
+  it("limite baixo: caminho parcial válido (sem cortar quina) até o tile explorado mais perto do destino", () => {
+    const from = center(0, 0);
+    const goal = center(9, 0);
+    const path = findPath(corridor, from, goal, 6) as Vec2[];
+    expect(path.length).toBeGreaterThan(0);
+    expect(path.at(-1)).not.toEqual(goal);
+    checkPath(corridor, from, path);
+    const last = tile(path.at(-1) as Vec2);
+    expect(Math.abs(9 - last[0])).toBeLessThan(9);
+  });
+
+  it("seguir os trechos parciais, um após o outro, chega ao destino", () => {
+    let at = center(0, 5);
+    const goal = center(9, 0);
+    for (let leg = 0; leg < 20 && !(tile(at)[0] === 9 && tile(at)[1] === 0); leg++) {
+      const path = findPath(corridor, at, goal, 4) as Vec2[];
+      expect(path.length).toBeGreaterThan(0);
+      checkPath(corridor, at, path);
+      at = path.at(-1) as Vec2;
+    }
+    expect(at).toEqual(goal);
+  });
+});
+
+describe("findPath num andar 500x500 (250.000 tiles)", () => {
+  // Pilares espalhados (parede a cada 7 tiles, com vãos) e uma sala fechada no canto oposto.
+  const SIZE = 500;
+  const solid: boolean[] = [];
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      const pillar = r % 7 === 3 && c % 11 < 8;
+      const vault = c >= 480 && r >= 480 && (c === 480 || r === 480);
+      solid.push(pillar || vault);
+    }
+  }
+  const big: CollisionGrid = { width: SIZE, height: SIZE, tileSize: TILE, solid };
+
+  function averageMs(run: () => void, times = 30): number {
+    run();
+    const startedAt = performance.now();
+    for (let i = 0; i < times; i++) run();
+    return (performance.now() - startedAt) / times;
+  }
+
+  it("destino do outro lado do mapa: caminho parcial na direção certa, em poucos ms", () => {
+    const from = center(2, 2);
+    const path = findPath(big, from, center(470, 495)) as Vec2[];
+    expect(path.length).toBeGreaterThan(0);
+    checkPath(big, from, path);
+    const [c, r] = tile(path.at(-1) as Vec2);
+    expect(c + r).toBeGreaterThan(2 + 2);
+    expect(averageMs(() => findPath(big, from, center(470, 495)))).toBeLessThan(10);
+  });
+
+  it("destino trancado numa sala: não varre o mapa inteiro, também em poucos ms", () => {
+    const path = findPath(big, center(250, 250), center(490, 490)) as Vec2[];
+    expect(path.length).toBeGreaterThan(0);
+    expect(averageMs(() => findPath(big, center(250, 250), center(490, 490)))).toBeLessThan(10);
   });
 });
