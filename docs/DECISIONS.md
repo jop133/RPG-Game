@@ -999,3 +999,18 @@ Slot vazio usa a moldura comum.
 
 **Trade-off aceito:** com o "toca, marca", uma parede que invade poucos px de uma célula bloqueia a célula inteira (até 31 px a mais que a arte nas bordas). Nas casas isso é o certo (nada de fresta); nos enfeites pequenos, o pior caso é um poste ocupar 2 células em vez de 1.
 
+---
+
+## 2026-10 — Interiores claros (ambiente por região) e Salão da Guilda em duas alas
+
+**Pedido do dono do projeto:** refazer o Salão da Guilda seguindo um layout de referência (Ala Esquerda de estudos e Bestiário, Salão Principal com balcão, mesa redonda e 4 mesas longas) e deixar os interiores totalmente iluminados, quentes, sem manchas escuras.
+
+**Muda** o limite registrado em "Interiores dos prédios dentro do city.json": a luz dentro das salas deixa de ser o entardecer da cidade.
+
+**Como:**
+- **Ambiente por região, no cliente:** ao entrar numa região com o id de um prédio (camada `regioes`), o lightmap passa a âmbar claro (rgb(216, 195, 160), ~77% de claridade) e a vinheta a 0,2; ao sair, volta o ambiente do lugar. Fora das paredes o chão é vazio preto, que continua preto ao multiplicar. Só desenho: na cidade a luz não decide o que o servidor manda (a regra 4 vale para o labirinto)
+- **Guilda de 30x19** (pedido: ~26x16): com as 4 mesas longas, o balcão e a Ala Esquerda, 26x16 deixaria corredores de 1 tile. O dono do projeto aceitou até ~30x19, com corredores de 2 linhas. Os móveis ficam em linhas alinhadas à grade (com o "toca, marca", um móvel desalinhado ocuparia 3 linhas em vez de 2)
+- **Só as peças das folhas:** janelas, arandelas, púlpito do Bestiário, estante avulsa, banquinhos e caixas de pergaminho não existem em `Interior_guilda.png` nem em `Tiles_interiores.png`. Escolha do dono do projeto: deixar de fora (sem recortar de outras folhas nem desenhar). Por isso o Bestiário continua na mesa de estudos, o balcão é um só, as paredes laterais não têm janela e não há luz de janela
+- **Paredes e tapetes gerados a partir dos pisos da folha:** faces de pedra (com viga e rodapé) e de painel de madeira, topo de madeira escura, degrau; o tapete quadrado e a passadeira são a amostra inteira cortada em tiles (em vez de um tile de 32 px repetido, que viraria uma grade de tapetinhos)
+- **Saída pela porta dupla da parede norte** (antes, na parede do sul), com a chegada 2,5 tiles abaixo dela
+

@@ -8,6 +8,7 @@ Entrada: assets/tilesets/novos tilesets/ (fora do git)
            Bau_casadecomida.png      o Baú da Linhagem no pedestal
 Saída:   assets/tilesets/city/interior/<nome>.png        cada móvel, sem fundo, recortado e reduzido
          tools/assets/build/interior-floor/<piso>.png     cada piso, 32x32 (o build_city.py lê daqui)
+         tools/assets/build/interior-floor/grande/        os tapetes inteiros (LARGE_FLOORS), para cortar em tiles
          tools/assets/build/contato-interiores-*.png      folhas de conferência
 
 Mesma limpeza dos kits do labirinto (fundo, vãos presos pela borda, pedaços soltos presos ao objeto mais perto) e,
@@ -94,6 +95,9 @@ FLOORS = [
     ["pedra-escura-0", "pedra-escura-1", "tijolo-0", "tijolo-fuligem"],
     ["tapete-canto", "tapete-faixa", "tapete-centro", "tapete-liso"],
 ]
+# Pisos guardados também inteiros (sem reduzir a 32 px), em interior-floor/grande/: o interiors.py corta deles os
+# tapetes de verdade (o quadrado com moldura dourada, a passadeira), em vez de repetir uma amostra inteira por tile.
+LARGE_FLOORS = {"tapete-centro", "tapete-faixa"}
 # Janelas com o quadriculado mais contrastado que o resto da folha (em volta da mesa redonda da Guilda): ali,
 # cinza claro sem cor ligado à borda da janela também é fundo.
 RELAXED_BACKGROUND = {"Interior_guilda.png": [(1100, 570, 1700, 1020)]}
@@ -179,7 +183,7 @@ def process_props(sheet: list) -> None:
 
 
 def process_floors(sheet: list) -> None:
-    (WORK / "interior-floor").mkdir(parents=True, exist_ok=True)
+    (WORK / "interior-floor" / "grande").mkdir(parents=True, exist_ok=True)
     floor = remove_background(load_rgba(SRC / "Tiles_interiores.png"))
     rows = reading_order(components(floor[:, :, 3] > 8, min_area=20000))
     if [len(r) for r in rows] != [4, 4, 4, 4]:
@@ -187,8 +191,11 @@ def process_floors(sheet: list) -> None:
     for names, row in zip(FLOORS, rows):
         for name, (x0, y0, x1, y1) in zip(names, row):
             ix, iy = round((x1 - x0) * FLOOR_INSET), round((y1 - y0) * FLOOR_INSET)
-            image = resize(floor[y0 + iy : y1 - iy, x0 + ix : x1 - ix], TILE, TILE)
+            crop = floor[y0 + iy : y1 - iy, x0 + ix : x1 - ix]
+            image = resize(crop, TILE, TILE)
             image.save(WORK / "interior-floor" / f"{name}.png")
+            if name in LARGE_FLOORS:
+                Image.fromarray(crop).save(WORK / "interior-floor" / "grande" / f"{name}.png")
             sheet.append((name, image.resize((96, 96), Image.NEAREST)))
 
 

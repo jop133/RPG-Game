@@ -83,7 +83,7 @@ export class Lighting {
 
   constructor(
     private readonly scene: Phaser.Scene,
-    private readonly ambient: number,
+    private ambient: number,
     depth: number,
     vignetteAlpha: number,
   ) {
@@ -110,6 +110,12 @@ export class Lighting {
       .setDepth(depth + 0.1)
       .setDisplaySize(width, height)
       .setAlpha(vignetteAlpha);
+  }
+
+  // Troca o ambiente e a força da vinheta (ex.: ao entrar num prédio, salão claro e quente; ao sair, a noite da rua).
+  setLook(ambient: number, vignetteAlpha: number) {
+    this.ambient = ambient;
+    this.vignette.setAlpha(vignetteAlpha);
   }
 
   resize(width: number, height: number) {

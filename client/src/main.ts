@@ -21,6 +21,7 @@ import {
   PORTAL_LAYER,
   interactionAt,
   isAtPortal,
+  isBuildingId,
   isInteractionId,
   objectSortLine,
   isStationId,
@@ -236,6 +237,11 @@ const MOB_NAMES: Record<MobKind, string> = { lobo: "um lobo", gnomo: "um gnomo",
 // (PLAYER_LIGHT_RADIUS).
 const AMBIENT: Record<Place, number> = { city: 0x2d3248, labyrinth: 0x0c101a };
 const VIGNETTE_ALPHA: Record<Place, number> = { city: 0.55, labyrinth: 0.7 };
+// Dentro dos prédios (regiões com o id do prédio): âmbar claro (~77% de claridade) em toda a sala, para nenhum canto
+// ficar apagado; as velas, lanternas e braseiros somam por cima. Fora das paredes o chão é vazio preto (continua preto).
+// Vinheta fraca: só um toque nos cantos.
+const INTERIOR_AMBIENT = 0xd8c3a0;
+const INTERIOR_VIGNETTE_ALPHA = 0.2;
 // Cor, força e jeito de cada tipo de luz da camada "luzes". O raio vem de LIGHT_RADIUS (balance.ts): no labirinto é
 // ele que decide o que o servidor manda, então o desenho não pode mudar.
 const LIGHT_LOOKS: Record<LightKind, LightLook> = {
@@ -268,8 +274,8 @@ const INTERACTION_HINTS: Record<InteractionId, string> = {
   "guild-exit": "[E] Sair para a Cidade",
   "inn-exit": "[E] Sair para a Cidade",
   "blacksmith-exit": "[E] Sair para a Cidade",
-  "guild-counter": "[E] Balcão de Recepção: vender loot",
-  "guild-bestiary": "[E] Mesa de Pesquisa: Bestiário e Rank",
+  "guild-counter": "[E] Mercador da Guilda — Vender Loot",
+  "guild-bestiary": "[E] Bestiário & Rank de Aventureiro",
   "inn-counter": "[E] Balcão de Comida: suprimentos",
   "inn-chest": "[E] Baú da Linhagem",
   "blacksmith-counter": "[E] Balcão do Ferreiro: equipamentos",
@@ -610,6 +616,11 @@ Subiu para o nível ${info.level}!` : "";
     if (here && here.name !== this.region) {
       this.region = here.name;
       cam.setBounds(here.rect.x, here.rect.y, here.rect.width, here.rect.height);
+      const inside = isBuildingId(here.name);
+      this.lighting?.setLook(
+        inside ? INTERIOR_AMBIENT : AMBIENT[this.place],
+        inside ? INTERIOR_VIGNETTE_ALPHA : VIGNETTE_ALPHA[this.place],
+      );
     }
     if (this.doorAskedAt !== undefined && (jumped || time - this.doorAskedAt > DOOR_TIMEOUT_MS)) {
       this.doorAskedAt = undefined;

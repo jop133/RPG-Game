@@ -52,6 +52,12 @@ describe("cidade gerada: portas dos prédios", () => {
     }
   });
 
+  it("o jogador cabe parado em todo ponto de interação e em toda chegada", () => {
+    for (const point of [...points, ...parseArrivalPoints(map).map((a) => ({ ...a, name: `chegada ${a.name}` }))]) {
+      expect(boxFits(grid, point, half), point.name).toBe(true);
+    }
+  });
+
   it("todos os pontos de interação são alcançáveis andando de um spawn ou de uma chegada", () => {
     const W = grid.width;
     const seen = new Uint8Array(grid.solid.length);

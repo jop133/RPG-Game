@@ -85,7 +85,9 @@ tools/assets/.venv/Scripts/python.exe -I tools/assets/build_city.py
    (`soften_shadows`). Grava os móveis em `assets/tilesets/city/interior/` e os 16 pisos em
    `tools/assets/build/interior-floor/`. Nome, centro e escala de cada móvel no topo (`GUILD`, `SMITHY`, `INN`, `CHEST`).
 2. **`interiors.py`** (usado pelo `build_city.py`): a planta de cada sala (pisos, paredes internas, móveis, pontos),
-   as paredes geradas a partir dos pisos, a colisão (`FOOTPRINT`) e as luzes (`LIGHTS`) dos móveis. As salas ficam ao
+   as paredes geradas a partir dos pisos (na Guilda: pedra com viga e rodapé, painel de madeira, topo de madeira e
+   degrau), os tapetes cortados da amostra inteira (`carpet_tiles`: o quadrado e a passadeira girada, de
+   `build/interior-floor/grande/`), a colisão (`FOOTPRINT`) e as luzes (`LIGHTS`) dos móveis. As salas ficam ao
    leste da cidade, a `INTERIOR_GAP` tiles de vazio dela e uma da outra.
 
 ## Interface de registro e personagens

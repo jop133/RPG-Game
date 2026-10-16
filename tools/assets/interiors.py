@@ -43,7 +43,15 @@ FLOOR_KINDS = {
     "tapete-nobre": ["tapete-liso"],
     "tapete-centro": ["tapete-centro"],
 }
-WALLS = ["parede-topo", "parede-face-alta", "parede-face-baixa", "vazio"]
+# Tapetes cortados da amostra inteira (interior-floor/grande/): o quadrado com moldura dourada da Ala Esquerda da
+# Guilda (RUG x RUG tiles) e a passadeira horizontal do salão (RUNNER_ROWS de altura, RUNNER_COLS tiles que se repetem).
+RUG = 5
+RUNNER_ROWS = 4
+RUNNER_COLS = 4
+RUG_TILES = [f"tapete-quadrado-{c}-{r}" for r in range(RUG) for c in range(RUG)]
+RUNNER_TILES = [f"tapete-passadeira-{c}-{r}" for r in range(RUNNER_ROWS) for c in range(RUNNER_COLS)]
+WALLS = ["parede-topo", "parede-face-alta", "parede-face-baixa", "vazio", "topo-madeira", "face-pedra-alta",
+         "face-pedra-baixa", "face-madeira-alta", "face-madeira-baixa"]
 
 
 def floor_image(name: str) -> Image.Image:
@@ -66,9 +74,56 @@ def wall_images() -> dict[str, Image.Image]:
             "vazio": Image.new("RGBA", (T, T), (0, 0, 0, 255))}
 
 
+def to_tile(a: np.ndarray) -> Image.Image:
+    return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8)).convert("RGBA")
+
+
+def rgb(name: str) -> np.ndarray:
+    return np.asarray(floor_image(name).convert("RGB")).astype(float)
+
+
+def two_tile_face(texture: np.ndarray, light: tuple[float, float], beam: np.ndarray | None) -> tuple[Image.Image, Image.Image]:
+    """Face de parede de duas linhas (vista de frente): a textura repetida, clareando no alto e escurecendo até o pé,
+    com rodapé de madeira escura e, se houver, uma viga de madeira no alto."""
+    face = np.concatenate([texture, texture]) * np.linspace(light[0], light[1], 2 * T)[:, None, None]
+    if beam is not None:
+        face[:6] = beam[:6] * 0.75
+        face[6:8] = beam[6:8] * 0.35  # sombra embaixo da viga
+    face[-6:] = rgb("madeira-0")[:6] * 0.4  # rodapé
+    face[-7] = face[-7] * 0.5
+    return to_tile(face[:T]), to_tile(face[T:])
+
+
+def guild_wall_images() -> dict[str, Image.Image]:
+    """Paredes da Guilda: pedra cinza com viga e rodapé (Salão Principal), painéis de madeira na vertical (Ala
+    Esquerda), madeira escura vista de cima (laterais, divisória, parede do sul) e o degrau da divisória."""
+    stone_high, stone_low = two_tile_face(rgb("pedra-escura-0"), (1.1, 0.75), rgb("madeira-0"))
+    wood_high, wood_low = two_tile_face(rgb("madeira-1"), (1.0, 0.6), None)
+    top = rgb("madeira-1") * 0.3
+    top[:, :2] = top[:, :2] * 1.8  # quinas que pegam luz
+    top[:, -2:] = top[:, -2:] * 1.8
+    step = rgb("madeira-2").copy()
+    step[:, -4:] = step[:, -4:] * 0.45  # sombra do degrau, do lado do salão
+    step[:, :2] = step[:, :2] * 1.25
+    return {"face-pedra-alta": stone_high, "face-pedra-baixa": stone_low, "face-madeira-alta": wood_high,
+            "face-madeira-baixa": wood_low, "topo-madeira": to_tile(top), "degrau-madeira": to_tile(step)}
+
+
+def carpet_tiles(name: str, cols: int, rows: int, rotate: bool, prefix: str) -> dict[str, Image.Image]:
+    """Corta o tapete inteiro (girado de 90 graus, se for o caso) em cols x rows tiles: `prefix-<coluna>-<linha>`."""
+    big = Image.open(FLOORS / "grande" / f"{name}.png").convert("RGBA")
+    if rotate:
+        big = big.transpose(Image.Transpose.ROTATE_90)
+    big = big.resize((cols * T, rows * T), Image.Resampling.LANCZOS)
+    return {f"{prefix}-{c}-{r}": big.crop((c * T, r * T, (c + 1) * T, (r + 1) * T)) for r in range(rows) for c in range(cols)}
+
+
 def tile_images() -> list[tuple[str, Image.Image]]:
     """Os tiles que os interiores acrescentam ao tileset da cidade, com nome."""
-    return [(name, floor_image(name)) for name in INTERIOR_FLOORS] + list(wall_images().items())
+    rug = carpet_tiles("tapete-centro", RUG, RUG, False, "tapete-quadrado")
+    runner = carpet_tiles("tapete-faixa", RUNNER_COLS, RUNNER_ROWS, True, "tapete-passadeira")
+    return ([(name, floor_image(name)) for name in INTERIOR_FLOORS] + list(wall_images().items())
+            + list(guild_wall_images().items()) + list(rug.items()) + list(runner.items()))
 
 
 # ---------------------------------------------------------------- salas
@@ -93,6 +148,12 @@ class Room:
         """Pinta o chão no retângulo (inclusive)."""
         self.kinds[y0 : y1 + 1, x0 : x1 + 1] = kind
 
+    def carpet(self, prefix: str, cols: int, rows: int, x0: int, y0: int, w: int, h: int) -> None:
+        """Tapete cortado em cols x rows tiles (`prefix-<coluna>-<linha>`), repetido em ciclo no retângulo w x h."""
+        for r in range(h):
+            for c in range(w):
+                self.kinds[y0 + r, x0 + c] = f"{prefix}-{c % cols}-{r % rows}"
+
     def wall(self, x0: int, y0: int, x1: int, y1: int, face: bool = False) -> None:
         """Parede interna. Com face: a linha de baixo mostra o tijolo (parede vista de frente, do sul)."""
         self.kinds[y0 : y1 + 1, x0 : x1 + 1] = "parede-topo"
@@ -110,31 +171,63 @@ class Room:
 
 
 def guild(ox: int, oy: int) -> Room:
-    """Salão da Guilda: pedra escura, corredor de tapete da porta até a área nobre do fundo (tapete com moldura de
-    madeira nobre), balcão de recepção (vender loot) e mesa de pesquisa com o quadro de contratos (Bestiário)."""
-    room = Room("guild", ox, oy, 30, 22, "pedra-escura")
-    room.paint("madeira-nobre", 8, 3, 21, 9)
-    room.paint("tapete-nobre", 9, 3, 20, 8)
-    room.paint("tapete-faixa", 14, 9, 15, 20)
-    room.prop("estandarte-a", 6.0, 3.0)
-    room.prop("estandarte-b", 24.0, 3.0)
-    room.prop("cranio-chifres", 15.0, 2.6)
-    room.prop("escudo-espadas", 10.5, 2.7)
-    room.prop("escudo-espadas", 19.5, 2.7)
-    room.prop("balcao-recepcao", 15.0, 7.0)
-    room.prop("mesa-bestiario", 24.5, 9.5)
-    room.prop("quadro-contratos", 25.0, 5.2)
-    room.prop("pilar-lanterna-a", 11.5, 12.0)
-    room.prop("pilar-lanterna-b", 18.5, 12.0)
-    room.prop("mesa-longa-a", 5.5, 13.5)
-    room.prop("mesa-longa-b", 24.5, 16.0)
-    room.prop("mesa-redonda", 5.5, 19.0)
-    room.prop("braseiro-guilda", 26.0, 20.3)
-    room.prop("porta-guilda", 15.0, 22.0)
-    room.point("guild-counter", 15.0, 8.4)
-    room.point("guild-bestiary", 24.5, 10.6)
-    room.point("guild-exit", 15.0, 20.4)
-    room.point("arrival", 15.0, 18.0)
+    """Salão da Guilda em duas alas (30x19 tiles). Colunas: 0 e 29 paredes laterais de madeira escura, 1-8 a Ala
+    Esquerda (estudos e Bestiário, piso de madeira nobre, parede do fundo de painéis de madeira, uma linha mais recuada),
+    9 a divisória de madeira (aberta nas linhas 4-7, perto da porta dupla, com degrau) e 10-28 o Salão Principal
+    (parede de pedra cinza com viga e rodapé, 3 pilares com lanterna, balcão do mercador, mesa redonda, passadeira e 4
+    mesas longas em 2x2). Os móveis ficam em linhas alinhadas à grade: balcão nas linhas 6-7, mesas longas nas 10-11 e
+    14-15, corredores de 2 linhas entre elas."""
+    w, h, divider = 30, 19, 9
+    room = Room("guild", ox, oy, w, h, "madeira")
+    k = room.kinds
+    k[:, :] = "madeira"
+    k[:, 1:divider] = "madeira-nobre"
+    # Parede do fundo: no Salão, 2 linhas de topo + face de pedra (linhas 2-3); na Ala, 1 de topo + face de madeira.
+    k[0:2, divider:] = "parede-topo"
+    k[2, divider:] = "face-pedra-alta"
+    k[3, divider:] = "face-pedra-baixa"
+    k[0, :divider] = "topo-madeira"
+    k[1, 1:divider] = "face-madeira-alta"
+    k[2, 1:divider] = "face-madeira-baixa"
+    k[0:4, divider] = "parede-topo"
+    # Laterais, parede do sul e divisória (aberta nas linhas 4-7, onde fica o degrau).
+    k[:, 0] = k[:, -1] = "topo-madeira"
+    k[-1, :] = "topo-madeira"
+    k[8 : h - 1, divider] = "topo-madeira"
+    k[4:8, divider] = "degrau-madeira"
+    room.carpet("tapete-quadrado", RUG, RUG, 2, 9, RUG, RUG)
+    room.carpet("tapete-passadeira", RUNNER_COLS, RUNNER_ROWS, divider + 1, 9, w - divider - 2, RUNNER_ROWS)
+
+    # Parede norte do Salão: porta dupla à esquerda; pilar, estandarte do touro e brasão; pilar do meio; crânio com o
+    # quadro de contratos embaixo; pilar; estandarte do dragão.
+    room.prop("porta-guilda", 11.6, 4.05)
+    room.prop("pilar-lanterna-a", 14.2, 4.9)
+    room.prop("estandarte-a", 15.7, 3.8)
+    room.prop("escudo-espadas", 17.3, 3.4)
+    room.prop("pilar-lanterna-a", 18.8, 4.9)
+    # O quadro acaba antes da coluna 23: por ela se dá a volta inteira na mesa redonda.
+    room.prop("cranio-chifres", 21.3, 2.2)
+    room.prop("quadro-contratos", 21.3, 5.3)
+    room.prop("pilar-lanterna-b", 24.4, 4.9)
+    room.prop("estandarte-b", 26.7, 3.8)
+    # Balcão do mercador na frente dos pilares e do quadro; mesa redonda à direita, com o corredor da parede livre.
+    room.prop("balcao-recepcao", 18.2, 7.6)
+    room.prop("mesa-redonda", 25.8, 8.05)
+    # Mesas longas em 2x2: a fileira do meio sobre a passadeira, a de baixo perto da parede do sul.
+    for base in (12.1, 16.1):
+        room.prop("mesa-longa-a", 14.0, base)
+        room.prop("mesa-longa-b", 24.0, base)
+    room.prop("braseiro-guilda", 10.9, 17.7)
+    room.prop("braseiro-guilda", 19.0, 15.9)
+    # Ala Esquerda: quadro de contratos na parede e a mesa de estudos embaixo (Bestiário); tapete no meio; outra mesa
+    # de mapas embaixo.
+    room.prop("quadro-contratos", 4.5, 4.4)
+    room.prop("mesa-bestiario", 4.5, 7.4)
+    room.prop("mesa-bestiario", 4.5, 16.9)
+    room.point("guild-counter", 18.2, 8.5)
+    room.point("guild-bestiary", 4.5, 8.5)
+    room.point("guild-exit", 11.6, 4.7)
+    room.point("arrival", 11.6, 7.2)
     return room
 
 
@@ -269,12 +362,12 @@ LIGHTS: dict[str, tuple[str, str | float]] = {
     "mesa-longa-b": ("vela", "spots"),
     "mesa-refeicao-a": ("vela", "spots"),
     "mesa-refeicao-b": ("vela", "spots"),
-    "pilar-lanterna-a": ("vela", "spots"),
-    "pilar-lanterna-b": ("vela", "spots"),
+    "pilar-lanterna-a": ("poste", "spots"),
+    "pilar-lanterna-b": ("poste", "spots"),
     "braseiro-guilda": ("braseiro", 0.45),
     "fornalha": ("forja", "biggest"),
     "forno-caldeirao": ("forja", "biggest"),
     "bigorna-tempera": ("vela", "spots"),
     "prop_lineage_chest": ("runa", 0.55),
-    "mesa-bestiario": ("runa", 0.85),
+    "mesa-bestiario": ("cristal-pequeno", 0.8),
 }
