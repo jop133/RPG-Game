@@ -248,6 +248,9 @@ const LIGHT_LOOKS: Record<LightKind, LightLook> = {
   braseiro: { color: 0xff7a2e, intensity: 0.95, effect: "flicker" },
   forja: { color: 0xff5f1f, intensity: 1, effect: "flicker" },
   vela: { color: 0xffc46b, intensity: 0.55, effect: "flicker" },
+  runa: { color: 0x4fe3ff, intensity: 0.75, effect: "pulse" },
+  garras: { color: 0xff5a1f, intensity: 0.6, effect: "flicker" },
+  acido: { color: 0x6dff4a, intensity: 0.7, effect: "pulse" },
 };
 const PLAYER_LIGHT: LightLook = { color: 0xfff0dc, intensity: 1, effect: "steady" };
 const EXIT_LIGHT: LightLook = { color: 0x40c4ff, intensity: 1, effect: "pulse" };

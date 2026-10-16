@@ -4,6 +4,7 @@ import {
   AREAS,
   EXIT_LIGHT_RADIUS,
   EXITS_ACTIVE,
+  MOB_SPAWN_SAFE_RADIUS,
   HUNGER_MAX,
   INVENTORY_SLOTS,
   MOB_KINDS,
@@ -38,6 +39,7 @@ import {
   starvationDamage,
   stepExtraction,
   isDormant,
+  safeSpawnCells,
   stepMob,
   takeFromPile,
   tickHunger,
@@ -371,7 +373,9 @@ export class GameRoom extends Room<{ state: GameState }> {
     for (const area of level.areas) {
       const cells = level.floorCells.get(area.name) ?? [];
       const counts = AREAS[area.name]?.mobs ?? {};
-      for (const { kind, position } of planMobSpawns(cells, counts, Math.random)) {
+      // Nascem longe da chegada; depois vagam pela área inteira (homeCells continua sendo a área toda).
+      const spawnCells = safeSpawnCells(cells, level.playerEntryPoints, MOB_SPAWN_SAFE_RADIUS);
+      for (const { kind, position } of planMobSpawns(spawnCells, counts, Math.random)) {
         const id = `mob-${nextId++}`;
         this.state.mobs.set(id, new MobState({ kind, ...position, hp: MOB_KINDS[kind].maxHp, windup: false, attackAngle: 0 }));
         this.mobBrains.set(id, { kind, area, homeCells: cells, mind: { mode: "wander", wander: startIdle(Math.random) } });

@@ -71,7 +71,7 @@ leste (para oeste) ou usa a cardinal mais próxima (para diagonal), e avisa.
 > **Licença do Paper UI:** pode usar e modificar em jogos; **não pode redistribuir** o pacote, nem modificado.
 > Enquanto `assets/tilesets/interface/` e `assets/ui/` estiverem no repositório, ele não pode ser público.
 
-## Labirinto, 1º andar (Caverna de Cristal)
+## Labirinto, 1º andar (500x500)
 
 ```bash
 tools/assets/.venv/Scripts/python.exe -I tools/assets/process_labyrinth.py
@@ -79,15 +79,20 @@ tools/assets/.venv/Scripts/python.exe -I tools/assets/build_labyrinth.py
 tools/assets/.venv/Scripts/python.exe -I tools/assets/render_map.py assets/maps/dungeon_floor1.json labirinto.png --scale 0.25
 ```
 
-1. **`process_labyrinth.py`**: tira o fundo de `chao_labirinto.png` e `enfeites_labirinto.png`. O chão vira 16 blocos de
-   32x32 em `tools/assets/build/labyrinth-floor/` (linhas: pedra, terra, musgo, pedra com cristal). Os enfeites são achados
-   com a máscara dilatada (partes soltas, como a chama da tocha, ficam junto) e cada um é recortado só com os próprios
-   pixels; vão para `assets/tilesets/labyrinth/props/`. Nome, centro aproximado e escala de cada enfeite ficam no topo do arquivo.
-2. **`build_labyrinth.py`**: escava a caverna (salas e túneis em `CHAMBERS`/`TUNNELS`), escolhe o chão de cada
-   região, gera `labyrinth/floor.png` só com as combinações de tile usadas (parede com face de pedra, chão com sombra),
-   espalha enfeites e grava as camadas que o servidor lê (`areas`, `spawns`, `exits`). Os nomes das áreas
-   (`AREA_RECTS`) precisam bater com `AREAS` em `shared/src/balance.ts`. O sorteio é fixo (`random.Random(3)`):
-   rodar de novo dá o mesmo mapa; trocar a semente dá outro.
+1. **`process_labyrinth.py`** (~15 s): tira o fundo de `chao_labirinto.png`, `enfeites_labirinto.png` e dos 4 kits
+   (`Kit de Acampamentos`, `Kit de Covis`, `Kit de Marcos de Navegação e Ruínas do Labirinto`, `Kit de Pisos Variados
+   do Labirinto`). Nos kits, os vãos presos (grades, costelas, arcos, dormentes) saem e o brilho da gosma fica: buraco
+   claro é brilho se a borda for clara e colorida (`HIGHLIGHT_RING_*`), e nos objetos de `GLOSSY` nunca se apaga buraco.
+   Objetos achados por dilatação de 9 px; pedaço solto a até `ATTACH_PX` vai com o objeto mais perto. O chão vira blocos
+   de 32x32 em `tools/assets/build/labyrinth-floor/` (`floor-L-C.png` da caverna, `<tipo>-C.png` dos pisos novos:
+   ruína, terra tribal, mina, musgo ácido). Nome, centro aproximado e escala de cada objeto ficam no topo do arquivo
+   (`PROPS`, `CAMP`, `LAIRS`, `LANDMARKS`).
+2. **`build_labyrinth.py`** (~4,5 s): malha de labirinto (`CELL`, `STRAIGHT`, `LOOP_CHANCE`, `DEAD_END_ROOM`),
+   centro, salões (`HALL_ZONES`, `HALL_RECIPES`), câmaras de saída (`EXIT_CHAMBERS`), avenidas de ruína com praças
+   e marcos nos cruzamentos, borda de caverna nos outros corredores; gera `labyrinth/floor.png` só com as combinações
+   de tile usadas, espalha enfeites, confere tudo com um flood fill só e grava as camadas que o servidor lê (`areas`,
+   `spawns`, `exits`, `luzes`). Os nomes das áreas (`AREA_RECTS`) precisam bater com `AREAS` em
+   `shared/src/balance.ts`. O sorteio é fixo (sementes no código): rodar de novo dá o mesmo mapa.
 
 > **Atenção:** rodar o `build_labyrinth.py` sobrescreve `dungeon_floor1.json`, inclusive o que tiver sido editado à mão no Tiled.
 

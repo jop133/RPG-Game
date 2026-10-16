@@ -486,6 +486,8 @@ O cliente recebe `windup` e `attackAngle` e desenha o arco no chão: o contorno 
 
 ## 2026-10 — Extração: portais sorteados por run, 5 s parado dentro
 
+> **Mudou no labirinto 500x500:** o 1º andar tem exatamente 4 saídas, uma por região, e `EXITS_ACTIVE` = 4: todas ativas em toda run (ver "Labirinto 500x500"). O sorteio continua no código, para andares com mais candidatas.
+
 **Decisão (dono do projeto):** os pontos da camada `exits` do Tiled são candidatos; em cada run (sala), `EXITS_ACTIVE` deles são sorteados como ativos. Ficar com o centro dentro do raio do portal (`EXIT_RADIUS`) por `EXTRACT_MS` (5 s) extrai. Sair do portal zera a contagem; levar dano não. Ao extrair, o jogador sai da sala levando tudo, e vê "Você extraiu" com a lista. Ninguém deixa pilha ao extrair.
 
 **Como:**
@@ -901,4 +903,28 @@ Slot vazio usa a moldura comum.
 - Caminho parcial é guloso: um beco sem saída mais perto do destino em linha reta, maior do que o A* consegue explorar, pode levar o mob para dentro. Perseguindo, ele desiste ao perder o alvo de vista (`MOB_LOSE_TRACK_MS`); voltando, vaga onde está. Se incomodar num andar real: aumentar o teto só para a volta, ou pré-calcular um mapa de distâncias até cada área (uma busca por área, no início da sala)
 - Mob hibernando fica parado onde estava. Ninguém vê (está a mais de 1.000 px de todos), mas o relógio dele também para
 - Os objetos fora da tela continuam na lista de desenho do Phaser (a ordenação por profundidade ainda passa por eles); com dezenas de milhares de enfeites, o próximo passo é tirá-los da lista, não só escondê-los
+
+---
+
+## 2026-10 — Labirinto 500x500: malha de labirinto, avenidas de ruína, 4 saídas fixas, raio seguro
+
+**Pedido do dono do projeto:** o 1º andar vira um labirinto de verdade de 500x500 tiles com 4 kits novos de arte, 4 saídas (uma no fundo de cada região, todas ativas) e um raio seguro na chegada, **sem mudar os outros números de jogo** (vida, dano, fome, quantidade de mobs).
+
+**Contraria:** a decisão "1º andar do labirinto: Caverna de Cristal" (128x96, salas e túneis escritos à mão, 8 saídas candidatas com 2 ativas) e, em parte, a de extração (as saídas deixam de ser sorteadas neste andar).
+
+**Como:**
+- **Malha:** backtracking numa grade de 62x62 células de 8 tiles (corredor de 3, rocha de 5), com tendência a seguir reto (corredores longos e sinuosos em vez de picadinho), ~8% de paredes extras abertas (anéis: sempre há outro caminho) e becos sem saída; um terço dos becos termina numa câmara pequena (para baús e mobs especiais, mais à frente)
+- **Avenidas de ruína:** o caminho pela malha do centro até cada saída e até dois salões por região vira corredor reto com piso de ruína. São também o caminho mais curto até as saídas (61 a 89 s andando): quem aprende a ler as ruínas chega mais rápido
+- **Marcos de navegação** nos cruzamentos das avenidas (célula com 3 ou mais ligações, a pelo menos 28 tiles de outro marco): uma praça de ruína com um marco sólido (estátua, obelisco, fonte, altar, pilar, muralha), revezando, e uma ruína solta em volta. Orientação sem minimapa
+- **Salões:** 6 por região, com o piso temático (terra tribal no norte e no leste, mina no oeste, pedra musgosa com poças no sul) e a composição do kit. A avenida que atravessa um salão não vira estrada lá dentro
+- **Chão de caverna só em manchas contínuas** (ruído suave), nunca tiles soltos: resolve os "quadrados escuros" do mapa antigo
+- **Geração rápida** (~4,5 s): enfeite sólido só onde há folga (base a 2+ tiles da rocha e sem encostar em outro sólido), sem flood fill por enfeite; um flood fill só, no fim, confere chegadas, saídas e 100% do chão, e tira o enfeite que isolar algo (até agora, nenhum)
+- **Raio seguro:** mob da área não nasce a menos de `MOB_SPAWN_SAFE_RADIUS` (320 px, acima de todo `aggroRadius`) de um ponto de entrada (`safeSpawnCells`). Só o lugar de nascer: depois ele vaga pela área inteira
+- **Luzes novas:** `runa` (obelisco e totens, ciano), `garras` (uma rocha só, na borda do covil dos lobos, que continua escuro), `acido` (poças e ovos do fosso); caldeirão usa `braseiro`, vagoneta de cristais `cristal-medio`, altar `vela`. Raios em `LIGHT_RADIUS` (no labirinto, decidem o que se vê: regra 4)
+- **Arte:** vãos presos limpos pela borda (vão é cercado de madeira, osso ou pedra; brilho de gosma, de verde claro); objetos achados por dilatação de 9 px, e pedaços soltos (cristais, gotas, ossinhos) vão para o objeto mais perto
+
+**Limites conhecidos:**
+- 46 mobs num mapa de 250.000 tiles: quase vazio até o balanceamento do labirinto grande
+- O caminho parcial do A* (ver "Blindagem para andares grandes") é guloso, e um labirinto é o pior caso: um mob voltando para casa de muito longe pode entrar num beco. Perseguições são curtas (dentro da visão), então na prática quase não acontece; se acontecer, ele vaga onde está
+- O chão inteiro vai no JSON (1 MB) e o Phaser monta os 250.000 tiles ao entrar (~0,5 s no teste)
 

@@ -123,7 +123,8 @@ export const FORGE_RECIPES: readonly ForgeItem[] = [
 ];
 
 // Extração: dos pontos candidatos da camada "exits" do mapa, quantos ficam ativos em cada run (sorteados).
-export const EXITS_ACTIVE = 2;
+// No 1º andar (500x500) há exatamente 4 saídas, uma no fundo de cada região, e todas ficam ativas.
+export const EXITS_ACTIVE = 4;
 // Raio do portal, em pixels, contado do centro: o centro do jogador precisa estar dentro.
 export const EXIT_RADIUS = 28;
 // Tempo parado dentro do portal para extrair. Sair do portal zera; levar dano não.
@@ -174,6 +175,11 @@ export const LIGHT_RADIUS = {
   braseiro: 140,
   forja: 180,
   vela: 70,
+  // Labirinto 500x500: runas ciano (obelisco, totens), garras incandescentes (só uma, na borda do covil dos lobos,
+  // que continua escuro) e o verde bioluminescente do fosso dos slimes (poças, ovos).
+  runa: 110,
+  garras: 70,
+  acido: 100,
 } satisfies Record<string, number>;
 
 export type LightKind = keyof typeof LIGHT_RADIUS;
@@ -257,6 +263,10 @@ export const PATH_RECALC_MS = 350;
 // Mob vagando sem nenhum jogador a menos disto (px) hiberna: o servidor pula o tick dele. Bem acima de VIEW_RADIUS
 // e de qualquer aggroRadius: acorda muito antes de aparecer na tela de alguém ou de poder notar alguém.
 export const MOB_WAKE_RADIUS = 1000;
+
+// Mob da área de chegada não nasce a menos disto (px) de nenhum ponto de entrada: quem chega não começa a run já
+// cercado. Acima de todo aggroRadius (o maior é 256): o mob nem nota quem acabou de chegar.
+export const MOB_SPAWN_SAFE_RADIUS = 320;
 
 // Uma entrada por área do mapa (camada "areas" no Tiled). Os nomes precisam bater com os do mapa.
 // mobs: quantos de cada tipo nascem na área quando a sala é criada.

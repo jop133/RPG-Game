@@ -35,6 +35,11 @@ export function areaFloorCells(area: Area, grid: CollisionGrid): Vec2[] {
   return cells;
 }
 
+// Tiles onde um mob pode nascer: os da área, menos os que ficam a menos de `safeRadius` de algum ponto de entrada.
+export function safeSpawnCells(cells: readonly Vec2[], entryPoints: readonly Vec2[], safeRadius: number): Vec2[] {
+  return cells.filter((cell) => entryPoints.every((p) => Math.hypot(cell.x - p.x, cell.y - p.y) >= safeRadius));
+}
+
 // Um tile diferente para cada mob, sorteado. `random` devolve [0, 1); vem de fora para ser testável.
 export function planMobSpawns(
   cells: readonly Vec2[],

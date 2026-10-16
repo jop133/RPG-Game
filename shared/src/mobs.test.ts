@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CollisionGrid } from "./collision";
-import { areaFloorCells, planMobSpawns } from "./mobs";
+import { MOB_SPAWN_SAFE_RADIUS } from "./balance";
+import { areaFloorCells, planMobSpawns, safeSpawnCells } from "./mobs";
 
 const TILE = 32;
 
@@ -91,3 +92,29 @@ describe("planMobSpawns", () => {
     expect(() => planMobSpawns(cells, { lobo: 3, goblin: 2 }, Math.random)).toThrow(/5 mobs não cabem em 4/);
   });
 });
+
+describe("safeSpawnCells (raio seguro em volta da chegada)", () => {
+  const row = Array.from({ length: 30 }, (_, i) => ({ x: i * 32 + 16, y: 16 }));
+  const entry = [{ x: 16, y: 16 }];
+
+  it("tira os tiles a menos do raio de qualquer ponto de entrada; o da borda do raio fica", () => {
+    const safe = safeSpawnCells(row, entry, 320);
+    expect(safe.every((c) => c.x - 16 >= 320)).toBe(true);
+    expect(safe).toContainEqual({ x: 336, y: 16 });
+    expect(safe).not.toContainEqual({ x: 304, y: 16 });
+  });
+
+  it("vale para todos os pontos de entrada ao mesmo tempo", () => {
+    const safe = safeSpawnCells(row, [...entry, { x: 30 * 32, y: 16 }], 320);
+    expect(safe.every((c) => c.x - 16 >= 320 && 30 * 32 - c.x >= 320)).toBe(true);
+  });
+
+  it("mobs planejados nos tiles seguros nunca nascem perto da chegada", () => {
+    for (let run = 0; run < 20; run++) {
+      for (const { position } of planMobSpawns(safeSpawnCells(row, entry, MOB_SPAWN_SAFE_RADIUS), { lobo: 3 }, Math.random)) {
+        expect(Math.hypot(position.x - 16, position.y - 16)).toBeGreaterThanOrEqual(MOB_SPAWN_SAFE_RADIUS);
+      }
+    }
+  });
+});
+
