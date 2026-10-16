@@ -981,3 +981,21 @@ Slot vazio usa a moldura comum.
 
 **Limite conhecido:** onde muitas luzes se cruzam (o portal com braseiros e postes) o lightmap chega a 1 e o mundo aparece com a cor original da arte, sem ficar mais claro que ela. Quem quiser mais contraste ali baixa a intensidade em `LIGHT_LOOKS` (`client/src/main.ts`).
 
+---
+
+## 2026-10 — Prédios maciços: retângulo que marca toda célula que toca, e pivô de Y-sorting na porta
+
+**Pedido do dono do projeto:** revisar colisão e Y-sorting de todas as construções e enfeites da cidade e dos interiores: escada da Guilda caminhável com a colisão na porta, casas e Estalagem sem frestas nem parede oca.
+
+**Muda** dois pontos da decisão "Cidade com a arte nova (dark fantasy): objetos com Y-sorting e colisão na base":
+- **Colisão:** o prédio não é mais uma faixa na base, e sim um bloco da linha da porta (ou da base, nas casas) até a metade da altura da imagem. Só a metade de cima (telhado) fica livre para passar atrás. E os retângulos da cidade e dos interiores marcam **toda célula que tocam** (por mais de 1 px), não só as de centro dentro: com a regra do centro, uma parede que ocupa 40% de uma célula na borda deixava a célula livre (a "fresta")
+- **Y-sorting:** a profundidade de um objeto é a base da imagem, **ou** a linha `sortY` do tile, quando ele tem. Os 3 prédios têm a linha na porta: degraus e soleira, que ficam abaixo dela na imagem, são desenhados por baixo de quem está neles
+
+**Como:**
+- A regra vem do próprio mapa: retângulo de colisão com a classe `macico` no Tiled. O labirinto não usa a classe e ficou idêntico (os corredores e a alcançabilidade dele foram validados com a regra do centro)
+- Casas medidas na arte pelo script (pixels opacos dos 15% de baixo, abaixo das placas); os 3 prédios, à mão, com retângulos em px da imagem, porque a escada da Guilda, os sacos da Estalagem e o rack da Forja não saem de uma regra
+- `objectSortLine` em `shared` (cliente e teste usam a mesma conta); `render_map.py` ordena igual
+- Teste no mapa gerado (`cityMap.test.ts`): cada porta da rua encostada na parede, com o jogador desenhado na frente do prédio, e todo ponto de E alcançável. É um teste de dados, não de regra pura; fica porque é exatamente o bug que voltaria se alguém mexesse num retângulo ou num ponto
+
+**Trade-off aceito:** com o "toca, marca", uma parede que invade poucos px de uma célula bloqueia a célula inteira (até 31 px a mais que a arte nas bordas). Nas casas isso é o certo (nada de fresta); nos enfeites pequenos, o pior caso é um poste ocupar 2 células em vez de 1.
+

@@ -40,6 +40,8 @@ export interface TiledObject {
   polyline?: unknown;
   text?: unknown;
   gid?: number;
+  // Classe do objeto no Tiled. Num retângulo de colisão, "macico" (MASSIVE_SHAPE) marca toda célula que ele toca.
+  type?: string;
 }
 
 export interface TiledLayer {
@@ -80,11 +82,37 @@ function tileForGid(tilesets: TiledTileset[], gid: number): TiledTile | undefine
   return tileset?.tiles?.find((tile) => tile.id === gid - tileset.firstgid);
 }
 
+// Retângulo de colisão em pixels do mundo. `touch`: marca toda célula que o retângulo toca (paredes de prédio, que
+// não podem ter fresta); sem ele, só as células cujo centro está dentro (enfeites do labirinto).
+export interface Footprint extends Rect {
+  touch?: true;
+}
+
+// Classe (campo "Class" no Tiled) do retângulo de colisão que marca toda célula que toca.
+export const MASSIVE_SHAPE = "macico";
+// Encostar menos que isto (px) numa célula não a marca: arredondamento de pixel não fecha uma passagem.
+const TOUCH_TOLERANCE = 1;
+
+// Pivô do Y-sorting: propriedade inteira do tile, a linha (em px a partir do topo da imagem) que conta como a base do
+// objeto para a profundidade. Sem ela, a base da imagem. Na Guilda, a linha da porta: os degraus abaixo dela ficam
+// sempre por baixo do jogador.
+export const SORT_LINE_PROPERTY = "sortY";
+
+// Linha do Y-sorting de um objeto de tile, em y do mundo: a base da imagem (object.y) ou, se o tile tiver sortY, essa
+// linha (escalada se o objeto foi redimensionado no Tiled).
+export function objectSortLine(map: TiledMap, object: TiledObject): number {
+  const tile = object.gid === undefined ? undefined : tileForGid(map.tilesets, object.gid & GID_MASK);
+  const sortY = tile?.properties?.find((p) => p.name === SORT_LINE_PROPERTY)?.value;
+  if (typeof sortY !== "number" || !tile?.imageheight) return object.y;
+  const scale = (object.height ?? tile.imageheight) / tile.imageheight;
+  return object.y - (tile.imageheight - sortY) * scale;
+}
+
 // Área que bloqueia de cada objeto de tile (com gid) cujo tile tem `solid`, em pixels do mundo.
 // No Tiled (mapa ortogonal), x,y de um objeto de tile é o canto de BAIXO-esquerdo da imagem.
 // Usa os retângulos de colisão do tile (escalados se o objeto foi redimensionado); sem retângulo, o objeto inteiro.
-export function parseObjectFootprints(map: TiledMap): Rect[] {
-  const rects: Rect[] = [];
+export function parseObjectFootprints(map: TiledMap): Footprint[] {
+  const rects: Footprint[] = [];
   for (const layer of map.layers) {
     if (layer.type !== "objectgroup") continue;
     for (const object of layer.objects ?? []) {
@@ -99,12 +127,14 @@ export function parseObjectFootprints(map: TiledMap): Rect[] {
       const shapes = tile?.objectgroup?.objects.filter(isRectangle) ?? [];
       if (shapes.length === 0) rects.push({ x: object.x, y: top, width, height });
       for (const shape of shapes) {
-        rects.push({
+        const rect: Footprint = {
           x: object.x + shape.x * sx,
           y: top + shape.y * sy,
           width: (shape.width ?? 0) * sx,
           height: (shape.height ?? 0) * sy,
-        });
+        };
+        if (shape.type === MASSIVE_SHAPE) rect.touch = true;
+        rects.push(rect);
       }
     }
   }
@@ -120,10 +150,18 @@ function cellSpanOf(start: number, length: number, size: number, count: number):
   return [Math.max(0, first), Math.min(count - 1, last)];
 }
 
-function markRects(solid: boolean[], map: TiledMap, rects: Rect[]) {
+// Toda célula que o intervalo [start, start + length) toca (por mais de TOUCH_TOLERANCE px).
+function touchedSpanOf(start: number, length: number, size: number, count: number): [number, number] {
+  const first = Math.floor((start + TOUCH_TOLERANCE) / size);
+  const last = Math.max(first, Math.ceil((start + length - TOUCH_TOLERANCE) / size) - 1);
+  return [Math.max(0, first), Math.min(count - 1, last)];
+}
+
+function markRects(solid: boolean[], map: TiledMap, rects: Footprint[]) {
   for (const rect of rects) {
-    const [col0, col1] = cellSpanOf(rect.x, rect.width, map.tilewidth, map.width);
-    const [row0, row1] = cellSpanOf(rect.y, rect.height, map.tilewidth, map.height);
+    const span = rect.touch ? touchedSpanOf : cellSpanOf;
+    const [col0, col1] = span(rect.x, rect.width, map.tilewidth, map.width);
+    const [row0, row1] = span(rect.y, rect.height, map.tilewidth, map.height);
     for (let row = row0; row <= row1; row++) for (let col = col0; col <= col1; col++) solid[row * map.width + col] = true;
   }
 }
@@ -136,7 +174,7 @@ function layerData(layer: TiledLayer): number[] {
 }
 
 // Uma célula é parede se qualquer camada de tiles tiver ali um tile com a propriedade `solid`,
-// ou se a área de colisão de um objeto sólido (casa, poste...) cobrir o centro dela.
+// ou se a área de colisão de um objeto sólido (casa, poste...) cobrir o centro dela (ou só tocar nela, se for maciça).
 export function parseCollisionGrid(map: TiledMap): CollisionGrid {
   if (map.tilewidth !== map.tileheight) {
     throw new Error(`Tiles precisam ser quadrados (mapa tem ${map.tilewidth}x${map.tileheight}).`);

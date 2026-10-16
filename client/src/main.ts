@@ -22,6 +22,7 @@ import {
   interactionAt,
   isAtPortal,
   isInteractionId,
+  objectSortLine,
   isStationId,
   lightRadius,
   mobStrikeArc,
@@ -775,7 +776,8 @@ Subiu para o nível ${info.level}!` : "";
   }
 
   // Casas, enfeites e portal: objetos do mapa com imagem própria (coleção de imagens no Tiled).
-  // No Tiled, x,y é o canto de baixo-esquerdo da imagem; a profundidade segue a base, como a dos jogadores.
+  // No Tiled, x,y é o canto de baixo-esquerdo da imagem; a profundidade segue a base, como a dos jogadores, ou a linha
+  // sortY do tile (prédios: a linha da porta, para os degraus e a soleira ficarem por baixo de quem está neles).
   private createMapObjects() {
     const data = (this.cache.tilemap.get(this.place) as { data?: TiledMap } | undefined)?.data;
     if (!data) return;
@@ -787,7 +789,7 @@ Subiu para o nível ${info.level}!` : "";
       for (const object of layer.objects ?? []) {
         const key = object.gid === undefined ? undefined : keys.get(object.gid & GID_MASK);
         if (!key) continue;
-        const image = this.add.image(object.x, object.y, key).setOrigin(0, 1).setDepth(sortDepth(object.y));
+        const image = this.add.image(object.x, object.y, key).setOrigin(0, 1).setDepth(sortDepth(objectSortLine(data, object)));
         if (object.width && object.height) image.setDisplaySize(object.width, object.height);
         const box = { left: object.x, top: object.y - image.displayHeight, right: object.x + image.displayWidth, bottom: object.y };
         this.culler.add(image, box);

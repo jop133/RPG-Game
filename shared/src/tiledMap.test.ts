@@ -6,7 +6,10 @@ import {
   parseExitPoints,
   parseInteractionPoints,
   parseLights,
+  MASSIVE_SHAPE,
+  objectSortLine,
   parseObjectFootprints,
+  SORT_LINE_PROPERTY,
   parsePortalPoints,
   parseSpawnPoints,
 } from "./tiledMap";
@@ -223,7 +226,8 @@ describe("parseInteractionPoints", () => {
 });
 
 // Mapa 10x10 (tiles de 32) com uma coleção de imagens: tile 0 sólido com retângulo de colisão na base,
-// tile 1 sem `solid`, tile 2 sólido sem retângulo, tile 3 sólido com base pequena (poste).
+// tile 1 sem `solid`, tile 2 sólido sem retângulo, tile 3 sólido com base pequena (poste), tile 4 sólido com dois
+// retângulos maciços (prédio: corpo e caixa da frente) desalinhados da grade.
 function objectMap(objects: TiledMap["layers"][number]["objects"]): TiledMap {
   return {
     width: 10,
@@ -249,6 +253,18 @@ function objectMap(objects: TiledMap["layers"][number]["objects"]): TiledMap {
             imageheight: 96,
             properties: [{ name: "solid", value: true }],
             objectgroup: { objects: [{ id: 1, x: 12, y: 86, width: 10, height: 8 }] },
+          },
+          {
+            id: 4,
+            imagewidth: 160,
+            imageheight: 160,
+            properties: [{ name: "solid", value: true }],
+            objectgroup: {
+              objects: [
+                { id: 1, x: 10, y: 70, width: 120, height: 50, type: MASSIVE_SHAPE },
+                { id: 2, x: 10, y: 120, width: 40, height: 20.5, type: MASSIVE_SHAPE },
+              ],
+            },
           },
         ],
       },
@@ -296,11 +312,41 @@ describe("objetos sólidos (casas, enfeites)", () => {
     expect(parseObjectFootprints(map)).toHaveLength(1);
   });
 
+  it("retângulo maciço marca toda célula que toca, sem buraco, e os dois retângulos se juntam", () => {
+    // Imagem de y=0 a 160 e x=0 a 160. Corpo: x 10..130, y 70..120 (colunas 0-4, linhas 2-3); frente: x 10..50,
+    // y 120..140,5 (colunas 0-1, linha 3-4). Pela regra do centro o corpo pegaria só as colunas 1-3.
+    const cells = solidCells(objectMap([{ id: 1, gid: 5, x: 0, y: 160, width: 160, height: 160 }]));
+    expect(cells).toEqual(["0,2", "1,2", "2,2", "3,2", "4,2", "0,3", "1,3", "2,3", "3,3", "4,3", "0,4", "1,4"]);
+  });
+
+  it("retângulo maciço que só encosta (até 1 px) numa célula não a marca", () => {
+    // Retângulo x 0..64,8, y 64..96: invade a coluna 2 (64..96) só 0,8 px, então ela fica livre.
+    const map = objectMap([{ id: 1, gid: 5, x: 0, y: 160, width: 160, height: 160 }]);
+    const tile = map.tilesets[0]?.tiles?.[4];
+    if (tile?.objectgroup) tile.objectgroup.objects = [{ id: 1, x: 0, y: 64, width: 64.8, height: 32, type: MASSIVE_SHAPE }];
+    expect(solidCells(map)).toEqual(["0,2", "1,2"]);
+  });
+
   it("pontos e retângulos sem gid (spawns, áreas) não bloqueiam", () => {
     const map = objectMap([
       { id: 1, x: 50, y: 50, point: true },
       { id: 2, x: 0, y: 0, width: 64, height: 64 },
     ]);
     expect(solidCells(map)).toEqual([]);
+  });
+});
+
+describe("objectSortLine (pivô do Y-sorting)", () => {
+  it("sem sortY, a base da imagem", () => {
+    const map = objectMap([]);
+    expect(objectSortLine(map, { id: 1, gid: 1, x: 32, y: 288, width: 128, height: 160 })).toBe(288);
+  });
+
+  it("com sortY, a linha dele (a 40 px da base numa imagem de 160)", () => {
+    const map = objectMap([]);
+    map.tilesets[0]?.tiles?.[0]?.properties?.push({ name: SORT_LINE_PROPERTY, value: 120 });
+    expect(objectSortLine(map, { id: 1, gid: 1, x: 32, y: 288, width: 128, height: 160 })).toBe(248);
+    // Objeto com metade da altura no Tiled: a distância até a base cai à metade.
+    expect(objectSortLine(map, { id: 1, gid: 1, x: 32, y: 288, width: 64, height: 80 })).toBe(268);
   });
 });

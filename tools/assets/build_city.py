@@ -290,13 +290,9 @@ def floor_layer(ids: dict[str, list[int]], zones: dict[str, np.ndarray]) -> list
 
 # ---------------------------------------------------------------- objetos
 
-# Retângulo de colisão na base de cada objeto, em frações da imagem (x0, y0, x1, y1). None = não bloqueia.
-# Prédios: só o térreo (o jogador passa atrás do telhado). Escadas e enfeites colados na frente ficam livres.
+# Retângulo de colisão na base de cada enfeite, em frações da imagem (x0, y0, x1, y1). None = não bloqueia.
+# Todo retângulo vai para o mapa com a classe "macico": o servidor marca toda célula de 32 px que ele toca.
 FOOTPRINT: dict[str, tuple[float, float, float, float] | None] = {
-    "house": (0.08, 0.80, 0.92, 0.97),
-    "landmark_guild": (0.10, 0.72, 0.90, 0.89),
-    "landmark_inn_vault": (0.16, 0.78, 0.97, 0.93),
-    "landmark_blacksmith": (0.03, 0.68, 0.97, 0.89),
     "portal": None,
     "barraca-vermelha": (0.05, 0.55, 0.95, 0.95),
     "barraca-ocre": (0.05, 0.55, 0.95, 0.95),
@@ -332,6 +328,49 @@ FOOTPRINT: dict[str, tuple[float, float, float, float] | None] = {
 
 FOOTPRINT.update(interiors.FOOTPRINT)
 
+# Prédios: retângulos medidos na arte, em pixels da imagem (x0, y0, x1, y1). O corpo vai da linha da porta até a
+# metade da altura da imagem (o jogador passa atrás do telhado, nunca dentro da parede); o que fica na frente da linha
+# da porta (bancos, barris, sacos, rack) ganha caixa própria, colada no corpo.
+LANDMARK_SHAPES: dict[str, list[tuple[int, int, int, int]]] = {
+    # Corpo do anexo de madeira ao pilar de pedra da direita; na frente, caixote + banco + barril à esquerda e vaso de
+    # espadas + quadro de contratos à direita (só o vaso desce mais). Os degraus (x 185..313, abaixo de y 418) ficam
+    # livres: sobe-se até a porta dupla.
+    "landmark_guild": [(26, 242, 472, 418), (26, 418, 185, 450), (313, 418, 472, 450), (313, 450, 361, 463)],
+    # Corpo da parede esquerda (coluna da placa de cerveja inclusive: nada de fresta entre placa e parede) até a
+    # direita do portão do cofre; na frente, sacos e barris à esquerda da porta em arco, o banco e o baú do cofre.
+    "landmark_inn_vault": [(20, 215, 418, 399), (20, 399, 135, 431), (215, 399, 276, 409), (311, 399, 372, 406)],
+    # Cabana + oficina da fornalha; na frente da oficina, o rack de armas e a bigorna. A porta da cabana fica livre.
+    "landmark_blacksmith": [(9, 189, 363, 346), (127, 346, 324, 378)],
+}
+# Pivô do Y-sorting dos prédios (px a partir do topo da imagem): a linha da porta, não a base da imagem. Quem está
+# nos degraus ou na soleira é desenhado na frente do prédio.
+SORT_LINE: dict[str, int] = {"landmark_guild": 418, "landmark_inn_vault": 399, "landmark_blacksmith": 346}
+# Casas: a largura da parede vem dos pixels opacos dos HOUSE_BASE de baixo da imagem (abaixo das placas penduradas
+# nas laterais); a colisão sobe da base até HOUSE_SOLID da altura (térreo e 1º andar; só o telhado fica livre).
+HOUSE_BASE = 0.15
+HOUSE_SOLID = 0.50
+
+
+def house_shape(image: Image.Image) -> tuple[int, int, int, int]:
+    alpha = np.array(image.convert("RGBA"))[:, :, 3] > 128
+    h = alpha.shape[0]
+    cols = np.where(alpha[int(h * (1 - HOUSE_BASE)):].any(axis=0))[0]
+    return int(cols[0]), round(h * (1 - HOUSE_SOLID)), int(cols[-1]) + 1, h
+
+
+def shapes_for(image_path: str, kind: str, image: Image.Image) -> list[tuple[int, int, int, int]]:
+    """Retângulos de colisão (px da imagem) do objeto; lista vazia = não bloqueia."""
+    if kind == "house":
+        return [house_shape(image)]
+    if kind in LANDMARK_SHAPES:
+        return LANDMARK_SHAPES[kind]
+    footprint = FOOTPRINT[kind]
+    if footprint is None:
+        return []
+    w, h = image.size
+    x0, y0, x1, y1 = footprint
+    return [(round(x0 * w), round(y0 * h), round(x1 * w), round(y1 * h))]
+
 
 class Objects:
     def __init__(self, firstgid: int):
@@ -345,15 +384,16 @@ class Objects:
             return self.by_image[image_path]
         with Image.open(CITY / image_path) as image:
             w, h = image.size
+            shapes = shapes_for(image_path, kind, image)
         tile_: dict = {"id": len(self.tiles), "image": f"../tilesets/city/{image_path}", "imagewidth": w, "imageheight": h}
-        footprint = FOOTPRINT[kind]
-        tile_["properties"] = [{"name": "solid", "type": "bool", "value": footprint is not None}]
-        if footprint is not None:
-            x0, y0, x1, y1 = footprint
-            rect = {"id": 1, "name": "", "type": "", "rotation": 0, "visible": True,
-                    "x": round(x0 * w), "y": round(y0 * h), "width": round((x1 - x0) * w), "height": round((y1 - y0) * h)}
+        tile_["properties"] = [{"name": "solid", "type": "bool", "value": bool(shapes)}]
+        if kind in SORT_LINE:
+            tile_["properties"].append({"name": "sortY", "type": "int", "value": SORT_LINE[kind]})
+        if shapes:
+            rects = [{"id": i + 1, "name": "", "type": "macico", "rotation": 0, "visible": True,
+                      "x": x0, "y": y0, "width": x1 - x0, "height": y1 - y0} for i, (x0, y0, x1, y1) in enumerate(shapes)]
             tile_["objectgroup"] = {"draworder": "index", "name": "", "type": "objectgroup", "opacity": 1, "visible": True,
-                                    "x": 0, "y": 0, "objects": [rect]}
+                                    "x": 0, "y": 0, "objects": rects}
         self.tiles.append(tile_)
         self.by_image[image_path] = tile_["id"]
         return tile_["id"]
@@ -463,6 +503,9 @@ def place_streets(objects: Objects) -> None:
             objects.prop("cerca-a" if i % 2 == 0 else "cerca-b", x + fence / 2, row)
             x += fence
             i += 1
+        # Último trecho encostado na borda do mapa (sobreposto ao anterior): sem ele, a última coluna fica aberta.
+        if x < W:
+            objects.prop("cerca-a" if i % 2 == 0 else "cerca-b", W - fence / 2, row)
 
 
 # ---------------------------------------------------------------- luzes
@@ -525,7 +568,9 @@ PORTAL_POINT = (40.0, 8.5)
 # Guilda: pé da escadaria. Estalagem: porta da taverna e portão do cofre. Forja: na frente da fornalha.
 # Logo abaixo da base do prédio: quem para ali fica desenhado na frente dele (acima da base, o prédio o cobriria).
 INTERACTIONS = [(name, x * T, y * T) for name, x, y in
-                (("guild", 29.0, 20.5), ("inn", 48.8, 20.5), ("inn", 53.9, 20.5), ("blacksmith", 67.5, 36.5))]
+                # Guilda: no alto da escada, encostado na porta dupla; Estalagem: na soleira da porta em arco (e na rua, diante do
+# portão do cofre); Forja: diante da porta da cabana.
+                (("guild", 29.1, 18.6), ("inn", 48.6, 19.6), ("inn", 53.9, 20.5), ("blacksmith", 63.1, 35.6))]
 
 
 def interior_layer(ids: dict[str, list[int]], city_floor: list[int], rooms: list[interiors.Room], map_w: int) -> list[int]:

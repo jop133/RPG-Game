@@ -36,11 +36,23 @@ tools/assets/.venv/Scripts/python.exe -I tools/assets/render_map.py assets/maps/
    da folha `Ferreiro e Mercador` (46% da largura) e os nomes dos enfeites ficam no topo do arquivo.
 2. **`build_city.py`**: monta o tileset de chão (`city/floor.png`: piso nobre, guias das 4 direções e cantos
    montados com peças da folha, paralelepípedo rústico com as variantes igualadas) e o mapa em fileiras (desenho no
-   topo do arquivo): ruas, calçadas, praça, prédios, enfeites, portal, spawns e luzes. A colisão de cada objeto é um
-   retângulo na base (`FOOTPRINT`). No fim, confere prédios sobrepostos, prédio cobrindo rua, enfeite sólido no meio
+   topo do arquivo): ruas, calçadas, praça, prédios, enfeites, portal, spawns e luzes. Colisão: enfeites e móveis têm
+   um retângulo na base (`FOOTPRINT`, frações da imagem); casas, um bloco medido na arte (largura pelos pixels opacos
+   dos 15% de baixo, abaixo das placas penduradas; altura da base até a metade da imagem); Guilda, Estalagem e Forja,
+   retângulos medidos à mão (`LANDMARK_SHAPES`, px da imagem: corpo da linha da porta até a metade da altura + caixas
+   do que fica na frente) e um pivô de Y-sorting na linha da porta (`SORT_LINE`). Todo retângulo vai com a classe
+   `macico` (o servidor marca toda célula que ele toca). No fim, confere prédios sobrepostos, prédio cobrindo rua, enfeite sólido no meio
    da rua e objeto fora do mapa, e imprime os problemas (o esperado é "problemas: nenhum").
-3. **`render_map.py`**: desenha o mapa como o jogo (objetos ordenados pela base). `--solid grade.json` pinta a
-   colisão calculada pelo servidor.
+3. **`render_map.py`**: desenha o mapa como o jogo (objetos ordenados pela base ou pelo pivô). `--solid grade.json`
+   pinta a colisão calculada pelo servidor (a grade vem do `dump_grid.ts`); `--debug` desenha o contorno dos
+   retângulos de colisão, a linha do Y-sorting de cada objeto sólido (azul) e o alcance dos pontos de E (verde).
+   Diagnóstico completo da cidade:
+
+   ```bash
+   npx tsx tools/assets/dump_grid.ts assets/maps/city.json tools/assets/build/city_grid.json
+   tools/assets/.venv/Scripts/python.exe -I tools/assets/render_map.py assets/maps/city.json \
+       tools/assets/build/debug_city_collisions.png --scale 1 --solid tools/assets/build/city_grid.json --debug
+   ```
 
 > **Atenção:** rodar o `build_city.py` sobrescreve `city.json`, inclusive o que tiver sido editado à mão no Tiled.
 
@@ -48,11 +60,14 @@ tools/assets/.venv/Scripts/python.exe -I tools/assets/render_map.py assets/maps/
 
 - Camada de tiles `chao` (tileset `city/floor`). Nenhum tile de chão é sólido.
 - Camada de objetos `objetos`: prédios, enfeites e portal, de uma coleção de imagens (`city/objects`). No Tiled,
-  cada tile dessa coleção tem a propriedade `solid` e um retângulo de colisão desenhado na base (editor de colisão
-  do Tiled); mover o objeto no Tiled leva a colisão junto.
+  cada tile dessa coleção tem a propriedade `solid` e retângulos de colisão desenhados nele (editor de colisão do
+  Tiled); mover o objeto no Tiled leva a colisão junto. Retângulo com a classe (Class) `macico` bloqueia toda célula
+  que toca; sem ela, só as células cujo centro está dentro (é o caso dos enfeites do labirinto). A propriedade inteira
+  `sortY` do tile, se houver, é a linha (px a partir do topo da imagem) que conta como base no Y-sorting.
 - Camadas de pontos `spawns`, `portal` e `interacoes` (portas da rua com o id do prédio, `INTERACTIONS` em
   `build_city.py`; portas de dentro `<prédio>-exit` e móveis com E, em `interiors.py`). Ponha cada porta da rua logo
-  abaixo da base do prédio: acima dela, o prédio é desenhado por cima de quem está ali.
+  abaixo da linha do Y-sorting do prédio (a base, ou o `sortY`): acima dela, o prédio é desenhado por cima de quem
+  está ali. O teste `shared/src/cityMap.test.ts` confere isso no mapa gerado.
 - Camada de pontos `chegadas` (onde a porta da rua deixa o jogador, dentro de cada prédio) e de retângulos `regioes`
   (a cidade e cada interior: o cliente prende a câmera no lugar onde o jogador está).
 
