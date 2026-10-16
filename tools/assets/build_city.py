@@ -540,6 +540,8 @@ def city_lights(objects: Objects) -> list[tuple[str, float, float]]:
             kind, rule = interiors.LIGHTS[name]
             if isinstance(rule, float):
                 lights.append((kind, obj["x"] + obj["width"] / 2, obj["y"] - obj["height"] * rule))
+            elif isinstance(rule, tuple):
+                lights.append((kind, obj["x"] + obj["width"] * rule[0], obj["y"] - obj["height"] * rule[1]))
             elif rule == "biggest" and spots:
                 biggest = max(spots, key=lambda s: s[2])
                 lights += [(kind if s is biggest else "vela", obj["x"] + s[0], top + s[1]) for s in spots]

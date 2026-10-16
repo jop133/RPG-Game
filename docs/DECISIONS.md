@@ -1014,3 +1014,19 @@ Slot vazio usa a moldura comum.
 - **Paredes e tapetes gerados a partir dos pisos da folha:** faces de pedra (com viga e rodapé) e de painel de madeira, topo de madeira escura, degrau; o tapete quadrado e a passadeira são a amostra inteira cortada em tiles (em vez de um tile de 32 px repetido, que viraria uma grade de tapetinhos)
 - **Saída pela porta dupla da parede norte** (antes, na parede do sul), com a chegada 2,5 tiles abaixo dela
 
+---
+
+## 2026-10 — Salão da Guilda 44x28 com a folha de decorações
+
+**Pedido do dono do projeto:** reconstruir a Guilda fiel à imagem de referência dele: sala maior (44x28) em "L", parede do fundo mista (madeira no Foyer e na Ala, pedra no Salão) em degraus, divisória com degraus e mureta, e as 6 peças que faltavam, numa folha nova (`decoracoes_guilda.png`).
+
+**Substitui** a planta de 30x19 de "Interiores claros (ambiente por região) e Salão da Guilda em duas alas" (o ambiente por região continua; sobe a ~80%). Com a folha nova, o púlpito do Bestiário, a estante, os caixotes, a metade direita do balcão, tochas e janelas entram; o Bestiário sai da mesa de estudos e vai para o púlpito.
+
+**Como:**
+- **Fundo da folha nova = o alfa.** A especificação pedia flood-fill do preto (RGB < 18) a partir da borda; mas a folha já vem com fundo transparente (RGB 0, alfa 0), e o contorno das peças é quase preto e opaco: o flood-fill comeria o contorno externo. Só a franja quase transparente sai e a sombra cinza-escura colada no fundo vira preto semitransparente
+- **Escala:** a folha da Guilda 12% maior (a mesa longa vai a ~9 tiles); a metade direita do balcão na mesma escala do balcão (as duas folhas têm a mesma escala de origem, conferido pela altura). Púlpito, estante, caixotes, tocha e janela com escala própria, nos tamanhos da planta
+- **Coordenadas da planta seguidas à risca**, com dois ajustes: o Foyer começa em x 14 (x 11-13 é o bloco da divisória) e a estante bloqueia até a parede (atrás dela sobrava uma fresta de 5 tiles sem saída)
+- **Tapete grande em 9 partes** da amostra com cantoneiras douradas: cantos e bordas da amostra, miolo que se repete; o tapete cresce sem esticar a moldura
+
+**Limites:** sem peça para o mapa na parede esquerda nem para um segundo quadro no bloco da divisória. Decorações nas paredes laterais (janelas, estandarte, tocha) são desenhadas de frente, como as da parede do fundo.
+

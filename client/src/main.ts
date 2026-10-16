@@ -237,10 +237,10 @@ const MOB_NAMES: Record<MobKind, string> = { lobo: "um lobo", gnomo: "um gnomo",
 // (PLAYER_LIGHT_RADIUS).
 const AMBIENT: Record<Place, number> = { city: 0x2d3248, labyrinth: 0x0c101a };
 const VIGNETTE_ALPHA: Record<Place, number> = { city: 0.55, labyrinth: 0.7 };
-// Dentro dos prédios (regiões com o id do prédio): âmbar claro (~77% de claridade) em toda a sala, para nenhum canto
+// Dentro dos prédios (regiões com o id do prédio): âmbar claro (~80% de claridade) em toda a sala, para nenhum canto
 // ficar apagado; as velas, lanternas e braseiros somam por cima. Fora das paredes o chão é vazio preto (continua preto).
 // Vinheta fraca: só um toque nos cantos.
-const INTERIOR_AMBIENT = 0xd8c3a0;
+const INTERIOR_AMBIENT = 0xdecaa8;
 const INTERIOR_VIGNETTE_ALPHA = 0.2;
 // Cor, força e jeito de cada tipo de luz da camada "luzes". O raio vem de LIGHT_RADIUS (balance.ts): no labirinto é
 // ele que decide o que o servidor manda, então o desenho não pode mudar.
@@ -274,8 +274,8 @@ const INTERACTION_HINTS: Record<InteractionId, string> = {
   "guild-exit": "[E] Sair para a Cidade",
   "inn-exit": "[E] Sair para a Cidade",
   "blacksmith-exit": "[E] Sair para a Cidade",
-  "guild-counter": "[E] Mercador da Guilda — Vender Loot",
-  "guild-bestiary": "[E] Bestiário & Rank de Aventureiro",
+  "guild-counter": "[E] Mercador da Guilda (Vender Loot)",
+  "guild-bestiary": "[E] Consultar Bestiário & Rank",
   "inn-counter": "[E] Balcão de Comida: suprimentos",
   "inn-chest": "[E] Baú da Linhagem",
   "blacksmith-counter": "[E] Balcão do Ferreiro: equipamentos",

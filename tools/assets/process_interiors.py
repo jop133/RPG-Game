@@ -6,6 +6,7 @@ Entrada: assets/tilesets/novos tilesets/ (fora do git)
            interior_ferreiro.png     móveis da Forja do Ferreiro (SMITHY; folha menor, escala maior)
            Interior_casacomida.png   móveis da Estalagem / Casa de Comida (INN)
            Bau_casadecomida.png      o Baú da Linhagem no pedestal
+           decoracoes_guilda.png     púlpito, estante, caixotes, metade direita do balcão, tocha e janela (DECO)
 Saída:   assets/tilesets/city/interior/<nome>.png        cada móvel, sem fundo, recortado e reduzido
          tools/assets/build/interior-floor/<piso>.png     cada piso, 32x32 (o build_city.py lê daqui)
          tools/assets/build/interior-floor/grande/        os tapetes inteiros (LARGE_FLOORS), para cortar em tiles
@@ -40,7 +41,9 @@ FLOOR_INSET = 0.03
 
 # Cada móvel: centro aproximado na folha original e escala para o jogo (personagem ~60 px; porta ~1,6x a altura dele).
 # Centros extras (3º campo) juntam peças grandes do mesmo conjunto.
-GUILD = {
+# A Guilda é a sala grande (44x28): a folha dela sai 12% maior que na primeira versão (mesa longa ~9 tiles).
+GUILD_SCALE = 1.12
+GUILD = {name: (spec[0], round(spec[1] * GUILD_SCALE, 3), *spec[2:]) for name, spec in {
     "balcao-recepcao": ((442, 298), 0.27),
     "mesa-bestiario": ((1198, 312), 0.27),
     "quadro-contratos": ((1840, 298), 0.25),
@@ -55,7 +58,27 @@ GUILD = {
     "pilar-lanterna-a": ((1850, 1210), 0.22),
     "pilar-lanterna-b": ((2112, 1210), 0.22),
     "porta-guilda": ((2482, 1236), 0.21),
+}.items()}
+# decoracoes_guilda.png: as 6 peças que faltavam na Guilda (grade 3x2; tocha e janela vêm em 2 versões cada). A folha
+# já vem com fundo transparente (RGB 0, alfa 0) e contorno quase preto e opaco: o fundo é o alfa (um flood-fill de
+# "preto" a partir da borda comeria o contorno). A metade direita do balcão tem a mesma escala do balcão da Guilda.
+DECO_FILE = "decoracoes_guilda.png"
+DECO = {
+    "guild_lectern_bestiary": ((452, 462), 0.24),
+    "guild_bookshelf": ((1337, 442), 0.21),
+    "guild_scroll_crates": ((2241, 470), 0.19),
+    "guild_counter_right": ((560, 1238), GUILD["balcao-recepcao"][1]),
+    "guild_wall_torch": ((1258, 1199), 0.19),
+    "guild_wall_torch_b": ((1553, 1199), 0.19),
+    "guild_wall_window": ((1966, 1209), 0.2),
+    "guild_wall_window_b": ((2457, 1209), 0.2),
 }
+# Sombra desenhada nesta folha: cinza-arroxeado escuro (~70, 64, 76) colado no fundo.
+DARK_SHADOW_LUM = (35, 115)
+DARK_SHADOW_MAX_SAT = 22
+DARK_SHADOW_ALPHA = 0.45
+# Franja do antisserrilhado (pixels quase transparentes e claros na borda): sai.
+FRINGE_MAX_ALPHA = 40
 SMITHY = {
     "balcao-ferreiro": ((192, 104), 0.55),
     "rack-armas-1": ((450, 104), 0.5),
@@ -97,7 +120,7 @@ FLOORS = [
 ]
 # Pisos guardados também inteiros (sem reduzir a 32 px), em interior-floor/grande/: o interiors.py corta deles os
 # tapetes de verdade (o quadrado com moldura dourada, a passadeira), em vez de repetir uma amostra inteira por tile.
-LARGE_FLOORS = {"tapete-centro", "tapete-faixa"}
+LARGE_FLOORS = {"tapete-centro", "tapete-faixa", "tapete-canto"}
 # Janelas com o quadriculado mais contrastado que o resto da folha (em volta da mesa redonda da Guilda): ali,
 # cinza claro sem cor ligado à borda da janela também é fundo.
 RELAXED_BACKGROUND = {"Interior_guilda.png": [(1100, 570, 1700, 1020)]}
@@ -132,6 +155,29 @@ def soften_shadows(art: np.ndarray) -> np.ndarray:
     strength = np.clip((248 - lum) / 248 * 2.2, 0, SHADOW_MAX_ALPHA)
     out[shadow, :3] = 0
     out[shadow, 3] = (strength[shadow] * 255).astype(np.uint8)
+    return out
+
+
+def dark_sheet_art(art: np.ndarray) -> np.ndarray:
+    """Folha de fundo transparente com sombra cinza-escura: a franja quase transparente sai e a sombra colada no fundo
+    vira preto semitransparente. O cinza de dentro do objeto (metal, aros do barril) fica: o contorno o separa do fundo."""
+    out = art.copy()
+    out[out[:, :, 3] < FRINGE_MAX_ALPHA, 3] = 0
+    rgb = out[:, :, :3].astype(float)
+    lum = rgb @ np.array([0.299, 0.587, 0.114])
+    sat = rgb.max(axis=2) - rgb.min(axis=2)
+    gone = out[:, :, 3] == 0
+    candidate = ~gone & (sat <= DARK_SHADOW_MAX_SAT) & (lum >= DARK_SHADOW_LUM[0]) & (lum <= DARK_SHADOW_LUM[1])
+    labels, _ = coarse_labels(candidate, 1)
+    near_gone = np.zeros_like(gone)
+    near_gone[1:] |= gone[:-1]
+    near_gone[:-1] |= gone[1:]
+    near_gone[:, 1:] |= gone[:, :-1]
+    near_gone[:, :-1] |= gone[:, 1:]
+    touching = np.unique(labels[near_gone & candidate])
+    shadow = np.isin(labels, touching[touching > 0])
+    out[shadow, :3] = 0
+    out[shadow, 3] = int(DARK_SHADOW_ALPHA * 255)
     return out
 
 
@@ -180,6 +226,11 @@ def process_props(sheet: list) -> None:
             image = scaled(crop, names[name][1])
             image.save(OUT / f"{name}.png")
             sheet.append((f"{name} {image.width}x{image.height}", image))
+    art = dark_sheet_art(load_rgba(SRC / DECO_FILE))
+    for name, crop in kit_objects(art, np.zeros(art.shape[:2], bool), DECO, DECO_FILE).items():
+        image = scaled(crop, DECO[name][1])
+        image.save(OUT / f"{name}.png")
+        sheet.append((f"{name} {image.width}x{image.height}", image))
 
 
 def process_floors(sheet: list) -> None:
