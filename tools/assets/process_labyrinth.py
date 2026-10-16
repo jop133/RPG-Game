@@ -269,7 +269,7 @@ def box_gap(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> float
     return math.hypot(dx, dy)
 
 
-def kit_objects(art: np.ndarray, holes: np.ndarray, names: dict[str, tuple[tuple[int, int], float]], label: str) -> dict[str, np.ndarray]:
+def kit_objects(art: np.ndarray, holes: np.ndarray, names: dict[str, tuple], label: str) -> dict[str, np.ndarray]:
     """Recorta os objetos de uma folha de kit. Cada ilha da máscara (dilatada em KITS_KERNEL) que contém o centro de
     um nome é um objeto; as ilhas pequenas que sobram (cristal solto, gota, ossinho) vão para o objeto mais perto,
     se estiver a até ATTACH_PX. Erro se um nome não achar ilha ou duas ilhas grandes sobrarem sem nome."""
@@ -277,15 +277,22 @@ def kit_objects(art: np.ndarray, holes: np.ndarray, names: dict[str, tuple[tuple
     step = 4
     labels, boxes = coarse_labels(grown, step)
     # A caixa, não o pixel: o centro de um arco ou de uma jaula cai no vão (vazado de verdade).
+    # Um nome pode ter centros extras (3º campo): peças grandes do mesmo conjunto (mesa e banquinhos).
     owner: dict[int, str] = {}
-    for name, ((cx, cy), _) in names.items():
-        around = [(n, (x1 - x0) * (y1 - y0)) for n, x0, y0, x1, y1 in boxes if x0 <= cx < x1 and y0 <= cy < y1]
-        if not around:
-            raise SystemExit(f"{label}/{name}: nenhum objeto em volta do centro ({cx},{cy})")
-        n = max(around, key=lambda t: t[1])[0]
-        if n in owner:
-            raise SystemExit(f"{label}/{name}: o objeto do centro ({cx},{cy}) já é de {owner[n]}")
-        owner[n] = name
+    for name, spec in names.items():
+        for k, (cx, cy) in enumerate([spec[0], *(spec[2] if len(spec) > 2 else [])]):
+            around = [(n, (x1 - x0) * (y1 - y0)) for n, x0, y0, x1, y1 in boxes
+                      if x0 <= cx < x1 and y0 <= cy < y1 and owner.get(n) != name]
+            if not around and k > 0 and any(x0 <= cx < x1 and y0 <= cy < y1 for n, x0, y0, x1, y1 in boxes if owner.get(n) == name):
+                continue  # a peça extra já veio junto com a principal
+            if not around:
+                raise SystemExit(f"{label}/{name}: nenhum objeto em volta do centro ({cx},{cy})")
+            # Centro principal: a maior ilha em volta (o vão de um arco cai na caixa dele). Extra: a menor que
+            # ainda não é deste nome (o banquinho, não a mesa de novo).
+            n = (max if k == 0 else min)(around, key=lambda t: t[1])[0]
+            if n in owner and owner[n] != name:
+                raise SystemExit(f"{label}/{name}: o objeto do centro ({cx},{cy}) já é de {owner[n]}")
+            owner[n] = name
     named = {n: (x0, y0, x1, y1) for n, x0, y0, x1, y1 in boxes if n in owner}
     for n, x0, y0, x1, y1 in boxes:
         if n in owner:

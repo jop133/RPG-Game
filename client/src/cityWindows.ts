@@ -46,6 +46,8 @@ export interface CityView {
 export interface CityWindow {
   readonly root: HTMLDivElement;
   update(view: CityView): void;
+  // Abre presa numa aba (a do móvel em que o jogador apertou E): sem a barra de abas, com o nome dela no título.
+  show(tab: string): void;
 }
 
 export type Send = (type: string, message: unknown) => void;
@@ -121,12 +123,19 @@ function showSlots(slots: SlotView[], view: readonly (HudSlot | undefined)[] | u
 class Tabs<T extends string> {
   private readonly buttons = new Map<T, HTMLButtonElement>();
   private readonly layers = new Map<T, HTMLDivElement>();
+  private readonly labels = new Map<T, string>();
+  private readonly bar: HTMLDivElement;
+  private readonly heading: HTMLDivElement;
   current: T;
 
   constructor(body: HTMLElement, tabs: readonly (readonly [T, string])[], private readonly onSelect?: (tab: T) => void) {
     for (const [id] of tabs) this.layers.set(id, place(el("div", "hud-abs", body), 0, 0, PANEL.w, PANEL.h));
     const bar = place(el("div", "hud-abs hud-tabs", body), 0, LEATHER.y - 33, PANEL.w);
+    this.bar = bar;
+    this.heading = place(el("div", "hud-abs hud-window-title", body), 0, LEATHER.y - 30, PANEL.w);
+    this.heading.hidden = true;
     for (const [id, label] of tabs) {
+      this.labels.set(id, label);
       const tab = el("button", "hud-tab", bar);
       tab.type = "button";
       tab.textContent = label;
@@ -145,6 +154,15 @@ class Tabs<T extends string> {
     for (const [id, node] of this.buttons) node.classList.toggle("hud-tab-active", id === tab);
     for (const [id, layer] of this.layers) layer.hidden = id !== tab;
     this.onSelect?.(tab);
+  }
+
+  // Só esta aba, com o nome dela no lugar da barra: cada móvel abre a sua (o servidor só aceita o pedido de cada
+  // aba no móvel dela).
+  lock(tab: T) {
+    this.select(tab);
+    this.bar.hidden = true;
+    this.heading.hidden = false;
+    setText(this.heading, this.labels.get(tab) ?? "");
   }
 }
 
@@ -197,8 +215,8 @@ function sellable(inventory: readonly (HudSlot | undefined)[]): { item: ItemId; 
 
 type GuildTab = "merchant" | "bestiary";
 const GUILD_TABS = [
-  ["merchant", "Mercador"],
-  ["bestiary", "Bestiário"],
+  ["merchant", "Balcão de Recepção"],
+  ["bestiary", "Bestiário da Linhagem"],
 ] as const;
 
 // Mercador (vende o loot extraído por moedas, SELL_PRICES por unidade) e Bestiário com o Rank de Aventureiro.
@@ -234,6 +252,10 @@ export class GuildWindow implements CityWindow {
     this.tabs.select("merchant");
   }
 
+  show(tab: string) {
+    this.tabs.lock(tab as GuildTab);
+  }
+
   update(view: CityView) {
     if (this.tabs.current === "bestiary") return this.bestiary.update(view.bestiary ?? [], view.kills ?? []);
     this.goods = sellable(view.inventory);
@@ -255,7 +277,7 @@ export class GuildWindow implements CityWindow {
 type InnTab = "stash" | "tavern";
 const INN_TABS = [
   ["stash", "Baú da Linhagem"],
-  ["tavern", "Taverna"],
+  ["tavern", "Balcão de Comida"],
 ] as const;
 // O que a Taverna vende, na ordem de BUY_PRICES.
 const TAVERN_GOODS = Object.keys(BUY_PRICES) as ItemId[];
@@ -323,6 +345,10 @@ export class InnWindow implements CityWindow {
     this.tabs.select("stash");
   }
 
+  show(tab: string) {
+    this.tabs.lock(tab as InnTab);
+  }
+
   update(view: CityView) {
     showSlots(this.bag, view.inventory);
     showSlots(this.stash, view.stash);
@@ -355,7 +381,7 @@ export class InnWindow implements CityWindow {
 
 type ForgeTab = "catalog" | "recipes";
 const FORGE_TABS = [
-  ["catalog", "Catálogo"],
+  ["catalog", "Balcão do Ferreiro"],
   ["recipes", "Forja"],
 ] as const;
 const SOON = "Em breve";
@@ -396,11 +422,13 @@ function forgeRow(parent: HTMLElement, tooltip: Tooltip, item: ForgeItem, y: num
 export class ForgeWindow implements CityWindow {
   readonly root: HTMLDivElement;
   private readonly coins: HTMLSpanElement[] = [];
+  private readonly tabs: Tabs<ForgeTab>;
 
   constructor(parent: HTMLElement, tooltip: Tooltip) {
     const { root, body } = singlePanelWindow(parent);
     this.root = root;
     const tabs = new Tabs<ForgeTab>(body, FORGE_TABS);
+    this.tabs = tabs;
     caption(body, KEYS_HINT, LEATHER.y - 11);
     const sections: [ForgeTab, string, readonly ForgeItem[]][] = [
       ["catalog", "Armas e equipamento do ferreiro:", FORGE_CATALOG],
@@ -414,6 +442,10 @@ export class ForgeWindow implements CityWindow {
       this.coins.push(purse(layer));
     }
     tabs.select("catalog");
+  }
+
+  show(tab: string) {
+    this.tabs.lock(tab as ForgeTab);
   }
 
   update(view: CityView) {

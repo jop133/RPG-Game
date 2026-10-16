@@ -1,4 +1,4 @@
-import { HUNGER_MAX, INVENTORY_SLOTS, type BuildingId } from "shared";
+import { HUNGER_MAX, INVENTORY_SLOTS, type BuildingId, type StationId } from "shared";
 import layout from "../../assets/ui/hud/layout.json";
 import { ForgeWindow, GuildWindow, InnWindow, type CityWindow, type Send } from "./cityWindows";
 import "./hud.css";
@@ -44,6 +44,15 @@ const HUNGER_ALERT = 0.2;
 const GHOST_HOLD_MS = 350;
 const GHOST_SPEED = 0.6; // fração da barra por segundo
 const WINDOW_KEYS = new Set(["KeyI", "Tab", "KeyB"]);
+// Janela e aba de cada móvel dos prédios.
+const STATION_WINDOWS: Record<StationId, [BuildingId, string]> = {
+  "guild-counter": ["guild", "merchant"],
+  "guild-bestiary": ["guild", "bestiary"],
+  "inn-counter": ["inn", "tavern"],
+  "inn-chest": ["inn", "stash"],
+  "blacksmith-counter": ["blacksmith", "catalog"],
+  "blacksmith-anvil": ["blacksmith", "recipes"],
+};
 
 // Escala inteira: a tela tem pelo menos ~960x540 pixels de HUD (1 em 1366x768, 2 em 1920x1080, 3 em 4K).
 function hudScale(): number {
@@ -56,7 +65,7 @@ export class Hud {
   private readonly window: InventoryWindow;
   // Janelas dos prédios da cidade (E na porta). No máximo uma janela aberta por vez, contando a de inventário.
   private readonly buildings: Record<BuildingId, CityWindow>;
-  private openBuilding: BuildingId | undefined;
+  private openStation: StationId | undefined;
   private readonly portrait: HTMLImageElement;
   private readonly fills = new Map<string, HTMLDivElement>();
   private readonly ghost: HTMLDivElement;
@@ -207,7 +216,7 @@ export class Hud {
     }
     // A janela aberta acompanha na hora (comer, pegar loot, absorver essência); fechada, não gasta nada.
     if (this.window.open) this.window.update(view);
-    if (this.openBuilding) this.buildings[this.openBuilding].update(view);
+    if (this.openStation) this.buildings[STATION_WINDOWS[this.openStation][0]].update(view);
   }
 
   toggleWindow() {
@@ -216,24 +225,26 @@ export class Hud {
     this.tooltip.hide();
   }
 
-  // Qual janela de prédio está aberta (a cena a fecha quando o jogador sai da porta).
-  get building(): BuildingId | undefined {
-    return this.openBuilding;
+  // Qual móvel está com a janela aberta (a cena a fecha quando o jogador se afasta dele).
+  get station(): StationId | undefined {
+    return this.openStation;
   }
 
-  // E na porta: abre a janela do prédio, ou fecha se já estava aberta.
-  toggleBuilding(id: BuildingId) {
-    if (this.openBuilding === id) return this.closeBuilding();
+  // E num móvel: abre a janela dele, na aba dele, ou fecha se já estava aberta.
+  toggleStation(id: StationId) {
+    if (this.openStation === id) return this.closeBuilding();
     this.closeBuilding();
     this.window.close();
-    this.buildings[id].root.hidden = false;
-    this.openBuilding = id;
+    const [building, tab] = STATION_WINDOWS[id];
+    this.buildings[building].show(tab);
+    this.buildings[building].root.hidden = false;
+    this.openStation = id;
   }
 
   closeBuilding() {
-    if (!this.openBuilding) return;
-    this.buildings[this.openBuilding].root.hidden = true;
-    this.openBuilding = undefined;
+    if (!this.openStation) return;
+    this.buildings[STATION_WINDOWS[this.openStation][0]].root.hidden = true;
+    this.openStation = undefined;
     this.tooltip.hide();
   }
 

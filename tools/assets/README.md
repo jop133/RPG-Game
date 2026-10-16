@@ -50,9 +50,28 @@ tools/assets/.venv/Scripts/python.exe -I tools/assets/render_map.py assets/maps/
 - Camada de objetos `objetos`: prédios, enfeites e portal, de uma coleção de imagens (`city/objects`). No Tiled,
   cada tile dessa coleção tem a propriedade `solid` e um retângulo de colisão desenhado na base (editor de colisão
   do Tiled); mover o objeto no Tiled leva a colisão junto.
-- Camadas de pontos `spawns`, `portal` e `interacoes` (portas dos prédios com janela; nome do ponto = id do prédio,
-  `INTERACTIONS` em `build_city.py`). Ponha cada porta logo abaixo da base do prédio: acima dela, o prédio é desenhado
-  por cima de quem está ali.
+- Camadas de pontos `spawns`, `portal` e `interacoes` (portas da rua com o id do prédio, `INTERACTIONS` em
+  `build_city.py`; portas de dentro `<prédio>-exit` e móveis com E, em `interiors.py`). Ponha cada porta da rua logo
+  abaixo da base do prédio: acima dela, o prédio é desenhado por cima de quem está ali.
+- Camada de pontos `chegadas` (onde a porta da rua deixa o jogador, dentro de cada prédio) e de retângulos `regioes`
+  (a cidade e cada interior: o cliente prende a câmera no lugar onde o jogador está).
+
+## Interiores dos prédios (Guilda, Forja, Estalagem)
+
+```bash
+tools/assets/.venv/Scripts/python.exe -I tools/assets/process_interiors.py
+tools/assets/.venv/Scripts/python.exe -I tools/assets/build_city.py
+```
+
+1. **`process_interiors.py`** (~13 s): lê `Tiles_interiores.png`, `Interior_guilda.png`, `interior_ferreiro.png`,
+   `Interior_casacomida.png` e `Bau_casadecomida.png` (em `novos tilesets/`). Mesma limpeza dos kits do labirinto
+   (`clean`, `kit_objects` de `process_labyrinth.py`), mais: janelas com quadriculado mais contrastado limpas com um limiar
+   mais tolerante (`RELAXED_BACKGROUND`) e a sombra cinza desenhada embaixo dos móveis virada preto semitransparente
+   (`soften_shadows`). Grava os móveis em `assets/tilesets/city/interior/` e os 16 pisos em
+   `tools/assets/build/interior-floor/`. Nome, centro e escala de cada móvel no topo (`GUILD`, `SMITHY`, `INN`, `CHEST`).
+2. **`interiors.py`** (usado pelo `build_city.py`): a planta de cada sala (pisos, paredes internas, móveis, pontos),
+   as paredes geradas a partir dos pisos, a colisão (`FOOTPRINT`) e as luzes (`LIGHTS`) dos móveis. As salas ficam ao
+   leste da cidade, a `INTERIOR_GAP` tiles de vazio dela e uma da outra.
 
 ## Interface de registro e personagens
 

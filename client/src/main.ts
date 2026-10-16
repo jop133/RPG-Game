@@ -12,22 +12,24 @@ import {
   EXIT_LIGHT_RADIUS,
   FIRST_KILL_XP,
   INTERACTION_LAYER,
+  REGION_LAYER,
   LIGHT_LAYER,
   PLAYER_ATTACK,
   PLAYER_LIGHT_RADIUS,
   PLAYER_MAX_HP,
   PLAYER_SIZE,
   PORTAL_LAYER,
-  buildingAt,
+  interactionAt,
   isAtPortal,
-  isBuildingId,
+  isInteractionId,
+  isStationId,
   lightRadius,
   mobStrikeArc,
   playerStats,
   viewportSize,
   xpForNextLevel,
-  type BuildingId,
-  type BuildingPoint,
+  type InteractionId,
+  type InteractionPoint,
   type ClassId,
   type DeathCause,
   type ExtractionResult,
@@ -256,12 +258,26 @@ const PLAYER_LIGHT: LightLook = { color: 0xfff0dc, intensity: 1, effect: "steady
 const EXIT_LIGHT: LightLook = { color: 0x40c4ff, intensity: 1, effect: "pulse" };
 // Portal de saída ativo: a mesma arte do portal da cidade, puxada para o azul da extração.
 const EXIT_PORTAL_KEY = "city/portal";
-// Nome de cada prédio da cidade na dica da porta (e no título da janela).
-const BUILDING_NAMES: Record<BuildingId, string> = {
-  guild: "Salão da Guilda",
-  inn: "Estalagem & Baú da Linhagem",
-  blacksmith: "Forja do Ferreiro",
+// Dica de cada ponto de interação da cidade (portas da rua, portas de dentro e móveis).
+const INTERACTION_HINTS: Record<InteractionId, string> = {
+  guild: "[E] Entrar no Salão da Guilda",
+  inn: "[E] Entrar na Estalagem",
+  blacksmith: "[E] Entrar na Forja do Ferreiro",
+  "guild-exit": "[E] Sair para a Cidade",
+  "inn-exit": "[E] Sair para a Cidade",
+  "blacksmith-exit": "[E] Sair para a Cidade",
+  "guild-counter": "[E] Balcão de Recepção: vender loot",
+  "guild-bestiary": "[E] Mesa de Pesquisa: Bestiário e Rank",
+  "inn-counter": "[E] Balcão de Comida: suprimentos",
+  "inn-chest": "[E] Baú da Linhagem",
+  "blacksmith-counter": "[E] Balcão do Ferreiro: equipamentos",
+  "blacksmith-anvil": "[E] Forja: receitas",
 };
+// Troca de lugar pela porta: escurece, o servidor muda o jogador de lugar e clareia. Sem resposta (fora da porta,
+// no servidor), clareia depois de DOOR_TIMEOUT_MS.
+const DOOR_FADE_MS = 120;
+const DOOR_TIMEOUT_MS = 700;
+const DOOR_JUMP_PX = 256;
 const EXIT_PORTAL_TINT = 0x80d8ff;
 
 // Sombra nos pés: elipse escura no chão, embaixo de jogadores, mobs e enfeites em pé.
@@ -351,7 +367,12 @@ class WorldScene extends Phaser.Scene {
   private keys?: MoveKeys;
   // Só na cidade: portais e portas dos prédios (lidos do mapa, como as paredes) e a tecla E.
   private portals: Vec2[] = [];
-  private buildings: BuildingPoint[] = [];
+  private interactions: InteractionPoint[] = [];
+  // Cidade e interiores (camada "regioes"): a câmera fica presa ao lugar onde o jogador está.
+  private regions: { name: string; rect: Phaser.Geom.Rectangle }[] = [];
+  private region = "";
+  private doorAskedAt: number | undefined;
+  private lastSelf: Vec2 | undefined;
   private portalKey?: Phaser.Input.Keyboard.Key;
   private avatars = new Map<string, Avatar>();
   private mobSprites = new Map<string, MobSprite>();
@@ -438,9 +459,13 @@ class WorldScene extends Phaser.Scene {
   // Portais desenhados a partir do mapa (são fixos, como as paredes). Quem decide se entrou é o servidor.
   private createCity(room: Room<unknown, ServerState>, map: Phaser.Tilemaps.Tilemap) {
     this.portals = (map.getObjectLayer(PORTAL_LAYER)?.objects ?? []).map((o) => ({ x: o.x ?? 0, y: o.y ?? 0 }));
-    this.buildings = (map.getObjectLayer(INTERACTION_LAYER)?.objects ?? []).flatMap((o) =>
-      o.name && isBuildingId(o.name) ? [{ building: o.name, x: o.x ?? 0, y: o.y ?? 0 }] : [],
+    this.interactions = (map.getObjectLayer(INTERACTION_LAYER)?.objects ?? []).flatMap((o) =>
+      o.name && isInteractionId(o.name) ? [{ id: o.name, x: o.x ?? 0, y: o.y ?? 0 }] : [],
     );
+    this.regions = (map.getObjectLayer(REGION_LAYER)?.objects ?? []).map((o) => ({
+      name: o.name,
+      rect: new Phaser.Geom.Rectangle(o.x ?? 0, o.y ?? 0, o.width ?? 0, o.height ?? 0),
+    }));
     const g = this.add.graphics().setDepth(EXIT_DEPTH);
     for (const portal of this.portals) {
       g.fillStyle(PORTAL_COLOR, 0.2);
@@ -495,7 +520,7 @@ Subiu para o nível ${info.level}!` : "";
     });
     this.syncAvatars(room, time);
     this.updateHud(room, time);
-    if (this.place === "city") this.updateCity(room);
+    if (this.place === "city") this.updateCity(room, time);
     else this.updateLabyrinth(room, time);
     const lights = this.currentLights(room);
     this.lighting?.draw(lights, time);
@@ -549,18 +574,42 @@ Subiu para o nível ${info.level}!` : "";
     });
   }
 
-  // E dentro do portal pede para entrar no labirinto; na porta de um prédio, abre (ou fecha) a janela dele. Saiu
-  // da porta, a janela fecha. Dica e janela são só visuais; o servidor confere onde o jogador está a cada pedido.
-  private updateCity(room: Room<unknown, ServerState>) {
+  // E dentro do portal pede para entrar no labirinto; numa porta, pede para entrar ou sair do prédio; num móvel,
+  // abre (ou fecha) a janela dele. Afastou-se do móvel, a janela fecha. Dica e janela são só visuais; o servidor
+  // confere onde o jogador está a cada pedido.
+  private updateCity(room: Room<unknown, ServerState>, time: number) {
     const self = room.state.players.get(room.sessionId);
-    const atPortal = self !== undefined && isAtPortal(self, this.portals);
-    const building = self && !atPortal ? buildingAt(self, this.buildings) : undefined;
-    if (hud.building && hud.building !== building) hud.closeBuilding();
-    const open = building !== undefined && hud.building === building;
-    hud.hint(atPortal ? "[E] Entrar no labirinto" : building && !open ? `[E] ${BUILDING_NAMES[building]}` : "");
+    if (!self) return;
+    this.followRegion(self, time);
+    const atPortal = isAtPortal(self, this.portals);
+    const spot = atPortal ? undefined : interactionAt(self, this.interactions);
+    if (hud.station && hud.station !== spot) hud.closeBuilding();
+    const open = spot !== undefined && hud.station === spot;
+    hud.hint(atPortal ? "[E] Entrar no labirinto" : spot && !open ? INTERACTION_HINTS[spot] : "");
     if (!this.portalKey || !Phaser.Input.Keyboard.JustDown(this.portalKey)) return;
     if (atPortal) room.send("enterPortal");
-    else if (building) hud.toggleBuilding(building);
+    else if (spot && isStationId(spot)) hud.toggleStation(spot);
+    else if (spot && this.doorAskedAt === undefined) {
+      this.doorAskedAt = time;
+      this.cameras.main.fadeOut(DOOR_FADE_MS, 0, 0, 0);
+      room.send("door");
+    }
+  }
+
+  // Câmera presa à região (cidade ou interior) onde o jogador está; quando ele muda de lugar pela porta, clareia.
+  private followRegion(self: Vec2, time: number) {
+    const cam = this.cameras.main;
+    const jumped = this.lastSelf !== undefined && Math.hypot(self.x - this.lastSelf.x, self.y - this.lastSelf.y) > DOOR_JUMP_PX;
+    this.lastSelf = { x: self.x, y: self.y };
+    const here = this.regions.find((r) => r.rect.contains(self.x, self.y));
+    if (here && here.name !== this.region) {
+      this.region = here.name;
+      cam.setBounds(here.rect.x, here.rect.y, here.rect.width, here.rect.height);
+    }
+    if (this.doorAskedAt !== undefined && (jumped || time - this.doorAskedAt > DOOR_TIMEOUT_MS)) {
+      this.doorAskedAt = undefined;
+      cam.fadeIn(DOOR_FADE_MS * 2, 0, 0, 0);
+    }
   }
 
   private updateLabyrinth(room: Room<unknown, ServerState>, time: number) {

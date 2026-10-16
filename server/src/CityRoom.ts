@@ -8,9 +8,11 @@ import {
   PLAYER_SIZE,
   STASH_SLOTS,
   TICK_RATE,
-  buildingAt,
+  STATION_FOR,
   buyItems,
   deposit,
+  doorDestination,
+  interactionAt,
   isAtPortal,
   levelForXp,
   moveWithCollision,
@@ -23,7 +25,7 @@ import {
   sellItems,
   useSlot,
   withdraw,
-  type BuildingId,
+  type StationId,
   type Inventory,
   type ItemId,
   type MoveInput,
@@ -86,6 +88,7 @@ export class CityRoom extends Room<{ state: CityState }> {
       this.moveInputs.set(client.sessionId, parseMoveInput(message));
     });
     this.onMessage("enterPortal", (client) => this.handlePortal(client));
+    this.onMessage("door", (client) => this.handleDoor(client.sessionId));
     this.onMessage("use", (client, message) => this.handleUse(client.sessionId, message));
     this.onMessage("deposit", (client, message) => this.handleStash(client.sessionId, message, "deposit"));
     this.onMessage("withdraw", (client, message) => this.handleStash(client.sessionId, message, "withdraw"));
@@ -175,7 +178,7 @@ export class CityRoom extends Room<{ state: CityState }> {
 
   // Estalagem: clicar num slot da mochila guarda a pilha no baú; num slot do baú, traz para a mochila.
   private handleStash(sessionId: string, message: unknown, direction: "deposit" | "withdraw") {
-    const customer = this.customerAt(sessionId, "inn");
+    const customer = this.customerAt(sessionId, STATION_FOR.stash);
     const slot = parseSlotIndex(message, direction === "deposit" ? INVENTORY_SLOTS : STASH_SLOTS);
     if (!customer || slot === undefined) return;
     const { inventory, lineage } = customer;
@@ -191,7 +194,7 @@ export class CityRoom extends Room<{ state: CityState }> {
 
   // Guilda vende (o Mercador compra o loot do jogador); Estalagem compra (a Taverna vende comida).
   private handleTrade(sessionId: string, message: unknown, side: "sell" | "buy") {
-    const customer = this.customerAt(sessionId, side === "sell" ? "guild" : "inn");
+    const customer = this.customerAt(sessionId, side === "sell" ? STATION_FOR.sell : STATION_FOR.buy);
     const trade = parseTrade(message);
     if (!customer || !trade) return;
     const { inventory, lineage } = customer;
@@ -207,14 +210,26 @@ export class CityRoom extends Room<{ state: CityState }> {
     this.notify(sessionId, `${verb} ${trade.count}x ${ITEMS[trade.item].name} (${side === "sell" ? "+" : "-"}${amount} moedas)`);
   }
 
-  // A janela aberta no cliente não conta (regra 1): quem negocia precisa estar na porta do prédio agora.
-  private customerAt(sessionId: string, building: BuildingId): Customer | undefined {
+  // E numa porta: a da rua leva para dentro do prédio; a de dentro, de volta à rua. Quem decide se o jogador está
+  // numa porta é o servidor (o cliente só pede). O mesmo vale para quem está do lado: só o jogador muda de lugar.
+  private handleDoor(sessionId: string) {
+    const player = this.state.players.get(sessionId);
+    if (!player) return;
+    const target = doorDestination(interactionAt(player, city.interactions), city.arrivals, city.streetDoors);
+    if (!target) return;
+    player.x = target.x;
+    player.y = target.y;
+  }
+
+  // A janela aberta no cliente não conta (regra 1): quem negocia precisa estar no móvel certo agora (o balcão para
+  // vender, o balcão de comida para comprar, o Baú da Linhagem para guardar e retirar).
+  private customerAt(sessionId: string, station: StationId): Customer | undefined {
     const player = this.state.players.get(sessionId);
     const record = this.characters.get(sessionId);
     const inventory = this.inventories.get(sessionId);
     const lineage = this.lineages.get(sessionId);
     if (!player || !record || !inventory || !lineage) return undefined;
-    if (buildingAt(player, city.buildings) !== building) return undefined;
+    if (interactionAt(player, city.interactions) !== station) return undefined;
     return { player, record, inventory, lineage };
   }
 

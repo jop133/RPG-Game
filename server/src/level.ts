@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
 import {
   AREAS,
+  ARRIVAL_LAYER,
   BUILDINGS,
+  INTERACTIONS,
   EXIT_LAYER,
   INTERACTION_LAYER,
   MOB_KINDS,
@@ -12,17 +14,20 @@ import {
   boxFits,
   entrySpawnPoints,
   isBuildingId,
+  isInteractionId,
   lightRadius,
   parseAreas,
   parseCollisionGrid,
   parseExitPoints,
+  parseArrivalPoints,
   parseInteractionPoints,
   parseLights,
   parsePortalPoints,
   parseSpawnPoints,
   validateAreas,
   type Area,
-  type BuildingPoint,
+  type BuildingId,
+  type InteractionPoint,
   type CollisionGrid,
   type LightSource,
   type TiledMap,
@@ -46,8 +51,12 @@ export interface City {
   spawnPoints: Vec2[];
   // Portais para o labirinto.
   portals: Vec2[];
-  // Portas dos prédios com janela (Guilda, Estalagem, Forja).
-  buildings: BuildingPoint[];
+  // Portas da rua, portas de dentro e móveis com E (Guilda, Estalagem, Forja).
+  interactions: InteractionPoint[];
+  // Onde a porta da rua deixa o jogador, dentro de cada prédio; e a porta da rua de cada prédio (aonde a de dentro
+  // leva de volta; a primeira, se o prédio tem mais de uma).
+  arrivals: Record<BuildingId, Vec2>;
+  streetDoors: Record<BuildingId, Vec2>;
 }
 
 function readMap(file: URL): TiledMap {
@@ -81,35 +90,57 @@ export function loadLevel(file: URL): Level {
   return { grid, areas, playerEntryPoints, floorCells, exitCandidates, lights };
 }
 
-// A cidade não tem áreas, mobs nem saídas: só onde se chega, os portais para o labirinto e as portas dos prédios.
+// A cidade não tem áreas, mobs nem saídas: só onde se chega, os portais para o labirinto, as portas e os móveis dos
+// prédios e as chegadas dentro deles.
 export function loadCity(file: URL): City {
   const map = readMap(file);
   const grid = parseCollisionGrid(map);
   const spawnPoints = parseSpawnPoints(map);
   const portals = parsePortalPoints(map);
-  const doors = parseInteractionPoints(map);
+  const points = parseInteractionPoints(map);
+  const arrivalPoints = parseArrivalPoints(map);
   const errors = [
     ...spawnErrors(grid, spawnPoints),
     ...portalErrors(grid, portals),
     ...lightErrors(parseLights(map)),
-    ...buildingErrors(grid, doors),
+    ...interactionErrors(grid, points),
+    ...arrivalErrors(grid, arrivalPoints),
   ];
   if (errors.length > 0) throw new Error(`Mapa inválido (${file.pathname}):\n- ${errors.join("\n- ")}`);
-  const buildings = doors.flatMap(({ name, x, y }) => (isBuildingId(name) ? [{ building: name, x, y }] : []));
-  return { grid, spawnPoints, portals, buildings };
+  const interactions = points.flatMap(({ name, x, y }) => (isInteractionId(name) ? [{ id: name, x, y }] : []));
+  const pick = (list: (Vec2 & { name: string })[], id: BuildingId): Vec2 => {
+    const found = list.find((p) => p.name === id) as Vec2;
+    return { x: found.x, y: found.y };
+  };
+  const arrivals = Object.fromEntries(BUILDINGS.map((id) => [id, pick(arrivalPoints, id)])) as Record<BuildingId, Vec2>;
+  const streetDoors = Object.fromEntries(BUILDINGS.map((id) => [id, pick(points, id)])) as Record<BuildingId, Vec2>;
+  return { grid, spawnPoints, portals, interactions, arrivals, streetDoors };
 }
 
-// Cada prédio de BUILDINGS precisa de pelo menos uma porta; cada porta, de um id conhecido e de lugar para o jogador.
-function buildingErrors(grid: CollisionGrid, doors: (Vec2 & { name: string })[]): string[] {
-  const errors = BUILDINGS.filter((id) => !doors.some((door) => door.name === id)).map(
-    (id) => `O prédio "${id}" não tem porta. Crie um ponto com esse nome na camada "${INTERACTION_LAYER}".`,
+// Todo ponto de INTERACTIONS precisa existir (porta da rua, porta de dentro e móveis de cada prédio); cada ponto, de
+// um id conhecido e de lugar para o jogador.
+function interactionErrors(grid: CollisionGrid, points: (Vec2 & { name: string })[]): string[] {
+  const errors = INTERACTIONS.filter((id) => !points.some((p) => p.name === id)).map(
+    (id) => `Falta o ponto "${id}". Crie um ponto com esse nome na camada "${INTERACTION_LAYER}".`,
   );
-  for (const door of doors) {
-    if (!isBuildingId(door.name)) {
-      errors.push(`A porta "${door.name}" em (${door.x}, ${door.y}) não é um prédio conhecido (${BUILDINGS.join(", ")}).`);
-    } else if (!boxFits(grid, door, PLAYER_SIZE / 2)) {
-      errors.push(`A porta "${door.name}" (${door.x}, ${door.y}) encosta em parede. O jogador não conseguiria ficar nela.`);
+  for (const p of points) {
+    if (!isInteractionId(p.name)) {
+      errors.push(`O ponto "${p.name}" em (${p.x}, ${p.y}) não é conhecido (${INTERACTIONS.join(", ")}).`);
+    } else if (!boxFits(grid, p, PLAYER_SIZE / 2)) {
+      errors.push(`O ponto "${p.name}" (${p.x}, ${p.y}) encosta em parede. O jogador não conseguiria ficar nele.`);
     }
+  }
+  return errors;
+}
+
+// Cada prédio precisa de uma chegada de dentro, com lugar para o jogador.
+function arrivalErrors(grid: CollisionGrid, points: (Vec2 & { name: string })[]): string[] {
+  const errors = BUILDINGS.filter((id) => !points.some((p) => p.name === id)).map(
+    (id) => `O prédio "${id}" não tem chegada. Crie um ponto com esse nome na camada "${ARRIVAL_LAYER}".`,
+  );
+  for (const p of points) {
+    if (!isBuildingId(p.name)) errors.push(`A chegada "${p.name}" não é um prédio conhecido (${BUILDINGS.join(", ")}).`);
+    else if (!boxFits(grid, p, PLAYER_SIZE / 2)) errors.push(`A chegada "${p.name}" (${p.x}, ${p.y}) encosta em parede.`);
   }
   return errors;
 }

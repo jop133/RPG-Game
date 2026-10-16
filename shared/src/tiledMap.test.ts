@@ -218,7 +218,7 @@ describe("parseInteractionPoints", () => {
 
   it("ponto sem nome dá erro dizendo o objeto e o que falta", () => {
     const map = mapWith([{ type: "objectgroup", name: "interacoes", objects: [{ id: 3, x: 0, y: 0, point: true }] }]);
-    expect(() => parseInteractionPoints(map)).toThrow(/Ponto 3 na camada "interacoes" está sem nome \(o nome é o id do prédio\)/);
+    expect(() => parseInteractionPoints(map)).toThrow(/Ponto 3 na camada "interacoes" está sem nome \(o nome é o id do ponto\)/);
   });
 });
 

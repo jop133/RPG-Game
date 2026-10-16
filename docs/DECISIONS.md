@@ -945,3 +945,21 @@ Slot vazio usa a moldura comum.
 
 **Limites:** as saídas ficaram mais longe (88 a 119 s andando pelo caminho mais curto, contra 61 a 89 s antes). Com a fome de 5 min e 3 rações, cabe, mas sobra menos tempo para explorar.
 
+---
+
+## 2026-10 — Interiores dos prédios dentro do city.json; negócio no móvel, não na porta
+
+**Pedido do dono do projeto:** Salão da Guilda, Forja e Estalagem com interior, entrada e saída pela porta, e cada função num móvel (balcão, mesa do Bestiário, balcão de comida, Baú da Linhagem, balcão e bigorna da Forja).
+
+**Muda:** a decisão "Prédios da cidade: moedas e baú da linhagem, negócio só na porta do prédio". Agora a porta da rua só leva para dentro; vender, comprar e mexer no baú exigem estar no móvel (`STATION_FOR`). O resto (moedas e baú da linhagem, tudo ou nada, gravação na hora) não muda.
+
+**Como:**
+- **Interiores no próprio `city.json`** (das duas opções do pedido, a mais simples): 3 salas fechadas ao leste da cidade, a 26 tiles de vazio dela e uma da outra (mais que `VIEW_RADIUS` + folga ≈ 17 tiles). Continua sendo uma `CityRoom` só; o interest management de sempre faz quem está na mesma sala se ver e ninguém ver a rua ou outra sala. Uma sala por prédio, então não há um "Salão da Guilda" por jogador: todos dividem o mesmo
+- **Porta:** mensagem `door`; o servidor confere se o jogador está numa porta (`interactionAt`) e o teletransporta (`doorDestination`): a da rua leva à chegada de dentro (camada `chegadas`); a de dentro, à porta da rua do prédio (a primeira, na Estalagem, que tem duas). O cliente escurece antes de pedir e clareia ao ver o salto (ou em 0,7 s, se o servidor recusar)
+- **Câmera presa à região** (camada `regioes`: cidade e cada sala): sem isso, a borda leste da cidade mostraria o vazio. Só visual
+- **Paredes geradas** no script, a partir dos próprios pisos (as folhas não trazem parede): topo escuro e face de tijolo de duas linhas. O vazio entre as salas é um tile preto e sólido (antes o mapa acabava na borda da cidade)
+- **Janelas reaproveitadas**, cada móvel abrindo a sua presa na aba dele (sem a barra de abas, com o nome dela no título): o servidor só aceitaria o pedido de outra aba no móvel dela
+- **Forja** continua vitrine (catálogo no balcão, receitas na bigorna) até o passo 8
+
+**Limites conhecidos:** a luz dentro das salas é o entardecer da cidade mais as luzes delas (sem ambiente próprio por sala). Quem cai dentro de um prédio volta pela entrada da cidade.
+

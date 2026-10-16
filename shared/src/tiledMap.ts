@@ -159,6 +159,8 @@ export const EXIT_LAYER = "exits";
 export const PORTAL_LAYER = "portal";
 export const LIGHT_LAYER = "luzes";
 export const INTERACTION_LAYER = "interacoes";
+export const ARRIVAL_LAYER = "chegadas";
+export const REGION_LAYER = "regioes";
 
 function objectsIn(map: TiledMap, layerName: string): TiledObject[] {
   const layer = map.layers.find((l) => l.type === "objectgroup" && l.name === layerName);
@@ -207,7 +209,12 @@ export function parseLights(map: TiledMap): (Vec2 & { kind: string })[] {
 // Portas dos prédios da cidade: pontos na camada "interacoes", com o id do prédio no nome (guild, inn, blacksmith).
 // Quem confere se o id existe é o carregador da cidade (server/src/level.ts).
 export function parseInteractionPoints(map: TiledMap): (Vec2 & { name: string })[] {
-  return namedPointsIn(map, INTERACTION_LAYER, "o id do prédio");
+  return namedPointsIn(map, INTERACTION_LAYER, "o id do ponto");
+}
+
+// Chegadas dentro dos prédios: pontos na camada "chegadas", com o id do prédio no nome. A porta da rua leva até aqui.
+export function parseArrivalPoints(map: TiledMap): (Vec2 & { name: string })[] {
+  return namedPointsIn(map, ARRIVAL_LAYER, "o id do prédio");
 }
 
 // No JSON do Tiled, ponto, elipse, polígono, texto e tile também têm x/y; retângulo é o que não tem marca nenhuma.

@@ -30,6 +30,7 @@ import numpy as np
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import interiors  # noqa: E402
 from lights import light_layer, warm_spots  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -143,12 +144,23 @@ def even_out(variants: list[Image.Image]) -> list[Image.Image]:
 
 
 def build_floor_tileset() -> dict[str, list[int]]:
-    """Grava city/floor.png e devolve, para cada tipo de chão, os ids (locais) das variantes."""
+    """Grava city/floor.png e devolve, para cada tipo de chão, os ids (locais) das variantes. Os tiles dos interiores
+    (pisos, paredes e o vazio) entram no fim, com a chave "int:<nome>"."""
     ids: dict[str, list[int]] = {}
     images: list[Image.Image] = []
     for name, variants in floor_kinds().items():
         ids[name] = list(range(len(images), len(images) + len(variants)))
         images.extend(variants)
+    # Pisos internos: cada família (madeira, pedra escura...) sem vinheta e com a mesma cor média, como o chão rústico
+    # da cidade (senão as tábuas viram xadrez). Tapetes ficam como estão: a borda deles é desenho.
+    tiles = dict(interiors.tile_images())
+    for family in interiors.FLOOR_KINDS.values():
+        if len(family) > 1 and not family[0].startswith("tapete"):
+            for name, image in zip(family, even_out([tiles[n] for n in family])):
+                tiles[name] = image
+    for name, image in tiles.items():
+        ids[f"int:{name}"] = [len(images)]
+        images.append(image)
     cols = 8
     rows = (len(images) + cols - 1) // cols
     sheet = Image.new("RGBA", (cols * T, rows * T), (0, 0, 0, 0))
@@ -318,6 +330,9 @@ FOOTPRINT: dict[str, tuple[float, float, float, float] | None] = {
 }
 
 
+FOOTPRINT.update(interiors.FOOTPRINT)
+
+
 class Objects:
     def __init__(self, firstgid: int):
         self.firstgid = firstgid
@@ -478,6 +493,15 @@ def city_lights(objects: Objects) -> list[tuple[str, float, float]]:
             lights += [("vela", obj["x"] + sx, top + sy) for sx, sy, _ in spots]
         elif name == "portal":
             lights.append(("portal", obj["x"] + obj["width"] / 2, obj["y"] - obj["height"] * 0.45))
+        elif name in interiors.LIGHTS:
+            kind, rule = interiors.LIGHTS[name]
+            if isinstance(rule, float):
+                lights.append((kind, obj["x"] + obj["width"] / 2, obj["y"] - obj["height"] * rule))
+            elif rule == "biggest" and spots:
+                biggest = max(spots, key=lambda s: s[2])
+                lights += [(kind if s is biggest else "vela", obj["x"] + s[0], top + s[1]) for s in spots]
+            else:
+                lights += [(kind, obj["x"] + sx, top + sy) for sx, sy, _ in spots]
     return lights
 
 
@@ -500,20 +524,70 @@ PORTAL_POINT = (40.0, 8.5)
 # Portas dos prédios com janela (E abre): nome do ponto = id do prédio (BUILDINGS em shared/src/city.ts).
 # Guilda: pé da escadaria. Estalagem: porta da taverna e portão do cofre. Forja: na frente da fornalha.
 # Logo abaixo da base do prédio: quem para ali fica desenhado na frente dele (acima da base, o prédio o cobriria).
-INTERACTIONS = [("guild", 29.0, 20.5), ("inn", 48.8, 20.5), ("inn", 53.9, 20.5), ("blacksmith", 67.5, 36.5)]
+INTERACTIONS = [(name, x * T, y * T) for name, x, y in
+                (("guild", 29.0, 20.5), ("inn", 48.8, 20.5), ("inn", 53.9, 20.5), ("blacksmith", 67.5, 36.5))]
+
+
+def interior_layer(ids: dict[str, list[int]], city_floor: list[int], rooms: list[interiors.Room], map_w: int) -> list[int]:
+    """Chão do mapa inteiro: a cidade nas primeiras W colunas, as salas dos interiores e vazio (sólido) no resto."""
+    void = 1 + ids["int:vazio"][0]
+    pick = random.Random(31)  # sorteio próprio: os interiores não mexem no sorteio da cidade
+    grid = np.full((H, map_w), void, dtype=int)
+    grid[:, :W] = np.array(city_floor).reshape(H, W)
+    for room in rooms:
+        for ry in range(room.h):
+            for rx in range(room.w):
+                kind = room.kinds[ry, rx]
+                name = pick.choice(interiors.FLOOR_KINDS[kind]) if kind in interiors.FLOOR_KINDS else kind
+                grid[room.oy + ry, room.ox + rx] = 1 + ids[f"int:{name}"][0]
+    return grid.flatten().tolist()
+
+
+def place_interiors(objects: Objects, rooms: list[interiors.Room]) -> None:
+    for room in rooms:
+        for name, cx, bottom in room.props:
+            objects.place(f"interior/{name}.png", name, (room.ox + cx) * T, (room.oy + bottom) * T, name)
+
+
+def interior_points(rooms: list[interiors.Room]) -> tuple[list[tuple[str, float, float]], list[tuple[str, float, float]]]:
+    """(portas de dentro e móveis com E, para a camada "interacoes"; chegadas de cada prédio, camada "chegadas")."""
+    stations, arrivals = [], []
+    for room in rooms:
+        for name, spots in room.points.items():
+            for x, y in spots:
+                point = ((room.ox + x) * T, (room.oy + y) * T)
+                if name == "arrival":
+                    arrivals.append((room.building, *point))
+                else:
+                    stations.append((name, *point))
+    return stations, arrivals
+
+
+def region_layer(layer_id: int, rooms: list[interiors.Room], next_id: list[int]) -> dict:
+    """Retângulos de cada lugar (cidade e interiores): o cliente prende a câmera no lugar onde o jogador está."""
+    objs = []
+    for name, (x, y, w, h) in [("cidade", (0, 0, W, H))] + [(room.building, room.region()) for room in rooms]:
+        objs.append({"id": next_id[0], "name": name, "type": "", "rotation": 0, "visible": True,
+                     "x": x * T, "y": y * T, "width": w * T, "height": h * T})
+        next_id[0] += 1
+    return {"id": layer_id, "name": "regioes", "type": "objectgroup", "draworder": "topdown", "opacity": 1,
+            "visible": True, "x": 0, "y": 0, "objects": objs}
 
 
 def main() -> None:
     ids = build_floor_tileset()
     count = ids.pop("_count")[0]
     zones = layout()
-    floor = floor_layer(ids, zones)
+    rooms = interiors.rooms()
+    map_w = interiors.map_width(rooms)
+    floor = interior_layer(ids, floor_layer(ids, zones), rooms, map_w)
     objects = Objects(firstgid=1 + count)
     place_buildings(objects)
     place_portal_avenue(objects)
     place_plaza(objects)
     place_market(objects)
     place_streets(objects)
+    place_interiors(objects, rooms)
 
     next_id = [1]
     placed = sorted(objects.placed, key=lambda o: o["y"])
@@ -521,31 +595,39 @@ def main() -> None:
         obj["id"] = next_id[0]
         next_id[0] += 1
     sheet = Image.open(CITY / "floor.png")
+    solid = sorted(ids[f"int:{name}"][0] for name in interiors.WALLS)
     floor_ts = {"firstgid": 1, "name": "city/floor", "image": "../tilesets/city/floor.png",
                 "imagewidth": sheet.width, "imageheight": sheet.height,
-                "tilewidth": T, "tileheight": T, "tilecount": count, "columns": 8, "margin": 0, "spacing": 0}
+                "tilewidth": T, "tileheight": T, "tilecount": count, "columns": 8, "margin": 0, "spacing": 0,
+                "tiles": [{"id": i, "properties": [{"name": "solid", "type": "bool", "value": True}]} for i in solid]}
     lights = city_lights(objects)
+    stations, arrivals = interior_points(rooms)
+    doors = INTERACTIONS + stations
     layers = [
-        {"id": 1, "name": "chao", "type": "tilelayer", "width": W, "height": H, "x": 0, "y": 0,
+        {"id": 1, "name": "chao", "type": "tilelayer", "width": map_w, "height": H, "x": 0, "y": 0,
          "opacity": 1, "visible": True, "data": floor},
         {"id": 2, "name": "objetos", "type": "objectgroup", "draworder": "topdown", "opacity": 1,
          "visible": True, "x": 0, "y": 0, "objects": placed},
         point_layer(3, "spawns", [(x * T, y * T) for x, y in SPAWNS], next_id),
         point_layer(4, "portal", [(PORTAL_POINT[0] * T, PORTAL_POINT[1] * T)], next_id),
         light_layer(5, lights, next_id),
-        point_layer(6, "interacoes", [(x * T, y * T) for _, x, y in INTERACTIONS], next_id,
-                    [name for name, _, _ in INTERACTIONS]),
+        point_layer(6, "interacoes", [(x, y) for _, x, y in doors], next_id, [name for name, _, _ in doors]),
+        point_layer(7, "chegadas", [(x, y) for _, x, y in arrivals], next_id, [name for name, _, _ in arrivals]),
+        region_layer(8, rooms, next_id),
     ]
-    city = {"compressionlevel": -1, "width": W, "height": H, "tilewidth": T, "tileheight": T, "infinite": False,
+    city = {"compressionlevel": -1, "width": map_w, "height": H, "tilewidth": T, "tileheight": T, "infinite": False,
             "orientation": "orthogonal", "renderorder": "right-down", "type": "map", "version": "1.10",
-            "tiledversion": "1.12.2", "nextlayerid": 7, "nextobjectid": next_id[0], "layers": layers,
+            "tiledversion": "1.12.2", "nextlayerid": 9, "nextobjectid": next_id[0], "layers": layers,
             "tilesets": [floor_ts, objects.tileset()]}
     MAP_OUT.write_text(json.dumps(city) + "\n", encoding="utf-8")
-    check(objects, zones["road"])
+    check(objects, zones["road"], map_w)
     kinds: dict[str, int] = {}
     for kind, _, _ in lights:
         kinds[kind] = kinds.get(kind, 0) + 1
-    print(f"mapa {W}x{H}: {count} tiles de chão, {len(objects.tiles)} imagens de objeto, {len(placed)} objetos; luzes {kinds}")
+    print(f"mapa {map_w}x{H} (cidade {W}x{H} e {len(rooms)} interiores): {count} tiles de chão, {len(objects.tiles)} imagens de"
+          f" objeto, {len(placed)} objetos; luzes {kinds}")
+    for room in rooms:
+        print(f"  interior {room.building}: tiles ({room.ox}, {room.oy}) a ({room.ox + room.w - 1}, {room.oy + room.h - 1})")
 
 
 # ---------------------------------------------------------------- conferência
@@ -558,7 +640,7 @@ def image_cells(obj: dict) -> tuple[int, int, int, int]:
     return int(x0), int(y0), int(np.ceil(x1)) - 1, int(np.ceil(y1)) - 1
 
 
-def check(objects: Objects, road: np.ndarray) -> None:
+def check(objects: Objects, road: np.ndarray, map_w: int) -> None:
     """Acusa prédios que se sobrepõem, prédio cobrindo rua, base sólida de enfeite em rua e objeto fora do mapa."""
     buildings = [o for o in objects.placed if o["name"].startswith(("house_", "landmark_"))]
     problems = []
@@ -573,12 +655,12 @@ def check(objects: Objects, road: np.ndarray) -> None:
     for o in objects.placed:
         info = objects.tiles[o["gid"] - objects.firstgid]
         group = info.get("objectgroup")
-        if group and not o["name"].startswith(("house_", "landmark_", "poste", "braseiro")):
+        if group and o["x"] < W * T and not o["name"].startswith(("house_", "landmark_", "poste", "braseiro")):
             r = group["objects"][0]
             cx, cy = (o["x"] + r["x"] + r["width"] / 2) / T, (o["y"] - o["height"] + r["y"] + r["height"] / 2) / T
             if road[min(H - 1, int(cy)), min(W - 1, int(cx))]:
                 problems.append(f"{o['name']} em ({cx:.1f},{cy:.1f}) bloqueia rua")
-        if o["x"] < 0 or o["x"] + o["width"] > W * T or o["y"] > H * T or o["y"] - o["height"] < 0:
+        if o["x"] < 0 or o["x"] + o["width"] > map_w * T or o["y"] > H * T or o["y"] - o["height"] < 0:
             problems.append(f"{o['name']} sai do mapa em ({o['x']},{o['y']})")
     print("problemas: " + ("; ".join(problems) if problems else "nenhum"))
 
