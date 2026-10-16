@@ -274,8 +274,8 @@ export const MOB_SPAWN_SAFE_RADIUS = 320;
 // Centro: onde se chega, com poucos mobs. Cada região de fora tem o seu povo.
 export const AREAS: Record<string, AreaConfig> = {
   centro: { playerEntry: true, mobs: { goblin: 1, lobo: 1, gnomo: 1, slime: 1 } },
-  norte: { playerEntry: false, mobs: { goblin: 12 } },
-  leste: { playerEntry: false, mobs: { lobo: 10 } },
-  oeste: { playerEntry: false, mobs: { gnomo: 10 } },
-  sul: { playerEntry: false, mobs: { slime: 10 } },
+  noroeste: { playerEntry: false, mobs: { goblin: 12 } },
+  nordeste: { playerEntry: false, mobs: { lobo: 10 } },
+  sudeste: { playerEntry: false, mobs: { gnomo: 10 } },
+  sudoeste: { playerEntry: false, mobs: { slime: 10 } },
 };

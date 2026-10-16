@@ -87,12 +87,16 @@ tools/assets/.venv/Scripts/python.exe -I tools/assets/render_map.py assets/maps/
    de 32x32 em `tools/assets/build/labyrinth-floor/` (`floor-L-C.png` da caverna, `<tipo>-C.png` dos pisos novos:
    ruína, terra tribal, mina, musgo ácido). Nome, centro aproximado e escala de cada objeto ficam no topo do arquivo
    (`PROPS`, `CAMP`, `LAIRS`, `LANDMARKS`).
-2. **`build_labyrinth.py`** (~4,5 s): malha de labirinto (`CELL`, `STRAIGHT`, `LOOP_CHANCE`, `DEAD_END_ROOM`),
-   centro, salões (`HALL_ZONES`, `HALL_RECIPES`), câmaras de saída (`EXIT_CHAMBERS`), avenidas de ruína com praças
-   e marcos nos cruzamentos, borda de caverna nos outros corredores; gera `labyrinth/floor.png` só com as combinações
-   de tile usadas, espalha enfeites, confere tudo com um flood fill só e grava as camadas que o servidor lê (`areas`,
-   `spawns`, `exits`, `luzes`). Os nomes das áreas (`AREA_RECTS`) precisam bater com `AREAS` em
-   `shared/src/balance.ts`. O sorteio é fixo (sementes no código): rodar de novo dá o mesmo mapa.
+2. **`build_labyrinth.py`** (~5 s): malha de labirinto (`CELL`, `STRAIGHT`, `LOOP_CHANCE`, `DEAD_END_ROOM`);
+   zonas de monstros nos 4 cantos e zona normal em cruz (`ZONES`, `CROSS_HALF`), com a divisa ondulando
+   (`BORDER_WOBBLE`) e o piso e os enfeites de cada zona entrando aos poucos (`BLEED_IN`, `BLEED_OUT`,
+   `THEME_MIN`, `THEME_MAX`, `THEME_FLOOR`, `ZONE_DECOR`); salões (`HALL_ZONES`, `HALL_RECIPES`), câmaras
+   de saída nas pontas (`EXIT_CHAMBERS`, entre dois obeliscos), avenidas de ruína com praças e marcos nos cruzamentos,
+   borda de caverna nos outros corredores. Gera `labyrinth/floor.png` só com as combinações de tile usadas, espalha
+   enfeites, confere tudo com um flood fill só e grava as camadas que o servidor lê (`areas` em blocos de
+   `AREA_BLOCK` tiles seguindo a divisa, `spawns`, `exits`, `luzes`). No fim, imprime as coordenadas do portal de
+   chegada e das 4 saídas. Os nomes em `ZONES` precisam bater com `AREAS` em `shared/src/balance.ts`. O sorteio é
+   fixo (sementes no código): rodar de novo dá o mesmo mapa.
 
 > **Atenção:** rodar o `build_labyrinth.py` sobrescreve `dungeon_floor1.json`, inclusive o que tiver sido editado à mão no Tiled.
 

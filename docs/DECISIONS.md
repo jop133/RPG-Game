@@ -928,3 +928,20 @@ Slot vazio usa a moldura comum.
 - O caminho parcial do A* (ver "Blindagem para andares grandes") é guloso, e um labirinto é o pior caso: um mob voltando para casa de muito longe pode entrar num beco. Perseguições são curtas (dentro da visão), então na prática quase não acontece; se acontecer, ele vaga onde está
 - O chão inteiro vai no JSON (1 MB) e o Phaser monta os 250.000 tiles ao entrar (~0,5 s no teste)
 
+---
+
+## 2026-10 — Labirinto: zonas nos 4 cantos, zona normal em cruz, fronteira camuflada
+
+**Pedido do dono do projeto** (como no 1º andar de *Surviving the Game as a Barbarian*): as 4 zonas de monstros nos quadrantes diagonais, separadas por uma zona normal em cruz, e a divisa difícil de perceber.
+
+**Muda:** o desenho da decisão "Labirinto 500x500" (regiões nos 4 lados) e os **nomes das áreas** em `AREAS`: `noroeste` (goblins), `nordeste` (lobos), `sudeste` (gnomos), `sudoeste` (slimes) no lugar de norte/leste/oeste/sul, que ficariam enganosos. Quantidades de mobs iguais.
+
+**Como:**
+- **Divisa:** profundidade de cada tile no seu quadrante = distância até a cruz (meia largura 60) mais um ruído suave (±25 tiles). Área de monstro onde a profundidade é positiva
+- **Camada `areas`** em blocos de 10 tiles seguindo a divisa: retângulos escalonados, sem sobreposição, cobrindo o mapa (o servidor junta os de mesmo nome numa área irregular)
+- **Piso:** fração temática = 5% a 30 tiles da divisa (ainda na zona normal) até 85% a 35 tiles para dentro (65 tiles de transição); sorteada por um ruído de manchas (~7 tiles) normalizado para espalhar por igual, então "ruído < fração" pega exatamente essa fração do chão, sempre em manchas, nunca tiles soltos
+- **Enfeites soltos:** cada um sorteia "do quadrante" com essa mesma fração; perto da divisa, alguns já aparecem na zona normal. Cristais, rochas e ruínas normais continuam dentro dos quadrantes
+- **Saídas nas pontas** dos cantos, dentro da zona de monstros, entre dois obeliscos rúnicos (sólidos, a 4 tiles do ponto), com um arco de ruína atrás e uma luz `portal` gravada no mapa: a câmara aparece de longe e no Tiled. O portal azul em si continua sendo desenhado pelo cliente só quando a saída está à vista (interest management)
+
+**Limites:** as saídas ficaram mais longe (88 a 119 s andando pelo caminho mais curto, contra 61 a 89 s antes). Com a fome de 5 min e 3 rações, cabe, mas sobra menos tempo para explorar.
+

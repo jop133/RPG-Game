@@ -5,9 +5,13 @@
 - Avenidas de ruína: o caminho do centro até cada saída e até alguns salões vira corredor reto com piso de ruína;
   nos cruzamentos dessas avenidas, uma pracinha com um marco de navegação (estátua, obelisco, fonte, altar...).
   Os outros corredores ganham borda de caverna, irregular.
-- Cinco áreas (os nomes de AREAS em balance.ts): centro (salão de ruína com o portal de chegada e os 7 pontos de
-  entrada), norte (acampamento goblin), leste (covil dos lobos), oeste (minas dos gnomos) e sul (fosso dos slimes).
-  Cada região tem salões com piso temático e a composição do seu kit, e uma câmara de saída no fundo.
+- Cinco áreas (os nomes de AREAS em balance.ts): as quatro zonas de monstros nos quadrantes diagonais, noroeste
+  (acampamento goblin), nordeste (covil dos lobos), sudeste (minas dos gnomos) e sudoeste (fosso dos slimes), e a
+  zona normal, centro: a caverna de cristal em cruz, no meio e entre os quadrantes, com o salão de chegada.
+  Cada quadrante tem salões com piso temático e uma câmara de saída na ponta do mapa.
+- Fronteira camuflada: a divisa entre a cruz e cada quadrante ondula (ruído), o piso temático entra aos poucos em
+  manchas (5% ainda dentro da zona normal, até ~85% no coração do quadrante, que guarda manchas de pedra) e enfeites
+  pequenos de cada zona vazam, raros, para a borda da zona normal. A camada "areas" segue a divisa em blocos.
 - Enfeites são objetos de uma coleção de imagens; os sólidos têm um retângulo de colisão na base. Sólido só vai onde
   há folga em volta (sem flood fill por enfeite); um flood fill só, no fim, confere que tudo continua ligado e
   tira o enfeite que isolar algum pedaço.
@@ -161,26 +165,60 @@ class Tiles:
 
 # ---------------------------------------------------------------- áreas
 
-# Áreas do servidor (x, y, largura, altura em tiles). Partem o mapa inteiro; os nomes batem com AREAS.
-AREA_RECTS = {
-    "centro": [(180, 180, 140, 140)],
-    "norte": [(100, 0, 300, 180)],
-    "sul": [(100, 320, 300, 180)],
-    "oeste": [(0, 0, 100, 500), (100, 180, 80, 140)],
-    "leste": [(400, 0, 100, 500), (320, 180, 80, 140)],
-}
-ZONES = list(AREA_RECTS)
+# Áreas do servidor: os nomes batem com AREAS. "centro" é a zona normal (cruz no meio e entre os quadrantes).
+ZONES = ["centro", "noroeste", "nordeste", "sudeste", "sudoeste"]
+CROSS_HALF = 60  # meia largura da cruz da zona normal, em tiles, antes de ondular
+BORDER_WOBBLE = 50  # quanto a divisa ondula (tiles, de pico a pico)
+BLEED_IN = 30  # o piso temático começa (5%) a esta distância da divisa, ainda dentro da zona normal
+BLEED_OUT = 35  # e chega ao máximo a esta distância, já dentro do quadrante (transição de 65 tiles)
+THEME_MIN, THEME_MAX = 0.05, 0.85
+AREA_BLOCK = 10  # a camada "areas" segue a divisa em blocos deste tamanho (retângulos escalonados)
 
 
-def zone_map() -> np.ndarray:
-    """Índice (em ZONES) da área de cada célula."""
-    zones = np.full((H, W), -1)
-    for i, rects in enumerate(AREA_RECTS.values()):
-        for x, y, w, h in rects:
-            zones[y : y + h, x : x + w] = i
-    if (zones < 0).any():
-        raise SystemExit("há células fora de qualquer área")
+def quadrant_of(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """Quadrante (1..4, índice em ZONES) de cada célula pela posição: noroeste, nordeste, sudeste, sudoeste."""
+    east, south = x >= CENTER[0], y >= CENTER[1]
+    return np.where(~east & ~south, 1, np.where(east & ~south, 2, np.where(east & south, 3, 4)))
+
+
+def border_depth() -> np.ndarray:
+    """Quanto cada célula está para dentro do seu quadrante (negativo: dentro da cruz da zona normal), em tiles,
+    com a divisa ondulando por ruído suave: nunca uma linha reta."""
+    dist = np.minimum(np.abs(XX + 0.5 - CENTER[0]), np.abs(YY + 0.5 - CENTER[1])) - CROSS_HALF
+    return dist + (uniform(smooth_noise((7, 7))) - 0.5) * BORDER_WOBBLE
+
+
+def zone_map(depth: np.ndarray) -> np.ndarray:
+    """Índice (em ZONES) da área de cada célula, por blocos de AREA_BLOCK (o que vai para a camada "areas")."""
+    zones = np.zeros((H, W), int)
+    for by in range(0, H, AREA_BLOCK):
+        for bx in range(0, W, AREA_BLOCK):
+            cy, cx = min(H - 1, by + AREA_BLOCK // 2), min(W - 1, bx + AREA_BLOCK // 2)
+            if depth[cy, cx] > 0:
+                zones[by : by + AREA_BLOCK, bx : bx + AREA_BLOCK] = quadrant_of(np.array(cx), np.array(cy))
     return zones
+
+
+def theme_share(depth: np.ndarray) -> np.ndarray:
+    """Fração do chão (e dos enfeites soltos) que é do quadrante: 0 no meio da zona normal, 5% a BLEED_IN da divisa,
+    subindo até THEME_MAX a BLEED_OUT para dentro do quadrante."""
+    ramp = np.clip((depth + BLEED_IN) / (BLEED_IN + BLEED_OUT), 0, 1)
+    return np.where(depth < -BLEED_IN, 0.0, THEME_MIN + (THEME_MAX - THEME_MIN) * ramp)
+
+
+def area_rects(zones: np.ndarray) -> dict[str, list[tuple[int, int, int, int]]]:
+    """Retângulos de cada área: blocos vizinhos da mesma linha juntados. Não se sobrepõem e cobrem o mapa."""
+    rects: dict[str, list[tuple[int, int, int, int]]] = {name: [] for name in ZONES}
+    for by in range(0, H, AREA_BLOCK):
+        bx = 0
+        while bx < W:
+            zone = zones[by, bx]
+            end = bx
+            while end < W and zones[by, end] == zone:
+                end += AREA_BLOCK
+            rects[ZONES[zone]].append((bx, by, min(end, W) - bx, min(AREA_BLOCK, H - by)))
+            bx = end
+    return rects
 
 
 # ---------------------------------------------------------------- malha do labirinto
@@ -293,21 +331,33 @@ def smooth_noise(cells: tuple[int, int]) -> np.ndarray:
     return np.asarray(Image.fromarray((small * 255).astype(np.uint8), "L").resize((W, H), Image.BICUBIC)) / 255
 
 
+def uniform(noise: np.ndarray) -> np.ndarray:
+    """Mesmo desenho do ruído, mas com os valores espalhados por igual entre 0 e 1 (por posição na ordem): assim
+    `noise < p` pega exatamente a fração p do mapa, em manchas."""
+    order = np.argsort(noise, axis=None, kind="stable")
+    ranks = np.empty(noise.size)
+    ranks[order] = np.arange(noise.size) / noise.size
+    return ranks.reshape(noise.shape)
+
+
 # ---------------------------------------------------------------- planta
 
 HUB_RADIUS = 15
-# Câmara de saída de cada região: no fundo dela, a ~220 tiles do centro.
-EXIT_CHAMBERS = {"norte": (250, 30), "sul": (250, 470), "oeste": (30, 250), "leste": (470, 250)}
+# Câmara de saída de cada quadrante: na ponta extrema do mapa (canto), dentro da zona de monstros.
+EXIT_CHAMBERS = {"noroeste": (35, 35), "nordeste": (465, 35), "sudeste": (465, 465), "sudoeste": (35, 465)}
 EXIT_RADIUS = 7
 HALLS_PER_REGION = 6
-# Onde sortear os salões de cada região (x0, y0, x1, y1), longe das bordas das áreas.
-HALL_ZONES = {"norte": (115, 12, 385, 165), "sul": (115, 335, 385, 488), "oeste": (12, 15, 88, 485),
-              "leste": (412, 15, 488, 485)}
-HALL_FLOOR = {"norte": "terra-tribal", "leste": "terra-tribal", "oeste": "mina", "sul": "musgo-acido"}
-# Chão dos corredores de caverna de cada área: (principal, manchas). Manchas são contínuas (ruído suave), nunca
-# tiles soltos: um tile isolado de outro tipo vira um "quadrado" que a escuridão realça.
-CAVE_FLOOR = {"centro": ("pedra", "pedra"), "norte": ("terra", "pedra"), "leste": ("pedra", "terra"),
-              "oeste": ("pedra", "cristal"), "sul": ("musgo", "pedra")}
+# Onde sortear os salões de cada zona (x0, y0, x1, y1): o coração de cada quadrante; na zona normal, os braços da cruz
+# (cavernas de cristal). Um salão só fica se o centro dele cair na própria zona.
+HALL_ZONES = {"noroeste": [(15, 15, 175, 175)], "nordeste": [(325, 15, 485, 175)], "sudeste": [(325, 325, 485, 485)],
+              "sudoeste": [(15, 325, 175, 485)],
+              "centro": [(200, 20, 300, 160), (200, 340, 300, 480), (20, 200, 160, 300), (340, 200, 480, 300)]}
+HALLS_IN = {"centro": 8}
+HALL_FLOOR = {"noroeste": "terra-tribal", "nordeste": "terra-tribal", "sudeste": "mina", "sudoeste": "musgo-acido",
+              "centro": "cristal"}
+# Piso que cada quadrante mistura nos corredores (o resto é a pedra da caverna); manchas, nunca tiles soltos: um
+# tile isolado de outro tipo vira um "quadrado" que a escuridão realça.
+THEME_FLOOR = {1: "terra-tribal", 2: "terra", 3: "mina", 4: "musgo"}
 LANDMARK_SPACING = 28  # tiles entre dois marcos de cruzamento
 PLAZA_RADIUS = 4.2
 
@@ -317,7 +367,10 @@ class Plan:
 
     def __init__(self) -> None:
         self.links = maze()
-        self.zones = zone_map()
+        self.depth = border_depth()
+        self.zones = zone_map(self.depth)
+        self.share = theme_share(self.depth)
+        self.quadrant = quadrant_of(XX, YY)
         self.cave = np.zeros((H, W), bool)
         self.ruin = np.zeros((H, W), bool)  # avenidas, praças, centro e câmaras de saída: piso de ruína, borda reta
         self.halls: list[dict] = []
@@ -348,11 +401,12 @@ class Plan:
 
     def lay_halls(self) -> None:
         exits = list(EXIT_CHAMBERS.values())
-        for region, (x0, y0, x1, y1) in HALL_ZONES.items():
+        for region, boxes in HALL_ZONES.items():
             placed = 0
-            for _ in range(400):
-                if placed == HALLS_PER_REGION:
+            for _ in range(600):
+                if placed == HALLS_IN.get(region, HALLS_PER_REGION):
                     break
+                x0, y0, x1, y1 = rng.choice(boxes)
                 rx, ry = rng.uniform(13, 20), rng.uniform(10, 14)
                 cx, cy = rng.uniform(x0 + rx, x1 - rx), rng.uniform(y0 + ry, y1 - ry)
                 if self.zones[int(cy), int(cx)] != ZONES.index(region):
@@ -372,7 +426,8 @@ class Plan:
         hub = cell_at(*CENTER)
         targets = [cell_at(x, y) for x, y in EXIT_CHAMBERS.values()]
         for region in HALL_ZONES:
-            targets += [cell_at(h["x"], h["y"]) for h in self.halls if h["region"] == region][:2]
+            if region != "centro":
+                targets += [cell_at(h["x"], h["y"]) for h in self.halls if h["region"] == region][:2]
         on_avenue: set[Cell] = set()
         for goal in targets:
             path = path_between(self.links, hub, goal)
@@ -413,14 +468,14 @@ class Plan:
         self.cave = flood(cave, CENTER)  # bolsões soltos viram rocha
 
     def floor_kinds(self) -> np.ndarray:
-        """Índice (em FLOOR_KINDS) do chão de cada célula."""
-        patch = smooth_noise((40, 40))
-        kinds = np.zeros((H, W), int)
-        for i, zone in enumerate(ZONES):
-            main, spot = CAVE_FLOOR[zone]
-            here = self.zones == i
-            kinds[here] = FLOOR_KINDS.index(main)
-            kinds[here & (patch > 0.62)] = FLOOR_KINDS.index(spot)
+        """Índice (em FLOOR_KINDS) do chão de cada célula: pedra da caverna, manchas de cristal na zona normal e o
+        piso de cada quadrante entrando em manchas conforme theme_share (transição de ~65 tiles, sem linha reta)."""
+        crystal = uniform(smooth_noise((45, 45)))
+        theme = uniform(smooth_noise((70, 70)))
+        kinds = np.full((H, W), FLOOR_KINDS.index("pedra"))
+        kinds[(crystal > 0.8) & (self.share < 0.3)] = FLOOR_KINDS.index("cristal")
+        for q, kind in THEME_FLOOR.items():
+            kinds[(self.quadrant == q) & (theme < self.share)] = FLOOR_KINDS.index(kind)
         # Avenida que atravessa um salão não vira estrada no meio dele: lá dentro vale o chão do salão.
         kinds[self.ruin] = FLOOR_KINDS.index("ruina")
         for hall in self.halls:
@@ -685,26 +740,31 @@ def hall_cells(decor: Decor, hall: dict, margin: int = 2) -> list[tuple[int, int
 
 # O que cada região põe nos seus salões: (nomes, quantos por salão, folga mínima da rocha).
 HALL_RECIPES = {
-    "norte": [(["tenda-grande", "tenda-aberta"], 3, 3), (["totem-cranio", "totem-runas", "totem-lobo"], 3, 2),
+    "centro": [(["cristal-grande", "cristal-medio"], 3, 2), (["cristal-pequeno"], 4, 1), (["rocha-minerio"], 2, 2),
+               (["estalagmites", "estalagmite-alta", "rocha-alta"], 2, 2), (["entulho", "pilar-caido", "esqueleto"], 2, 1)],
+    "noroeste": [(["tenda-grande", "tenda-aberta"], 3, 3), (["totem-cranio", "totem-runas", "totem-lobo"], 3, 2),
               (["caldeirao"], 2, 2), (["jaula"], 1, 3), (["rack-armas-a", "rack-armas-b"], 2, 2),
               (["barricada-estacas-a", "barricada-estacas-b"], 5, 2), (["tocha"], 4, 1), (["ossada"], 2, 1)],
-    "oeste": [(["arco-mina-a", "arco-mina-b"], 1, 2), (["trilho-horizontal", "trilho-vertical"], 3, 1),
+    "sudeste": [(["arco-mina-a", "arco-mina-b"], 1, 2), (["trilho-horizontal", "trilho-vertical"], 3, 1),
               (["vagoneta-cristais", "vagoneta-tombada"], 3, 2), (["guindaste"], 1, 3),
               (["barris-mina-a", "barris-mina-b"], 3, 2), (["rocha-minerio"], 3, 2), (["tocha"], 3, 1),
               (["cristal-pequeno"], 3, 1)],
-    "leste": [(["ninho-a", "ninho-b"], 3, 2), (["ossos-mochila-a", "ossos-mochila-b"], 3, 1),
+    "nordeste": [(["ninho-a", "ninho-b"], 3, 2), (["ossos-mochila-a", "ossos-mochila-b"], 3, 1),
               (["rocha-garras-pequena"], 2, 2), (["ossada", "esqueleto"], 3, 1), (["estalagmites", "estalagmite-alta"], 3, 2)],
-    "sul": [(["poca-acida", "poca-borda"], 3, 2), (["ovos-a", "ovos-b"], 3, 2),
+    "sudoeste": [(["poca-acida", "poca-borda"], 3, 2), (["ovos-a", "ovos-b"], 3, 2),
             (["coluna-corroida-a", "coluna-corroida-b"], 3, 3), (["cogumelos-verdes", "cogumelos-palidos",
             "cogumelos-tortos", "cogumelos-musgo"], 6, 1), (["cogumelos-a", "cogumelos-b"], 3, 1)],
 }
-# Enfeites soltos nos corredores de caverna de cada área (por 1.000 tiles de chão).
-CORRIDOR_DECOR = {
-    "centro": [(["cristal-pequeno"], 1.0), (["esqueleto", "ossada"], 0.4)],
-    "norte": [(["tocha"], 0.6), (["ossada"], 0.5)],
-    "leste": [(["ossada", "esqueleto"], 0.6), (["estalagmites", "estalagmite-alta"], 0.6)],
-    "oeste": [(["cristal-pequeno"], 1.0), (["rocha-minerio", "cristal-medio"], 0.6), (["tocha"], 0.3)],
-    "sul": [(["cogumelos-a", "cogumelos-b", "cogumelos-musgo"], 1.2)],
+# Enfeites soltos nos corredores (por 1.000 tiles de chão): os da caverna normal em todo lugar e, com a mesma
+# chance do piso temático (theme_share), os pequenos do quadrante. Perto da divisa eles já aparecem, raros, ainda
+# na zona normal (vazamento): ninguém sabe o tile exato em que saiu dela.
+CORRIDOR_DENSITY = 1.6
+NORMAL_DECOR = ["cristal-pequeno", "cristal-pequeno", "cristal-medio", "estalagmites", "rocha-minerio", "entulho", "esqueleto"]
+ZONE_DECOR = {
+    1: ["tocha", "tocha", "ossada", "totem-runas"],
+    2: ["ossada", "ossos-mochila-a", "ossos-mochila-b", "estalagmite-alta"],
+    3: ["trilho-horizontal", "trilho-vertical", "barris-mina-a", "tocha"],
+    4: ["cogumelos-a", "cogumelos-b", "cogumelos-musgo", "poca-borda"],
 }
 
 
@@ -729,32 +789,48 @@ def decorate(decor: Decor, plan: Plan) -> dict[str, int]:
         for names, count, margin in HALL_RECIPES[hall["region"]]:
             total += decor.fill([c for c in cells if decor.open[c[1], c[0]] >= margin], names, count, margin)
         counts[hall["region"]] = counts.get(hall["region"], 0) + total
-    # Covil dos lobos: um esqueleto gigante no maior salão; a rocha de garras incandescentes só na borda do covil.
-    wolves = sorted((h for h in plan.halls if h["region"] == "leste"), key=lambda h: -h["rx"] * h["ry"])
+    # Covil dos lobos: um esqueleto gigante no maior salão; a rocha de garras incandescentes só no salão mais perto
+    # da borda do covil (o resto dele continua escuro).
+    wolves = sorted((h for h in plan.halls if h["region"] == "nordeste"), key=lambda h: -h["rx"] * h["ry"])
     if wolves:
         decor.fill(hall_cells(decor, wolves[0], 3), ["esqueleto-gigante"], 1, 3)
-        rim = [h for h in wolves if h["x"] < 420][:1] or wolves[-1:]
-        decor.fill(hall_cells(decor, rim[0]), ["rocha-garras-grande"], 1, 2)
+        rim = min(wolves, key=lambda h: plan.depth[int(h["y"]), int(h["x"])])
+        decor.fill(hall_cells(decor, rim), ["rocha-garras-grande"], 1, 2)
     # Marcos nos cruzamentos das avenidas: um por praça, revezando os tipos; ruínas soltas em volta.
     for i, (x, y) in enumerate(plan.plazas):
         name = LANDMARK_NAMES[i % len(LANDMARK_NAMES)]
         if decor.try_floor(name, x, y + 1, 2):
             counts["marcos"] = counts.get("marcos", 0) + 1
         decor.fill([(x + dx, y + dy) for dx in range(-3, 4) for dy in range(-3, 4)], RUBBLE, 1, 1)
-    # Câmaras de saída: arcos e pilares de ruína e cristais em volta do portal.
+    # Câmaras de saída: um par de obeliscos rúnicos ladeando o ponto (o portal azul aparece entre eles quando a
+    # saída está à vista), arcos de ruína atrás e cristais em volta. Nada no centro: o jogador fica parado ali.
     for x, y in EXIT_CHAMBERS.values():
-        ring = [(x + dx, y + dy) for dx in range(-6, 7) for dy in range(-5, 6) if 4 <= math.hypot(dx, dy) <= 6]
-        decor.fill(ring, ["arco-ruina-a", "arco-ruina-b", "pilar-quebrado", "cristal-grande", "cristal-medio"], 5, 2)
+        for side in (-4, 4):
+            if not decor.try_floor("obelisco-runico", x + side, y, 1):
+                raise SystemExit(f"a saída em ({x}, {y}) ficou sem o obelisco do lado {side}")
+        decor.fill([(x + dx, y - 4) for dx in (-2, -1, 0, 1, 2)], ["arco-ruina-a", "arco-ruina-b"], 1, 1)
+        ring = [(x + dx, y + dy) for dx in range(-6, 7) for dy in range(-5, 6) if 5 <= math.hypot(dx, dy) <= 6]
+        decor.fill(ring, ["pilar-quebrado", "cristal-grande", "cristal-medio"], 3, 2)
     # Becos sem saída com câmara: algo para achar (por enquanto enfeite; depois baús e mobs especiais).
     for x, y in plan.dead_ends:
         decor.fill([(x, y)], ["esqueleto-espada", "esqueleto-escudo", "ossada", "cristal-pequeno"], 1, 1)
-    # Corredores de caverna.
+    # Corredores de caverna: normal ou do quadrante, com a chance do piso temático naquele ponto.
     corridor = decor.cave & ~plan.ruin & ~plan.hall_mask
-    for i, zone in enumerate(ZONES):
-        ys, xs = np.nonzero(corridor & (plan.zones == i))
-        cells = list(zip(xs.tolist(), ys.tolist()))
-        for names, per_thousand in CORRIDOR_DECOR[zone]:
-            counts[zone] = counts.get(zone, 0) + decor.fill(cells, names, int(len(cells) * per_thousand / 1000), 1)
+    ys, xs = np.nonzero(corridor)
+    cells = list(zip(xs.tolist(), ys.tolist()))
+    rng.shuffle(cells)
+    wanted, bled = int(len(cells) * CORRIDOR_DENSITY / 1000), 0
+    placed = 0
+    for x, y in cells:
+        if placed == wanted:
+            break
+        zone_piece = rng.random() < plan.share[y, x]
+        names = ZONE_DECOR[int(plan.quadrant[y, x])] if zone_piece else NORMAL_DECOR
+        if decor.try_floor(rng.choice(names), x, y, 1):
+            placed += 1
+            bled += int(zone_piece and plan.zones[y, x] == 0)
+    counts["corredores"] = placed
+    counts["vazados na zona normal"] = bled
     # Paredões na rocha de cima de cada chão: dão altura às paredes da caverna (poucos: o mapa é enorme).
     edges = np.argwhere(~decor.cave[:-1, :] & decor.cave[1:, :])
     picks = edges[np.random.default_rng(21).random(len(edges)) < 0.12]
@@ -810,9 +886,9 @@ def reserve(decor: Decor, x: int, y: int, radius: int = 2) -> None:
     decor.taken[max(0, y - radius) : y + radius + 1, max(0, x - radius) : x + radius + 1] = True
 
 
-def area_layer(layer_id: int, next_id: list[int]) -> dict:
+def area_layer(layer_id: int, rects_by_name: dict[str, list[tuple[int, int, int, int]]], next_id: list[int]) -> dict:
     objs = []
-    for name, rects in AREA_RECTS.items():
+    for name, rects in rects_by_name.items():
         for x, y, w, h in rects:
             objs.append({"id": next_id[0], "name": name, "type": "", "rotation": 0, "visible": True,
                          "x": x * T, "y": y * T, "width": w * T, "height": h * T})
@@ -857,13 +933,14 @@ def main() -> None:
                   "tilewidth": max(t["imagewidth"] for t in decor.tiles), "tileheight": max(t["imageheight"] for t in decor.tiles),
                   "margin": 0, "spacing": 0, "grid": {"orientation": "orthogonal", "width": 1, "height": 1}, "tiles": decor.tiles}
     center_px = lambda p: ((p[0] + 0.5) * T, (p[1] + 0.5) * T)  # noqa: E731
-    lights = cave_lights(decor)
+    # Luz em cada saída: a câmara é vista de longe (e no Tiled), não só quando o portal ativo aparece.
+    lights = cave_lights(decor) + [("portal", *center_px(p)) for p in exits]
     layers = [
         {"id": 1, "name": "chao", "type": "tilelayer", "width": W, "height": H, "x": 0, "y": 0,
          "opacity": 1, "visible": True, "data": floor},
         {"id": 2, "name": "objetos", "type": "objectgroup", "draworder": "topdown", "opacity": 1,
          "visible": True, "x": 0, "y": 0, "objects": placed},
-        area_layer(3, next_id),
+        area_layer(3, area_rects(plan.zones), next_id),
         point_layer(4, "spawns", [center_px(p) for p in spawns], next_id),
         point_layer(5, "exits", [center_px(p) for p in exits], next_id),
         light_layer(6, lights, next_id),
@@ -886,6 +963,13 @@ def main() -> None:
     for i, name in enumerate(ZONES):
         print(f"  área {name}: {int((free & (plan.zones == i)).sum())} tiles livres")
     print(f"alcance: {reach} de {int(free.sum())} tiles livres alcançáveis do centro")
+    rects = area_rects(plan.zones)
+    print(f"camada areas: {sum(len(r) for r in rects.values())} retângulos ({', '.join(f'{k} {len(v)}' for k, v in rects.items())})")
+    portal = next(o for o in placed if o["name"] == "portal")
+    foot = (portal["x"] + portal["width"] / 2, portal["y"] - 1)
+    print(f"portal de chegada: tile ({int(foot[0] // T)}, {int(foot[1] // T)}), px ({foot[0]:.0f}, {portal['y']}) (pé da imagem)")
+    for name, (x, y) in EXIT_CHAMBERS.items():
+        print(f"  saída {name}: tile ({x}, {y}), px {center_px((x, y))}")
     print(f"tempo total: {time.perf_counter() - started:.1f} s")
 
 
