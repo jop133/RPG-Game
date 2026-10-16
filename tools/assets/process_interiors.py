@@ -7,6 +7,8 @@ Entrada: assets/tilesets/novos tilesets/ (fora do git)
            Interior_casacomida.png   móveis da Estalagem / Casa de Comida (INN)
            Bau_casadecomida.png      o Baú da Linhagem no pedestal
            decoracoes_guilda.png     púlpito, estante, caixotes, metade direita do balcão, tocha e janela (DECO)
+           enfeites_interiorferreiro.png  rack de canto, mesa de manoplas, balcão, barril e caixotes, correntes, ferramentas,
+                                     carvão, tanque com faíscas, bancada de lingotes (SMITHY_DECO, por retângulo)
 Saída:   assets/tilesets/city/interior/<nome>.png        cada móvel, sem fundo, recortado e reduzido
          tools/assets/build/interior-floor/<piso>.png     cada piso, 32x32 (o build_city.py lê daqui)
          tools/assets/build/interior-floor/grande/        os tapetes inteiros (LARGE_FLOORS), para cortar em tiles
@@ -30,7 +32,7 @@ import numpy as np
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from process_city import TILE, components, contact_sheet, load_rgba, reading_order, remove_background, resize, scaled  # noqa: E402
+from process_city import TILE, components, contact_sheet, load_rgba, reading_order, remove_background, resize, scaled, trim  # noqa: E402
 from process_labyrinth import clean, coarse_labels, kit_objects  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -79,7 +81,36 @@ DARK_SHADOW_MAX_SAT = 22
 DARK_SHADOW_ALPHA = 0.45
 # Franja do antisserrilhado (pixels quase transparentes e claros na borda): sai.
 FRINGE_MAX_ALPHA = 40
-SMITHY = {
+# Recortes por retângulo (x0, y0, x1, y1 na folha; e retângulos excluídos): peças coladas umas nas outras na folha,
+# que a separação por ilhas não divide.
+Rect = tuple[int, int, int, int]
+# enfeites_interiorferreiro.png (fundo transparente, como a de decorações da Guilda). Célula 3: o segmento da direita
+# do balcão (moedas) com o caixote da frente, que fica por cima dele; o barril e o caixote de trás, juntos e separados.
+# Célula 4: a barra das correntes, a das ferramentas e o reservatório de carvão. Escala: o balcão com a altura do
+# balcão da espada.
+SMITHY_DECO_FILE = "enfeites_interiorferreiro.png"
+SMITHY_DECO_SCALE = 0.377
+SMITHY_DECO: dict[str, tuple[Rect, list[Rect]]] = {
+    "blacksmith_corner_rack": ((110, 85, 1095, 790), []),
+    "blacksmith_gauntlet_table": ((1250, 190, 1530, 776), []),
+    "blacksmith_counter_ext": ((2012, 330, 2470, 748), [(2412, 200, 2620, 556)]),
+    "blacksmith_barrel": ((2372, 222, 2560, 505), [(2360, 335, 2414, 520), (2460, 445, 2605, 668)]),
+    "blacksmith_crate": ((2468, 445, 2605, 668), []),
+    "blacksmith_barrel_crates": ((2372, 222, 2605, 668), [(2360, 335, 2414, 670), (2330, 552, 2468, 760)]),
+    "blacksmith_wall_chains": ((184, 842, 556, 1342), [(498, 1228, 560, 1346)]),
+    "blacksmith_wall_tools": ((556, 842, 922, 1242), []),
+    "blacksmith_coal_bin": ((502, 1236, 706, 1456), []),
+    "blacksmith_quench_sparks": ((1130, 900, 1690, 1460), []),
+    "blacksmith_ore_bench": ((1836, 1044, 2612, 1380), []),
+}
+# O barril avulso fica, na folha, com a lateral esquerda atrás da ponta do balcão: é simétrico, então a metade esquerda
+# vem da direita, espelhada.
+MIRROR_LEFT = {"blacksmith_barrel"}
+# A bigorna sozinha (na folha antiga ela vem colada no barril de água e no tanque, a "bigorna-tempera").
+SMITHY_CUTS: dict[str, tuple[Rect, list[Rect]]] = {"bigorna": ((712, 262, 862, 390), [(835, 225, 905, 330), (850, 225, 905, 345), (823, 225, 905, 300)])}
+# A Forja é a sala grande (42x26): a folha dela sai 1,4x maior que na primeira versão.
+SMITHY_SCALE = 1.4
+SMITHY = {name: (spec[0], round(spec[1] * SMITHY_SCALE, 3), *spec[2:]) for name, spec in {
     "balcao-ferreiro": ((192, 104), 0.55),
     "rack-armas-1": ((450, 104), 0.5),
     "fornalha": ((648, 130), 0.62),
@@ -95,7 +126,7 @@ SMITHY = {
     "bancada-manoplas": ((324, 486), 0.5),
     "tanque-tempera": ((626, 486), 0.5),
     "pedra-amolar": ((784, 488), 0.48),
-}
+}.items()}
 INN = {
     "balcao-comida": ((728, 298), 0.22),
     "mesa-acougue": ((350, 746), 0.22),
@@ -217,6 +248,24 @@ def relaxed_background(art: np.ndarray, boxes: list[tuple[int, int, int, int]]) 
     return out
 
 
+def mirror_left(rgba: np.ndarray) -> np.ndarray:
+    """Peça simétrica com a metade esquerda faltando: a metade esquerda vira o espelho da direita."""
+    out = rgba.copy()
+    w = out.shape[1]
+    out[:, : w // 2] = out[:, ::-1][:, : w // 2]
+    return out
+
+
+def cut_rect(art: np.ndarray, rect: Rect, excluded: list[Rect]) -> np.ndarray:
+    """O que há no retângulo, menos os excluídos, aparado."""
+    x0, y0, x1, y1 = rect
+    own = np.zeros_like(art)
+    own[y0:y1, x0:x1] = art[y0:y1, x0:x1]
+    for ex0, ey0, ex1, ey1 in excluded:
+        own[ey0:ey1, ex0:ex1, 3] = 0
+    return trim(own)
+
+
 def process_props(sheet: list) -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     for file, names in SHEETS:
@@ -226,6 +275,20 @@ def process_props(sheet: list) -> None:
             image = scaled(crop, names[name][1])
             image.save(OUT / f"{name}.png")
             sheet.append((f"{name} {image.width}x{image.height}", image))
+    smithy, _ = clean(load_rgba(SRC / "interior_ferreiro.png"))
+    smithy = soften_shadows(smithy)
+    for name, (rect, excluded) in SMITHY_CUTS.items():
+        image = scaled(cut_rect(smithy, rect, excluded), 0.5 * SMITHY_SCALE)
+        image.save(OUT / f"{name}.png")
+        sheet.append((f"{name} {image.width}x{image.height}", image))
+    deco = dark_sheet_art(load_rgba(SRC / SMITHY_DECO_FILE))
+    for name, (rect, excluded) in SMITHY_DECO.items():
+        crop = cut_rect(deco, rect, excluded)
+        if name in MIRROR_LEFT:
+            crop = mirror_left(crop)
+        image = scaled(crop, SMITHY_DECO_SCALE)
+        image.save(OUT / f"{name}.png")
+        sheet.append((f"{name} {image.width}x{image.height}", image))
     art = dark_sheet_art(load_rgba(SRC / DECO_FILE))
     for name, crop in kit_objects(art, np.zeros(art.shape[:2], bool), DECO, DECO_FILE).items():
         image = scaled(crop, DECO[name][1])

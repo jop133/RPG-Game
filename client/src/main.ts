@@ -278,8 +278,8 @@ const INTERACTION_HINTS: Record<InteractionId, string> = {
   "guild-bestiary": "[E] Consultar Bestiário & Rank",
   "inn-counter": "[E] Balcão de Comida: suprimentos",
   "inn-chest": "[E] Baú da Linhagem",
-  "blacksmith-counter": "[E] Balcão do Ferreiro: equipamentos",
-  "blacksmith-anvil": "[E] Forja: receitas",
+  "blacksmith-counter": "[E] Comprar Armas & Equipamentos",
+  "blacksmith-anvil": "[E] Forja & Craft",
 };
 // Troca de lugar pela porta: escurece, o servidor muda o jogador de lugar e clareia. Sem resposta (fora da porta,
 // no servidor), clareia depois de DOOR_TIMEOUT_MS.

@@ -1030,3 +1030,18 @@ Slot vazio usa a moldura comum.
 
 **Limites:** sem peça para o mapa na parede esquerda nem para um segundo quadro no bloco da divisória. Decorações nas paredes laterais (janelas, estandarte, tocha) são desenhadas de frente, como as da parede do fundo.
 
+---
+
+## 2026-10 — Forja do Ferreiro 42x26: recorte por retângulo e pivô no topo para peças de parede
+
+**Pedido do dono do projeto:** reconstruir a Forja fiel à imagem de referência dele, com a folha nova `enfeites_interiorferreiro.png` (algumas células divididas em várias peças), duas alas, cantos chanfrados e a porta no meio da parede sul.
+
+**Como:**
+- **Fundo = alfa** também nesta folha (já vem transparente; o flood-fill de preto comeria o contorno)
+- **Recorte por retângulo** (com áreas excluídas) para as peças coladas: as ilhas da folha não separam o balcão do barril e dos caixotes, nem as correntes das ferramentas. O barril avulso, cuja lateral fica atrás do balcão na folha, tem a metade esquerda espelhada da direita
+- **Extensão do balcão:** só o segmento da direita (com as moedas): inteira, com a mesma altura do balcão da espada, ela teria quase 9 tiles para um vão de 5
+- **Porta na parede sul e peças de parede com pivô no topo** (`SORT_AT_TOP`): uma porta de frente na parede de baixo cobriria quem chega até ela; tochas, correntes e ferramentas penduradas nunca ficam na frente de alguém
+- **Colisão com vários retângulos por móvel** (o rack de canto em "L")
+
+**Limites:** a porta sul é desenhada de frente (é a arte que existe), embora na vista de cima a parede sul fosse vista por trás.
+

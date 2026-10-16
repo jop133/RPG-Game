@@ -83,7 +83,8 @@ tools/assets/.venv/Scripts/python.exe -I tools/assets/build_city.py
    (`clean`, `kit_objects` de `process_labyrinth.py`), mais: janelas com quadriculado mais contrastado limpas com um limiar
    mais tolerante (`RELAXED_BACKGROUND`) e a sombra cinza desenhada embaixo dos móveis virada preto semitransparente
    (`soften_shadows`). `decoracoes_guilda.png` (`DECO`) já vem com fundo transparente e sombra cinza-escura: ali o
-   fundo é o alfa e a sombra vira preto semitransparente (`dark_sheet_art`). Grava os móveis em `assets/tilesets/city/interior/` e os 16 pisos em
+   fundo é o alfa e a sombra vira preto semitransparente (`dark_sheet_art`). `enfeites_interiorferreiro.png` também, e as
+   peças coladas umas nas outras saem por retângulo com áreas excluídas (`SMITHY_DECO`, `SMITHY_CUTS`, `cut_rect`). Grava os móveis em `assets/tilesets/city/interior/` e os 16 pisos em
    `tools/assets/build/interior-floor/`. Nome, centro e escala de cada móvel no topo (`GUILD`, `SMITHY`, `INN`, `CHEST`).
 2. **`interiors.py`** (usado pelo `build_city.py`): a planta de cada sala (pisos, paredes internas, móveis, pontos),
    as paredes geradas a partir dos pisos (na Guilda: pedra com viga e rodapé, painel de madeira, topo de madeira e

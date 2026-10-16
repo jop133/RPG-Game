@@ -290,9 +290,10 @@ def floor_layer(ids: dict[str, list[int]], zones: dict[str, np.ndarray]) -> list
 
 # ---------------------------------------------------------------- objetos
 
-# Retângulo de colisão na base de cada enfeite, em frações da imagem (x0, y0, x1, y1). None = não bloqueia.
+# Retângulo de colisão na base de cada enfeite, em frações da imagem (x0, y0, x1, y1), ou uma lista deles (móvel em
+# "L"). None = não bloqueia.
 # Todo retângulo vai para o mapa com a classe "macico": o servidor marca toda célula de 32 px que ele toca.
-FOOTPRINT: dict[str, tuple[float, float, float, float] | None] = {
+FOOTPRINT: dict[str, tuple[float, float, float, float] | list[tuple[float, float, float, float]] | None] = {
     "portal": None,
     "barraca-vermelha": (0.05, 0.55, 0.95, 0.95),
     "barraca-ocre": (0.05, 0.55, 0.95, 0.95),
@@ -345,6 +346,9 @@ LANDMARK_SHAPES: dict[str, list[tuple[int, int, int, int]]] = {
 # Pivô do Y-sorting dos prédios (px a partir do topo da imagem): a linha da porta, não a base da imagem. Quem está
 # nos degraus ou na soleira é desenhado na frente do prédio.
 SORT_LINE: dict[str, int] = {"landmark_guild": 418, "landmark_inn_vault": 399, "landmark_blacksmith": 346}
+# Peças de parede e a porta da parede sul da Forja: pivô no topo da imagem, para ficarem sempre atrás de quem passa
+# perto (a porta sul, na frente da sala, cobriria quem chega até ela).
+SORT_LINE.update({name: 0 for name in interiors.SORT_AT_TOP})
 # Casas: a largura da parede vem dos pixels opacos dos HOUSE_BASE de baixo da imagem (abaixo das placas penduradas
 # nas laterais); a colisão sobe da base até HOUSE_SOLID da altura (térreo e 1º andar; só o telhado fica livre).
 HOUSE_BASE = 0.15
@@ -368,8 +372,8 @@ def shapes_for(image_path: str, kind: str, image: Image.Image) -> list[tuple[int
     if footprint is None:
         return []
     w, h = image.size
-    x0, y0, x1, y1 = footprint
-    return [(round(x0 * w), round(y0 * h), round(x1 * w), round(y1 * h))]
+    rects = footprint if isinstance(footprint, list) else [footprint]
+    return [(round(x0 * w), round(y0 * h), round(x1 * w), round(y1 * h)) for x0, y0, x1, y1 in rects]
 
 
 class Objects:

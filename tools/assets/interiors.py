@@ -11,6 +11,7 @@ Usado por build_city.py, que monta o tileset de chão (pisos internos, paredes e
 
 from __future__ import annotations
 
+import random
 from pathlib import Path
 
 import numpy as np
@@ -35,6 +36,7 @@ INTERIOR_FLOORS = [
 FLOOR_KINDS = {
     "madeira": ["madeira-0", "madeira-3"],
     "madeira-nobre": ["madeira-2"],
+    "fuligem": ["pedra-fuligem-0", "pedra-fuligem-1"],
     "madeira-rustica": ["madeira-rustica-0", "madeira-rustica-1"],
     "pedra-ocre": ["pedra-ocre-0"],
     "pedra-escura": ["pedra-escura-0", "pedra-escura-1"],
@@ -48,7 +50,11 @@ FLOOR_KINDS = {
 CARPET_SLICES = 4  # a amostra vira 4x4 tiles: cantos = 1 tile; bordas e miolo = os 2 do meio, em ciclo
 WALL_FACE_ROWS = 3  # faces de parede da Guilda: 3 linhas de altura (e 1 de topo)
 WALLS = ["parede-topo", "parede-face-alta", "parede-face-baixa", "vazio", "topo-madeira", "mureta", "mureta-pilar"]
-WALLS += [f"face-{kind}-{row}" for kind in ("pedra", "madeira") for row in range(WALL_FACE_ROWS)]
+WALLS += [f"face-{kind}-{row}" for kind in ("pedra", "madeira", "enxaimel", "enxaimel-poste") for row in range(WALL_FACE_ROWS)]
+RUNNER_SLICES = 4  # passadeira vertical da Forja: a amostra em 4x4 tiles (bordas douradas nas colunas 0 e 3)
+# Peças de parede (e a porta da parede sul da Forja) desenhadas sempre atrás de quem passa perto: pivô no topo.
+SORT_AT_TOP = ["porta-ferreiro", "guild_wall_torch", "guild_wall_torch_b", "blacksmith_wall_chains",
+               "blacksmith_wall_tools"]
 
 
 def floor_image(name: str) -> Image.Image:
@@ -120,6 +126,32 @@ def guild_wall_images() -> dict[str, Image.Image]:
     return tiles
 
 
+def smithy_wall_images() -> dict[str, Image.Image]:
+    """Forja: enxaimel na loja (reboco bege com viga de madeira no alto e um poste de madeira a cada poucos tiles) e o
+    degrau de pedra da porta sul."""
+    tiles: dict[str, Image.Image] = {}
+    stone = rgb("pedra-ocre-0")
+    lum = stone @ np.array([0.299, 0.587, 0.114])
+    plaster = np.array([214, 196, 158], float) * (0.86 + 0.18 * (lum / max(lum.max(), 1)))[:, :, None]
+    wood = rgb("madeira-0") * 0.5
+    plain = wall_face(plaster, (1.05, 0.8), wood / 0.75, WALL_FACE_ROWS)
+    for row, tile in enumerate(plain):
+        tiles[f"face-enxaimel-{row}"] = tile
+        post = np.asarray(tile.convert("RGB")).astype(float).copy()
+        post[:, :6] = wood[:, :6] * (1.1 - 0.15 * row)
+        post[:, 6] = post[:, 6] * 0.6
+        tiles[f"face-enxaimel-poste-{row}"] = to_tile(post)
+    step = rgb("pedra-escura-0").copy() * 0.95
+    step[:3] = step[:3] * 1.35  # quina do degrau
+    step[-5:] = step[-5:] * 0.5  # espelho
+    tiles["degrau-pedra"] = to_tile(step)
+    # Pedra manchada de fuligem (em volta da fornalha, da bigorna e dos tanques): a pedra do chão, mais escura e com
+    # um tom de carvão.
+    for n, base in enumerate(("pedra-escura-0", "pedra-escura-1")):
+        tiles[f"pedra-fuligem-{n}"] = to_tile(rgb(base) * np.array([0.66, 0.63, 0.62]))
+    return tiles
+
+
 def carpet_tiles(name: str, cols: int, rows: int, rotate: bool, prefix: str) -> dict[str, Image.Image]:
     """Corta o tapete inteiro (girado de 90 graus, se for o caso) em cols x rows tiles: `prefix-<coluna>-<linha>`."""
     big = Image.open(FLOORS / "grande" / f"{name}.png").convert("RGBA")
@@ -132,8 +164,10 @@ def carpet_tiles(name: str, cols: int, rows: int, rotate: bool, prefix: str) -> 
 def tile_images() -> list[tuple[str, Image.Image]]:
     """Os tiles que os interiores acrescentam ao tileset da cidade, com nome."""
     carpet = carpet_tiles("tapete-canto", CARPET_SLICES, CARPET_SLICES, False, "tapete-grande")
+    runner = carpet_tiles("tapete-faixa", RUNNER_SLICES, RUNNER_SLICES, False, "tapete-vertical")
     return ([(name, floor_image(name)) for name in INTERIOR_FLOORS] + list(wall_images().items())
-            + list(guild_wall_images().items()) + list(carpet.items()))
+            + list(guild_wall_images().items()) + list(smithy_wall_images().items()) + list(carpet.items())
+            + list(runner.items()))
 
 
 # ---------------------------------------------------------------- salas
@@ -157,6 +191,12 @@ class Room:
     def paint(self, kind: str, x0: int, y0: int, x1: int, y1: int) -> None:
         """Pinta o chão no retângulo (inclusive)."""
         self.kinds[y0 : y1 + 1, x0 : x1 + 1] = kind
+
+    def carpet(self, prefix: str, cols: int, rows: int, x0: int, y0: int, w: int, h: int) -> None:
+        """Tapete cortado em cols x rows tiles (`prefix-<coluna>-<linha>`), repetido em ciclo no retângulo w x h."""
+        for r in range(h):
+            for c in range(w):
+                self.kinds[y0 + r, x0 + c] = f"{prefix}-{c % cols}-{r % rows}"
 
     def nine_slice(self, prefix: str, n: int, x0: int, y0: int, w: int, h: int) -> None:
         """Tapete de w x h a partir de uma amostra cortada em n x n tiles (`prefix-<coluna>-<linha>`): cantos nos cantos,
@@ -267,30 +307,95 @@ def guild(ox: int, oy: int) -> Room:
 
 
 def smithy(ox: int, oy: int) -> Room:
-    """Forja do Ferreiro: pedra escura, tijolo com fuligem em volta da fornalha, madeira rústica no atendimento.
-    Balcão (catálogo) e bigorna (receitas)."""
-    room = Room("blacksmith", ox, oy, 26, 18, "pedra-escura")
-    room.paint("tijolo", 14, 3, 24, 8)
-    room.paint("madeira-rustica", 1, 9, 11, 16)
-    room.prop("rack-armas-1", 3.0, 5.0)
-    room.prop("rack-armas-2", 6.5, 5.0)
-    room.prop("rack-armas-3", 10.0, 5.0)
-    room.prop("fornalha", 19.0, 6.5)
-    room.prop("fole", 22.5, 6.6)
-    room.prop("bigorna-tempera", 18.5, 10.5)
-    room.prop("bancada-lingotes", 23.0, 10.5)
-    room.prop("bancada-manoplas", 23.0, 14.0)
-    room.prop("tanque-tempera", 15.5, 15.5)
-    room.prop("pedra-amolar", 19.5, 15.0)
-    room.prop("balcao-ferreiro", 6.5, 11.5)
-    room.prop("armadura-a", 2.0, 15.5)
-    room.prop("armadura-b", 4.0, 15.5)
-    room.prop("armadura-c", 10.0, 15.5)
-    room.prop("porta-ferreiro", 13.0, 18.0)
-    room.point("blacksmith-counter", 6.5, 12.6)
-    room.point("blacksmith-anvil", 18.5, 11.6)
-    room.point("blacksmith-exit", 13.0, 16.4)
-    room.point("arrival", 13.0, 14.0)
+    """Forja do Ferreiro, 42x26 tiles (coordenadas da planta de referência): duas alas separadas por uma parede grossa
+    (x 20-21) que desce do fundo até y 14, com a passagem aberta embaixo (y 15-21).
+    - Loja/Armaria (x 3-19): piso de tábuas, parede de enxaimel, passadeira vermelha (x 10-13, y 8-21) por baixo do
+      balcão da espada; rack de canto em "L", tochas, rack menor, caixote, barril, balcão duplo (espada + extensão das
+      moedas), mesa de manoplas na parede oeste, armaduras e rack embaixo.
+    - Oficina (x 22-39): pedra escura com manchas de fuligem, parede de pedra; fornalha no meio da parede com correntes à
+      esquerda e ferramentas à direita; fole, barril sobre caixote, reservatório de carvão, barril; 1º tanque de
+      têmpera na divisória, bigorna na frente da fornalha, 2º tanque com faíscas; pedra de amolar e a bancada de
+      lingotes com o caixote de cristais ao longo da parede sul.
+    - Parede sul com os cantos chanfrados e a porta em arco no meio (x 19-22), entre 2 tochas sobre pilares baixos, com
+      degraus de pedra."""
+    w, h = 42, 26
+    room = Room("blacksmith", ox, oy, w, h, "madeira")
+    k = room.kinds
+    k[:, :] = "vazio"
+    k[6:22, 3:20] = "madeira"
+    k[6:22, 20:22] = "madeira"
+    k[6:22, 22:40] = "pedra-escura"
+    # Manchas de fuligem em volta da fornalha, da bigorna e dos tanques: o miolo todo, a borda só em parte (sorteio
+    # fixo), para a mancha não ser um retângulo.
+    pick = random.Random(17)
+    for x0, y0, x1, y1 in ((26, 6, 34, 10), (28, 13, 33, 17), (22, 11, 26, 15), (33, 11, 39, 16)):
+        for y in range(y0, y1 + 1):
+            for x in range(x0, x1 + 1):
+                edge = x in (x0, x1) or y in (y0, y1)
+                if not edge or pick.random() < 0.5:
+                    k[y, x] = "fuligem"
+    room.carpet("tapete-vertical", RUNNER_SLICES, RUNNER_SLICES, 10, 8, 4, 14)
+    # Paredes do fundo (topo em y 2, face em y 3-5): enxaimel com postes a cada 4 tiles na loja, pedra na oficina.
+    k[2, 1:41] = "topo-madeira"
+    for r in range(WALL_FACE_ROWS):
+        for x in range(3, 20):
+            k[3 + r, x] = f"face-enxaimel-poste-{r}" if (x - 3) % 4 == 0 else f"face-enxaimel-{r}"
+        k[3 + r, 22:40] = f"face-pedra-{r}"
+    # Divisória: topo de y 2 a 11 e a ponta vista de frente (face de pedra) em y 12-14.
+    k[2:12, 20:22] = "topo-madeira"
+    for r in range(WALL_FACE_ROWS):
+        k[12 + r, 20:22] = f"face-pedra-{r}"
+    # Laterais, parede sul e os cantos chanfrados (3 tiles na diagonal).
+    k[2:23, 1:3] = "topo-madeira"
+    k[2:23, 40:42] = "topo-madeira"
+    k[22, 1:41] = "topo-madeira"
+    for y in range(19, 22):
+        for x in range(3, 40):
+            if (x - 3) + (21 - y) < 3 or (39 - x) + (21 - y) < 3:
+                k[y, x] = "topo-madeira"
+    # Porta sul: pilares baixos dos lados e degraus de pedra.
+    k[21, 18] = k[21, 23] = "mureta-pilar"
+    k[21, 19:23] = "degrau-pedra"
+
+    # Loja: rack de canto, tochas na parede, caixote, rack menor e barril encostado na divisória.
+    room.prop("blacksmith_corner_rack", 8.75, 10.5)
+    room.prop("guild_wall_torch", 8.0, 5.5)
+    room.prop("guild_wall_torch_b", 14.8, 5.5)
+    room.prop("blacksmith_crate", 15.6, 8.0)
+    room.prop("rack-armas-1", 18.0, 8.6)
+    room.prop("blacksmith_barrel", 19.0, 10.6)
+    # Balcão duplo: o da espada (por cima da passadeira) e a extensão das moedas, colada, até a divisória. A extensão
+    # traz o caixote da frente embaixo: a base da imagem fica 1,24 tile abaixo da do balcão.
+    room.prop("balcao-ferreiro", 11.0, 14.6)
+    room.prop("blacksmith_counter_ext", 17.45, 15.84)
+    room.prop("blacksmith_gauntlet_table", 4.6, 16.8)
+    room.prop("armadura-a", 4.3, 19.9)
+    room.prop("rack-armas-2", 7.4, 20.9)
+    room.prop("armadura-b", 15.5, 20.6)
+    room.prop("armadura-c", 17.5, 20.6)
+    # Oficina: fornalha no meio da parede, correntes à esquerda e ferramentas à direita (na parede); fole, barril sobre
+    # caixote, carvão e barril no chão.
+    room.prop("fornalha", 30.0, 9.0)
+    room.prop("blacksmith_wall_chains", 24.5, 7.9)
+    room.prop("blacksmith_wall_tools", 35.6, 7.0)
+    room.prop("blacksmith_barrel_crates", 23.4, 10.8)
+    room.prop("fole", 26.0, 9.6)
+    room.prop("blacksmith_coal_bin", 35.0, 10.0)
+    room.prop("blacksmith_barrel", 38.3, 9.5)
+    room.prop("tanque-tempera", 24.0, 15.0)
+    room.prop("bigorna", 30.5, 16.1)
+    room.prop("blacksmith_quench_sparks", 36.6, 16.8)
+    room.prop("pedra-amolar", 25.5, 21.6)
+    room.prop("blacksmith_ore_bench", 33.3, 21.3)
+    room.prop("blacksmith_coal_bin", 36.6, 18.0)
+    # Porta sul entre as tochas dos pilares.
+    room.prop("porta-ferreiro", 21.0, 22.6)
+    room.prop("guild_wall_torch", 18.5, 21.6)
+    room.prop("guild_wall_torch_b", 23.5, 21.6)
+    room.point("blacksmith-counter", 11.0, 15.5)
+    room.point("blacksmith-anvil", 30.5, 16.5)
+    room.point("blacksmith-exit", 21.0, 21.0)
+    room.point("arrival", 21.0, 18.0)
     return room
 
 
@@ -370,7 +475,7 @@ FOOTPRINT: dict[str, tuple[float, float, float, float] | None] = {
     "guild_wall_window": None,
     "guild_wall_window_b": None,
     "balcao-ferreiro": (0.02, 0.5, 0.98, 0.95),
-    "rack-armas-1": (0.05, 0.75, 0.95, 1.0),
+    "rack-armas-1": (0.05, 0.45, 0.95, 1.0),  # encostado na parede e na divisória: bloqueia até a parede
     "rack-armas-2": (0.05, 0.75, 0.95, 1.0),
     "rack-armas-3": (0.05, 0.75, 0.95, 1.0),
     "fornalha": (0.05, 0.62, 0.95, 0.98),
@@ -384,6 +489,20 @@ FOOTPRINT: dict[str, tuple[float, float, float, float] | None] = {
     "bancada-manoplas": (0.03, 0.45, 0.97, 0.95),
     "tanque-tempera": (0.03, 0.4, 0.97, 0.95),
     "pedra-amolar": (0.1, 0.6, 0.9, 0.98),
+    # Rack de canto em "L": a parte inclinada na parede oeste (desce até a base da imagem) e o rack reto da parede
+    # norte, mais ao fundo (a base dele fica a 63% da altura da imagem).
+    "blacksmith_corner_rack": [(0.0, 0.5, 0.42, 1.0), (0.42, 0.5, 1.0, 0.64)],
+    "blacksmith_gauntlet_table": (0.05, 0.3, 0.95, 0.95),
+    "blacksmith_counter_ext": (0.02, 0.4, 0.98, 0.97),
+    "blacksmith_barrel": (0.05, 0.5, 0.95, 0.97),
+    "blacksmith_crate": (0.05, 0.45, 0.95, 0.97),
+    "blacksmith_barrel_crates": (0.05, 0.45, 0.95, 0.97),
+    "blacksmith_wall_chains": None,
+    "blacksmith_wall_tools": None,
+    "blacksmith_coal_bin": (0.05, 0.5, 0.95, 0.95),
+    "blacksmith_quench_sparks": (0.02, 0.38, 0.98, 0.8),
+    "blacksmith_ore_bench": (0.02, 0.45, 0.98, 0.95),
+    "bigorna": (0.03, 0.5, 0.97, 0.95),
     "balcao-comida": (0.01, 0.45, 0.99, 0.95),
     "mesa-acougue": (0.03, 0.6, 0.97, 0.95),
     "despensa": (0.03, 0.6, 0.97, 0.95),
@@ -418,4 +537,6 @@ LIGHTS: dict[str, tuple[str, str | float | tuple[float, float]]] = {
     "guild_wall_window_b": ("janela", 0.5),
     "guild_wall_torch": ("braseiro", 0.85),
     "guild_wall_torch_b": ("braseiro", 0.85),
+    "blacksmith_quench_sparks": ("braseiro", (0.4, 0.4)),
+    "blacksmith_ore_bench": ("cristal-medio", (0.9, 0.6)),
 }
