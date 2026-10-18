@@ -1058,3 +1058,17 @@ Slot vazio usa a moldura comum.
 - **Colisão e luzes acompanham sozinhas** (são frações da imagem); as posições nas salas foram refeitas à mão, com os móveis encostados nas paredes e os pontos de E na frente de cada um
 - **Sombra oval:** na cidade e nos interiores, só em enfeites finos em pé; o labirinto não mudou
 
+---
+
+## 2026-10 — Estalagem 46x28 nas coordenadas da planta, com a régua do jogador
+
+**Pedido do dono do projeto:** reconstruir a Estalagem e a Sala-Forte do Baú com a folha nova `derocacao_taverna.png`, numa sala de 46x28 com a posição de cada móvel dada em tiles.
+
+**Escolha do dono do projeto:** manter a régua do jogador (decisão "Móveis dos interiores pela régua do jogador") e usar a planta 46x28 à risca, com cada móvel no centro da caixa que a planta dá a ele (`Room.place_in`). A sala fica com mais chão entre as peças do que a Guilda e a Forja, que foram encolhidas na proporção.
+
+**Como:**
+- Recorte por retângulo (`TAVERN` em `process_interiors.py`), fundo = alfa (a folha já vem transparente)
+- A grade de ferro da alcova é trancada: passa a ter colisão. A alcova (saleta com janela, barris e caixote) é só cenário
+- Duas portas de saída (`inn-exit` duas vezes): as duas levam à porta em arco da rua
+- Pedestal com pivô no topo, para o Baú pousar por cima dele; portas da parede sul também
+

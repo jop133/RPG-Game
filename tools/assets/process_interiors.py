@@ -7,6 +7,8 @@ Entrada: assets/tilesets/novos tilesets/ (fora do git)
            Interior_casacomida.png   móveis da Estalagem / Casa de Comida (INN)
            Bau_casadecomida.png      o Baú da Linhagem no pedestal
            decoracoes_guilda.png     púlpito, estante, caixotes, metade direita do balcão, tocha e janela (DECO)
+           derocacao_taverna.png     taverna e Sala-Forte: pilar de velas, banquinho, mesa vertical, cozinha, barris,
+                                     lareira, janela gradeada, pedestal e tesouros (TAVERN, por retângulo)
            enfeites_interiorferreiro.png  rack de canto, mesa de manoplas, balcão, barril e caixotes, correntes, ferramentas,
                                      carvão, tanque com faíscas, bancada de lingotes (SMITHY_DECO, por retângulo)
 Saída:   assets/tilesets/city/interior/<nome>.png        cada móvel, sem fundo, recortado e reduzido
@@ -106,6 +108,30 @@ SMITHY_DECO: dict[str, tuple[Rect, list[Rect]]] = {
 # O barril avulso fica, na folha, com a lateral esquerda atrás da ponta do balcão: é simétrico, então a metade esquerda
 # vem da direita, espelhada.
 MIRROR_LEFT = {"blacksmith_barrel"}
+# derocacao_taverna.png (fundo transparente, como as outras folhas novas): a Estalagem refeita. Por retângulo, porque
+# várias células trazem peças coladas (o pilar e os banquinhos, os 5 móveis da cozinha, as duas metades dos barris, a
+# lareira e a janela, o pedestal e os tesouros em volta dele).
+TAVERN_FILE = "derocacao_taverna.png"
+TAVERN_SCALE = 0.17
+PEDESTAL: Rect = (2100, 1165, 2480, 1490)
+TAVERN: dict[str, tuple[Rect, list[Rect]]] = {
+    "tavern_candle_pillar": ((222, 120, 450, 740), [(440, 380, 560, 620)]),
+    "tavern_stool": ((598, 458, 716, 614), []),
+    "tavern_table_vertical": ((870, 130, 1480, 715), []),
+    "tavern_counter_vertical": ((1692, 265, 1858, 772), []),
+    "tavern_chopping_stump": ((1898, 598, 2002, 742), []),
+    "tavern_cauldron_oven": ((2032, 35, 2342, 568), []),
+    "tavern_butcher_table_center": ((2058, 590, 2412, 772), []),
+    "tavern_wall_meats_right": ((2368, 145, 2642, 772), [(2360, 560, 2416, 780)]),
+    "tavern_barrel_rack_sacks": ((78, 915, 562, 1378), []),
+    "tavern_kegs_cluster": ((598, 1055, 1038, 1438), []),
+    "tavern_side_fireplace": ((1178, 815, 1368, 1448), []),
+    "tavern_barred_window": ((1415, 960, 1608, 1138), []),
+    "vault_stone_pedestal": (PEDESTAL, []),
+    "vault_treasure_left": ((1788, 878, 2165, 1468), [PEDESTAL]),
+    "vault_treasure_top": ((2165, 898, 2432, 1162), [PEDESTAL]),
+    "vault_treasure_right": ((2432, 878, 2702, 1422), [PEDESTAL]),
+}
 # A bigorna sozinha (na folha antiga ela vem colada no barril de água e no tanque, a "bigorna-tempera").
 SMITHY_CUTS: dict[str, tuple[Rect, list[Rect]]] = {"bigorna": ((712, 262, 862, 390), [(835, 225, 905, 330), (850, 225, 905, 345), (823, 225, 905, 300)])}
 # A Forja é a sala grande (42x26): a folha dela sai 1,4x maior que na primeira versão.
@@ -288,6 +314,11 @@ TARGETS: dict[str, tuple[str, int]] = {
     "balcao-comida": ("h", 54), "mesa-refeicao-a": ("h", 58), "mesa-refeicao-b": ("h", 58),
     "mesa-acougue": ("h", 66), "despensa": ("h", 76), "forno-caldeirao": ("w", 110), "cofres": ("h", 52),
     "prop_lineage_chest": ("w", 68), "porta-estalagem": ("h", 76), "arco-pedra": ("h", 90), "grade-ferro": ("h", 70),
+    "tavern_candle_pillar": ("h", 104), "tavern_stool": ("max", 24), "tavern_table_vertical": ("h", 92),
+    "tavern_counter_vertical": ("h", 76), "tavern_chopping_stump": ("max", 26), "tavern_cauldron_oven": ("h", 120),
+    "tavern_butcher_table_center": ("w", 76), "tavern_wall_meats_right": ("h", 100),
+    "tavern_barrel_rack_sacks": ("h", 74), "tavern_kegs_cluster": ("h", 64), "tavern_side_fireplace": ("h", 128),
+    "tavern_barred_window": ("h", 44), "vault_stone_pedestal": ("w", 110),
 }
 
 
@@ -332,6 +363,11 @@ def process_props(sheet: list) -> None:
         if name in MIRROR_LEFT:
             crop = mirror_left(crop)
         image = fitted(name, crop, SMITHY_DECO_SCALE)
+        image.save(OUT / f"{name}.png")
+        sheet.append((f"{name} {image.width}x{image.height}", image))
+    tavern = dark_sheet_art(load_rgba(SRC / TAVERN_FILE))
+    for name, (rect, excluded) in TAVERN.items():
+        image = fitted(name, cut_rect(tavern, rect, excluded), TAVERN_SCALE)
         image.save(OUT / f"{name}.png")
         sheet.append((f"{name} {image.width}x{image.height}", image))
     art = dark_sheet_art(load_rgba(SRC / DECO_FILE))

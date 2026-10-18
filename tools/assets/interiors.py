@@ -53,7 +53,7 @@ WALLS = ["parede-topo", "parede-face-alta", "parede-face-baixa", "vazio", "topo-
 WALLS += [f"face-{kind}-{row}" for kind in ("pedra", "madeira", "enxaimel", "enxaimel-poste") for row in range(WALL_FACE_ROWS)]
 RUNNER_SLICES = 4  # passadeira vertical da Forja: a amostra em 4x4 tiles (bordas douradas nas colunas 0 e 3)
 # Peças de parede (e a porta da parede sul da Forja) desenhadas sempre atrás de quem passa perto: pivô no topo.
-SORT_AT_TOP = ["porta-ferreiro", "guild_wall_torch", "guild_wall_torch_b", "blacksmith_wall_chains",
+SORT_AT_TOP = ["porta-ferreiro", "porta-estalagem", "vault_stone_pedestal", "guild_wall_torch", "guild_wall_torch_b", "blacksmith_wall_chains",
                "blacksmith_wall_tools"]
 
 
@@ -165,12 +165,20 @@ def tile_images() -> list[tuple[str, Image.Image]]:
     """Os tiles que os interiores acrescentam ao tileset da cidade, com nome."""
     carpet = carpet_tiles("tapete-canto", CARPET_SLICES, CARPET_SLICES, False, "tapete-grande")
     runner = carpet_tiles("tapete-faixa", RUNNER_SLICES, RUNNER_SLICES, False, "tapete-vertical")
+    runner.update(carpet_tiles("tapete-faixa", RUNNER_SLICES, 3, True, "tapete-horizontal"))
+    runner.update(carpet_tiles("tapete-faixa", 3, RUNNER_SLICES, False, "tapete-vertical3"))
     return ([(name, floor_image(name)) for name in INTERIOR_FLOORS] + list(wall_images().items())
             + list(guild_wall_images().items()) + list(smithy_wall_images().items()) + list(carpet.items())
             + list(runner.items()))
 
 
 # ---------------------------------------------------------------- salas
+
+
+def prop_size(name: str) -> tuple[float, float]:
+    """Largura e altura do móvel, em tiles (do PNG gerado pelo process_interiors.py)."""
+    with Image.open(ROOT / "assets" / "tilesets" / "city" / "interior" / f"{name}.png") as image:
+        return image.width / T, image.height / T
 
 
 class Room:
@@ -197,6 +205,11 @@ class Room:
         for r in range(h):
             for c in range(w):
                 self.kinds[y0 + r, x0 + c] = f"{prefix}-{c % cols}-{r % rows}"
+
+    def place_in(self, name: str, x0: float, x1: float, y0: float, y1: float) -> None:
+        """O móvel no centro da caixa da planta (tiles x0..x1, y0..y1, inclusive), pelo tamanho real da imagem."""
+        w, h = prop_size(name)
+        self.prop(name, (x0 + x1 + 1) / 2, (y0 + y1 + 1) / 2 + h / 2)
 
     def nine_slice(self, prefix: str, n: int, x0: int, y0: int, w: int, h: int) -> None:
         """Tapete de w x h a partir de uma amostra cortada em n x n tiles (`prefix-<coluna>-<linha>`): cantos nos cantos,
@@ -378,36 +391,135 @@ def smithy(ox: int, oy: int) -> Room:
 
 
 def inn(ox: int, oy: int) -> Room:
-    """Estalagem / Casa de Comida, 24x16 tiles, na régua do jogador: salão de madeira com passadeira na entrada, cozinha
-    de pedra ocre atrás do balcão longo (forno com caldeirão, açougue, despensa) e, no canto nordeste, a Sala-Forte da
-    Linhagem: parede interna, entrada pelo arco de pedra, a grade ao lado, cofres e o Baú no meio."""
-    room = Room("inn", ox, oy, 24, 16, "madeira")
-    room.paint("pedra-ocre", 1, 3, 14, 6)
-    room.paint("tapete-faixa", 7, 11, 8, 14)
-    # Sala-Forte: colunas 16-22, linhas 3-6; parede interna de topo na coluna 15 e na linha 7, face na linha 8, com a
-    # passagem do arco nas colunas 18-20.
-    room.paint("pedra-escura", 16, 3, 22, 6)
-    room.wall(15, 3, 15, 8)
-    room.wall(16, 7, 22, 8, face=True)
-    room.paint("pedra-escura", 18, 7, 20, 8)
-    room.paint("tapete-centro", 18, 5, 20, 6)
-    room.prop("forno-caldeirao", 7.0, 4.8)
-    room.prop("mesa-acougue", 2.6, 5.2)
-    room.prop("despensa", 11.8, 5.3)
-    room.prop("balcao-comida", 7.2, 7.6)
-    room.prop("mesa-refeicao-a", 3.8, 11.0)
-    room.prop("mesa-refeicao-b", 11.8, 11.0)
-    room.prop("mesa-refeicao-a", 19.2, 12.8)
-    room.prop("arco-pedra", 19.0, 9.0)
-    room.prop("grade-ferro", 16.9, 9.0)
-    room.prop("cofres", 16.7, 4.6)
-    room.prop("cofres", 21.9, 4.6)
-    room.prop("prop_lineage_chest", 19.0, 5.0)
-    room.prop("porta-estalagem", 8.0, 16.0)
-    room.point("inn-counter", 7.2, 8.5)
-    room.point("inn-chest", 19.0, 5.6)
-    room.point("inn-exit", 8.0, 14.5)
-    room.point("arrival", 8.0, 12.5)
+    """Estalagem / Casa de Comida, 46x28 tiles, nas coordenadas da planta de referência (cada móvel no centro da sua
+    caixa, na régua do jogador):
+    - Salão da Taverna (x 2-30, y 6-24), tábuas; Ala Esquerda com janela gradeada, estante de barris, lareira lateral,
+      4 mesas em coluna, 3 pilares de velas, mesa vertical e barris na parede sul;
+    - Cozinha (x 14-26, y 7-12) de pedra ocre, atrás do balcão em "L" (perna vertical + balcão principal, 5 banquinhos):
+      estante, 2 fornos, carnes na parede, cepo e mesa de açougue; 2 mesas no centro, 2 passadeiras;
+    - Alcova do portão (x 27-31): saleta escura no fundo com janela, barris e caixote, fechada pelo arco com a grade
+      trancada;
+    - divisória (x 31-32) com passagem (y 15-19) para a Sala-Forte (x 33-44): pedra escura, correntes, ferramentas e
+      tochas na parede, o Baú da Linhagem no pedestal de pedra no meio, tesouros em volta;
+    - parede sul com 2 portas em arco (Taverna e Sala-Forte); cantos chanfrados."""
+    w, h = 46, 28
+    room = Room("inn", ox, oy, w, h, "madeira")
+    k = room.kinds
+    k[:, :] = "vazio"
+    k[6:25, 2:31] = "madeira"
+    k[7:13, 14:27] = "pedra-ocre"
+    k[6:25, 33:45] = "pedra-escura"
+    room.carpet("tapete-horizontal", RUNNER_SLICES, 3, 14, 14, 14, 3)
+    room.carpet("tapete-vertical3", 3, RUNNER_SLICES, 28, 13, 3, 10)
+    # Paredes do fundo (topo y 2, face y 3-5): enxaimel na Taverna/Cozinha com pilares de pedra em x 11 e 27; a
+    # Sala-Forte de pedra.
+    k[2, 1:45] = "topo-madeira"
+    for r in range(WALL_FACE_ROWS):
+        for x in range(2, 27):
+            k[3 + r, x] = f"face-pedra-{r}" if x == 11 else f"face-enxaimel-{r}"
+        k[3 + r, 27] = f"face-pedra-{r}"
+        k[3 + r, 28:31] = f"face-pedra-{r}"
+        k[3 + r, 33:45] = f"face-pedra-{r}"
+    # Alcova do portão: paredes de pedra dos lados (x 27 e 31, até y 12), saleta escura (y 6-11), a grade em y 12.
+    k[6:13, 27] = "parede-topo"
+    k[6:13, 31] = "parede-topo"
+    k[6:13, 28:31] = "pedra-escura"
+    # Divisória Taverna | Sala-Forte (x 31-32): fechada até y 14 (ponta de pedra vista de frente em y 12-14), passagem
+    # em y 15-19, fechada de novo até a parede sul.
+    k[2:12, 31:33] = "parede-topo"
+    for r in range(WALL_FACE_ROWS):
+        k[12 + r, 31:33] = f"face-pedra-{r}"
+    k[15:20, 31:33] = "madeira"
+    k[20:25, 31:33] = "parede-topo"
+    # Laterais, parede sul e cantos chanfrados.
+    k[2:26, 0:2] = "topo-madeira"
+    k[2:26, 45] = "topo-madeira"
+    k[25, :] = "topo-madeira"
+    for y in range(6, 25):
+        for x in list(range(2, 31)) + list(range(33, 45)):
+            top, bottom = y - 6, 24 - y
+            left, right = x - 2, 44 - x
+            if min(left, right) + min(top, bottom) < 2:
+                k[y, x] = "topo-madeira"
+    # Portas sul: pilares baixos e degraus de pedra.
+    k[24, 23] = k[24, 28] = "mureta-pilar"
+    k[24, 24:28] = "degrau-pedra"
+    k[24, 36:40] = "degrau-pedra"
+
+    # A. Ala Esquerda: janela gradeada entre 2 tochas e a estante de barris na parede norte; janela no canto; barris,
+    # lareira e barris com sacos na parede oeste; 4 mesas em coluna; pilares de velas, mesa vertical, barris no sul.
+    room.prop("tavern_barred_window", 7.0, 5.5)
+    room.prop("guild_wall_torch", 5.0, 5.0)
+    room.prop("guild_wall_torch_b", 9.0, 5.0)
+    room.prop("tavern_barrel_rack_sacks", 7.0, 8.0)
+    room.prop("guild_wall_window_b", 2.5, 6.6)
+    room.place_in("blacksmith_barrel", 2, 3, 8, 9)
+    room.place_in("blacksmith_barrel", 2, 3, 10, 11)
+    room.place_in("tavern_side_fireplace", 2, 2, 12, 19)
+    room.place_in("blacksmith_barrel_crates", 2, 4, 20, 23)
+    for i, (y0, y1) in enumerate(((7, 10), (11, 14), (16, 19), (21, 23))):
+        room.place_in("mesa-refeicao-a" if i % 2 == 0 else "mesa-refeicao-b", 5, 9, y0, y1)
+    room.place_in("tavern_candle_pillar", 10, 10, 7, 13)
+    room.place_in("tavern_candle_pillar", 10, 10, 16, 22)
+    room.place_in("tavern_table_vertical", 12, 16, 16, 20)
+    room.place_in("tavern_kegs_cluster", 11, 16, 21, 23)
+    room.place_in("tavern_candle_pillar", 17, 17, 16, 22)
+    # B. Cozinha: estante, tocha, 2 fornos e as carnes na parede; cepo e mesa de açougue no meio; balcão em "L" com 5
+    # banquinhos; 2 mesas no centro.
+    room.place_in("despensa", 12, 16, 5, 7)
+    room.prop("guild_wall_torch", 16.5, 4.6)
+    room.place_in("forno-caldeirao", 17, 20, 4, 7)
+    room.place_in("tavern_cauldron_oven", 21, 24, 3, 7)
+    room.place_in("tavern_wall_meats_right", 25, 26, 5, 10)
+    room.place_in("tavern_chopping_stump", 16, 16, 9, 10)
+    room.place_in("tavern_butcher_table_center", 18, 22, 9, 11)
+    room.place_in("tavern_counter_vertical", 13, 15, 8, 12)
+    room.place_in("tavern_stool", 12, 12, 9, 9)
+    room.place_in("tavern_stool", 12, 12, 11, 11)
+    leg_right = 14.5 + prop_size("tavern_counter_vertical")[0] / 2
+    counter_w, counter_h = prop_size("balcao-comida")
+    room.prop("balcao-comida", leg_right + counter_w / 2, 13.5 + counter_h / 2)
+    for x in (15, 19, 22):
+        room.place_in("tavern_stool", x, x, 14, 14)
+    room.place_in("mesa-refeicao-b", 20, 25, 16, 19)
+    room.place_in("mesa-refeicao-a", 20, 25, 21, 23)
+    # Alcova: janela, barris e caixote na saleta; o arco com a grade trancada.
+    room.prop("tavern_barred_window", 29.5, 5.5)
+    room.place_in("blacksmith_barrel", 28, 28, 7, 9)
+    room.place_in("blacksmith_crate", 30, 30, 8, 9)
+    room.prop("grade-ferro", 29.5, 12.95)
+    room.prop("arco-pedra", 29.5, 13.0)
+    # Porta sul da Taverna: tochas nos pilares e 2 barris à direita.
+    room.prop("porta-estalagem", 26.0, 25.6)
+    room.prop("guild_wall_torch", 23.5, 24.8)
+    room.prop("guild_wall_torch_b", 28.5, 24.8)
+    room.place_in("blacksmith_barrel", 29, 29, 23, 23)
+    room.place_in("blacksmith_barrel", 30, 30, 23, 23)
+    # C. Sala-Forte: correntes, ferramentas e tochas na parede; pedestal com o Baú no meio; tesouros em volta; rack
+    # na parede direita; porta sul.
+    room.prop("blacksmith_wall_chains", 35.0, 5.6)
+    room.prop("blacksmith_wall_tools", 42.0, 5.0)
+    room.prop("guild_wall_torch", 37.0, 4.8)
+    room.prop("guild_wall_torch_b", 40.0, 4.8)
+    pw, ph = prop_size("vault_stone_pedestal")
+    pedestal_base = 14.5 + ph / 2
+    room.prop("vault_stone_pedestal", 38.5, pedestal_base)
+    # O Baú pousa no tampo do pedestal (o degrau de cima fica a 55% da altura dele, de baixo para cima).
+    room.prop("prop_lineage_chest", 38.5, pedestal_base - ph * 0.55)
+    room.place_in("vault_treasure_left", 33, 35, 6, 11)
+    room.place_in("vault_treasure_top", 36, 40, 6, 8)
+    room.place_in("vault_treasure_right", 41, 43, 6, 11)
+    room.place_in("rack-armas-3", 42, 44, 13, 16)
+    room.place_in("vault_treasure_left", 33, 35, 18, 22)
+    room.place_in("cofres", 35, 35, 20, 22)
+    room.place_in("vault_treasure_right", 41, 43, 18, 22)
+    room.place_in("cofres", 40, 40, 20, 22)
+    room.prop("porta-estalagem", 38.0, 25.6)
+    room.point("inn-counter", 17.5, 15.5)
+    room.point("inn-chest", 38.5, pedestal_base + 0.5)
+    room.point("inn-exit", 26.0, 24.0)
+    room.point("inn-exit", 38.0, 24.0)
+    room.point("arrival", 26.0, 21.8)
     return room
 
 
@@ -481,6 +593,22 @@ FOOTPRINT: dict[str, tuple[float, float, float, float] | None] = {
     "blacksmith_quench_sparks": (0.02, 0.38, 0.98, 0.8),
     "blacksmith_ore_bench": (0.02, 0.45, 0.98, 0.95),
     "bigorna": (0.03, 0.5, 0.97, 0.95),
+    "tavern_candle_pillar": (0.3, 0.85, 0.7, 1.0),
+    "tavern_stool": (0.15, 0.5, 0.85, 1.0),
+    "tavern_table_vertical": (0.02, 0.25, 0.98, 0.95),
+    "tavern_counter_vertical": (0.05, 0.3, 0.95, 0.97),
+    "tavern_chopping_stump": (0.1, 0.5, 0.9, 1.0),
+    "tavern_cauldron_oven": (0.03, 0.6, 0.97, 0.98),
+    "tavern_butcher_table_center": (0.02, 0.4, 0.98, 0.95),
+    "tavern_wall_meats_right": (0.02, 0.45, 0.98, 0.98),
+    "tavern_barrel_rack_sacks": (0.02, 0.45, 0.98, 0.97),
+    "tavern_kegs_cluster": (0.02, 0.4, 0.98, 0.97),
+    "tavern_side_fireplace": (0.0, 0.5, 1.0, 0.98),
+    "tavern_barred_window": None,
+    "vault_stone_pedestal": (0.05, 0.3, 0.95, 0.95),
+    "vault_treasure_left": (0.05, 0.4, 0.95, 0.95),
+    "vault_treasure_top": (0.05, 0.4, 0.95, 0.95),
+    "vault_treasure_right": (0.05, 0.4, 0.95, 0.95),
     "balcao-comida": (0.01, 0.45, 0.99, 0.95),
     "mesa-acougue": (0.03, 0.6, 0.97, 0.95),
     "despensa": (0.03, 0.6, 0.97, 0.95),
@@ -489,7 +617,7 @@ FOOTPRINT: dict[str, tuple[float, float, float, float] | None] = {
     "mesa-refeicao-b": (0.03, 0.4, 0.97, 0.95),
     "porta-estalagem": None,
     "arco-pedra": None,
-    "grade-ferro": None,
+    "grade-ferro": (0.0, 0.7, 1.0, 1.0),  # trancada: fecha a alcova
     "cofres": (0.1, 0.7, 0.9, 0.98),
     "prop_lineage_chest": (0.05, 0.55, 0.95, 0.95),
 }
@@ -517,4 +645,10 @@ LIGHTS: dict[str, tuple[str, str | float | tuple[float, float]]] = {
     "guild_wall_torch_b": ("braseiro", 0.85),
     "blacksmith_quench_sparks": ("braseiro", (0.4, 0.4)),
     "blacksmith_ore_bench": ("cristal-medio", (0.9, 0.6)),
+    "tavern_cauldron_oven": ("forja", (0.5, 0.12)),
+    "tavern_side_fireplace": ("braseiro", (0.75, 0.25)),
+    "tavern_candle_pillar": ("vela", "spots"),
+    "tavern_table_vertical": ("vela", "spots"),
+    "tavern_barred_window": ("janela", 0.5),
+    "vault_stone_pedestal": ("cristal-medio", (0.5, 0.75)),
 }

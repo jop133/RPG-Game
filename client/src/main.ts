@@ -5,6 +5,7 @@ import {
   CLASS_IDS,
   CLASS_REQUIRED_CODE,
   GID_MASK,
+  STASH_SLOTS,
   EXIT_RADIUS,
   EXTRACT_MS,
   ITEMS,
@@ -276,8 +277,8 @@ const INTERACTION_HINTS: Record<InteractionId, string> = {
   "blacksmith-exit": "[E] Sair para a Cidade",
   "guild-counter": "[E] Mercador da Guilda (Vender Loot)",
   "guild-bestiary": "[E] Consultar Bestiário & Rank",
-  "inn-counter": "[E] Balcão de Comida: suprimentos",
-  "inn-chest": "[E] Baú da Linhagem",
+  "inn-counter": "[E] Comprar Ração & Suprimentos",
+  "inn-chest": `[E] Baú Persistente da Linhagem (${STASH_SLOTS} Slots)`,
   "blacksmith-counter": "[E] Comprar Armas & Equipamentos",
   "blacksmith-anvil": "[E] Forja & Craft",
 };
