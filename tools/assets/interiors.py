@@ -225,211 +225,189 @@ class Room:
 
 
 def guild(ox: int, oy: int) -> Room:
-    """Salão da Guilda, 44x28 tiles, em "L" (as coordenadas abaixo são as da planta de referência):
-    - vazio preto em volta e no canto de cima à esquerda (x 0-10 até y 5);
-    - Ala Esquerda (x 2-10): parede de painéis de madeira mais baixa (topo em y 6, face em y 7-9), piso de madeira nobre;
-    - divisória (x 11-13): no alto, um bloco de parede (topo y 3-6, face y 7-9, a mesma linha da Ala) com janela e
-      tocha na quina; no meio (y 10-18), a passagem com degraus de madeira; embaixo (y 19-26), uma mureta com 2 pilares;
-    - Foyer (x 14-18): parede de painéis de madeira (topo y 2, face y 3-5) com a porta dupla;
-    - Salão Principal (x 19-41): parede de pedra com viga (topo y 2, face y 3-5); laterais e parede do sul de madeira.
-    Móveis: 3 pilares, estandartes, brasão, crânio com o quadro de contratos, estante; balcão duplo (y 8-11); mesa
-    redonda; tapete grande (x 15-40, y 15-20) com 4 mesas longas em 2x2 e 2 braseiros; na Ala, quadro, mesa de estudos,
-    púlpito do Bestiário, caixotes de pergaminhos e outra mesa de mapas."""
-    w, h = 44, 28
+    """Salão da Guilda, 32x20 tiles, em "L", na régua do jogador (corpo ~48 px):
+    - vazio preto em volta e no canto de cima à esquerda (x 0-7 até y 3);
+    - Ala Esquerda (x 2-7): parede de painéis de madeira mais baixa (topo em y 3, face em y 4-6), piso de madeira nobre;
+    - divisória (x 8-9): no alto, um bloco de parede (topo y 2-3, face y 4-6) com janela e tocha; no meio (y 7-12), a
+      passagem com degraus; embaixo (y 13-18), uma mureta com pilares nas pontas;
+    - Foyer (x 10-13): parede de painéis de madeira (topo y 1, face y 2-4) com a porta dupla;
+    - Salão Principal (x 14-29): parede de pedra com viga; laterais e parede do sul de madeira.
+    Móveis: 3 pilares, estandartes, brasão, crânio com o quadro de contratos, estante; balcão duplo; mesa redonda; tapete
+    grande com 4 mesas longas em 2x2 e 2 braseiros; na Ala, quadro, mesa de estudos, púlpito do Bestiário, caixotes e
+    outra mesa de mapas. Fileiras alinhadas à grade: balcão nas linhas 6-7, mesas nas 11-12 e 15-17."""
+    w, h = 32, 20
     room = Room("guild", ox, oy, w, h, "madeira")
     k = room.kinds
     k[:, :] = "vazio"
-    # Pisos.
-    k[10:27, 2:11] = "madeira-nobre"
-    k[6:27, 14:42] = "madeira"
-    k[10:19, 11:14] = "degrau-madeira"
-    k[19:27, 11] = "madeira-nobre"
-    k[19:27, 13] = "madeira"
-    # Paredes do fundo, em degraus: Ala (y 6-9), bloco da divisória (y 3-9), Foyer e Salão (y 2-5).
-    k[6, 0:11] = "topo-madeira"
-    k[3:7, 11:14] = "topo-madeira"
-    k[2, 14:19] = "topo-madeira"
-    k[2, 19:42] = "parede-topo"
+    k[7:19, 2:8] = "madeira-nobre"
+    k[5:19, 10:30] = "madeira"
+    k[7:13, 8:10] = "degrau-madeira"
+    k[13:19, 9] = "madeira"
+    # Paredes do fundo, em degraus: Ala (topo y 3), bloco da divisória (topo y 2-3), Foyer e Salão (topo y 1).
+    k[3, 0:8] = "topo-madeira"
+    k[2:4, 8:10] = "topo-madeira"
+    k[1, 10:14] = "topo-madeira"
+    k[1, 14:30] = "parede-topo"
     for r in range(WALL_FACE_ROWS):
-        k[7 + r, 2:14] = f"face-madeira-{r}"
-        k[3 + r, 14:19] = f"face-madeira-{r}"
-        k[3 + r, 19:42] = f"face-pedra-{r}"
+        k[4 + r, 2:10] = f"face-madeira-{r}"
+        k[2 + r, 10:14] = f"face-madeira-{r}"
+        k[2 + r, 14:30] = f"face-pedra-{r}"
     # Laterais (2 tiles), parede do sul e a mureta da divisória com pilares nas pontas.
-    k[6:28, 0:2] = "topo-madeira"
-    k[2:28, 42:44] = "topo-madeira"
-    k[27, :] = "topo-madeira"
-    k[19:27, 12] = "mureta"
-    k[19, 12] = k[26, 12] = "mureta-pilar"
-    room.nine_slice("tapete-grande", CARPET_SLICES, 15, 15, 26, 6)
+    k[3:20, 0:2] = "topo-madeira"
+    k[1:20, 30:32] = "topo-madeira"
+    k[19, :] = "topo-madeira"
+    k[13:19, 8] = "mureta"
+    k[13, 8] = k[18, 8] = "mureta-pilar"
+    room.nine_slice("tapete-grande", CARPET_SLICES, 11, 10, 18, 5)
 
-    # Foyer: porta dupla (saída).
-    room.prop("porta-guilda", 16.5, 6.05)
-    # Parede norte do Salão: pilares em x 19, 27 e 36; vão 1: estandarte do touro + brasão; vão 2: crânio no alto e o
-    # quadro de contratos embaixo; vão 3: estandarte do dragão no alto e a estante encostada embaixo.
-    room.prop("pilar-lanterna-a", 19.5, 6.9)
-    room.prop("pilar-lanterna-a", 27.5, 6.9)
-    room.prop("pilar-lanterna-b", 36.5, 6.9)
-    room.prop("estandarte-a", 22.5, 6.0)
-    room.prop("escudo-espadas", 25.0, 5.4)
-    room.prop("cranio-chifres", 31.9, 4.4)
-    room.prop("quadro-contratos", 31.9, 7.9)
-    room.prop("estandarte-b", 39.6, 5.4)
-    room.prop("guild_bookshelf", 39.7, 9.0)
-    # Balcão duplo, colado: o da balança (mercador) e a metade direita, com o cristal.
-    room.prop("balcao-recepcao", 22.9, 11.9)
-    room.prop("guild_counter_right", 30.7, 11.9)
-    room.prop("mesa-redonda", 37.5, 14.0)
-    # Mesas longas 2x2: a de cima sobre o tapete, a de baixo logo abaixo dele; braseiros ao lado da mureta e entre as
-    # mesas de baixo.
-    for base in (19.1, 25.0):
-        room.prop("mesa-longa-a", 24.4, base)
-        room.prop("mesa-longa-b", 36.4, base)
-    room.prop("braseiro-guilda", 16.5, 24.5)
-    room.prop("braseiro-guilda", 30.3, 24.5)
-    # Parede direita: janela, estandarte e tocha. Parede esquerda: janela. Bloco da divisória: janela e tocha na quina.
-    room.prop("guild_wall_window", 42.9, 11.5)
-    room.prop("estandarte-a", 42.9, 17.0)
-    room.prop("guild_wall_torch", 42.9, 22.0)
-    room.prop("guild_wall_window_b", 0.9, 13.0)
-    room.prop("guild_wall_window_b", 12.0, 9.6)
-    room.prop("guild_wall_torch_b", 13.7, 9.2)
-    # Ala Esquerda: quadro na parede, mesa de estudos, púlpito do Bestiário no meio, caixotes no canto e outra mesa.
-    room.prop("quadro-contratos", 7.0, 10.3)
-    room.prop("mesa-bestiario", 7.0, 14.0)
-    room.prop("guild_lectern_bestiary", 7.0, 20.0)
-    room.prop("guild_scroll_crates", 3.8, 25.6)
-    room.prop("mesa-bestiario", 8.0, 26.0)
-    room.point("guild-counter", 22.9, 12.8)
-    room.point("guild-bestiary", 7.0, 20.5)
-    room.point("guild-exit", 16.5, 6.9)
-    room.point("arrival", 16.5, 9.5)
+    room.prop("porta-guilda", 11.9, 5.05)
+    # Parede norte do Salão: pilares; vão 1: estandarte do touro + brasão; vão 2: crânio e o quadro embaixo; vão 3:
+    # estandarte do dragão e a estante.
+    room.prop("pilar-lanterna-a", 14.8, 5.4)
+    room.prop("pilar-lanterna-a", 20.5, 5.4)
+    room.prop("pilar-lanterna-b", 26.3, 5.4)
+    room.prop("estandarte-a", 16.6, 4.4)
+    room.prop("escudo-espadas", 18.6, 4.0)
+    room.prop("cranio-chifres", 23.4, 3.0)
+    room.prop("quadro-contratos", 23.4, 5.6)
+    room.prop("estandarte-b", 28.5, 4.0)
+    room.prop("guild_bookshelf", 28.6, 6.6)
+    room.prop("balcao-recepcao", 17.0, 7.8)
+    room.prop("guild_counter_right", 20.3, 7.8)
+    room.prop("mesa-redonda", 26.3, 8.95)
+    for base in (12.9, 17.2):
+        room.prop("mesa-longa-a", 15.3, base)
+        room.prop("mesa-longa-b", 24.4, base)
+    room.prop("braseiro-guilda", 10.7, 17.9)
+    room.prop("braseiro-guilda", 19.7, 17.4)
+    room.prop("guild_wall_window", 30.6, 8.5)
+    room.prop("estandarte-a", 30.6, 12.6)
+    room.prop("guild_wall_torch", 30.6, 16.0)
+    room.prop("guild_wall_window_b", 0.9, 9.0)
+    room.prop("guild_wall_window_b", 8.6, 6.6)
+    room.prop("guild_wall_torch_b", 9.6, 6.2)
+    # Ala Esquerda.
+    room.prop("quadro-contratos", 4.9, 7.4)
+    room.prop("mesa-bestiario", 4.9, 9.6)
+    room.prop("guild_lectern_bestiary", 4.9, 13.6)
+    room.prop("guild_scroll_crates", 3.0, 18.4)
+    room.prop("mesa-bestiario", 5.8, 18.6)
+    room.point("guild-counter", 17.0, 8.5)
+    room.point("guild-bestiary", 4.9, 14.5)
+    room.point("guild-exit", 11.9, 5.7)
+    room.point("arrival", 11.9, 7.9)
     return room
 
 
 def smithy(ox: int, oy: int) -> Room:
-    """Forja do Ferreiro, 42x26 tiles (coordenadas da planta de referência): duas alas separadas por uma parede grossa
-    (x 20-21) que desce do fundo até y 14, com a passagem aberta embaixo (y 15-21).
-    - Loja/Armaria (x 3-19): piso de tábuas, parede de enxaimel, passadeira vermelha (x 10-13, y 8-21) por baixo do
-      balcão da espada; rack de canto em "L", tochas, rack menor, caixote, barril, balcão duplo (espada + extensão das
-      moedas), mesa de manoplas na parede oeste, armaduras e rack embaixo.
-    - Oficina (x 22-39): pedra escura com manchas de fuligem, parede de pedra; fornalha no meio da parede com correntes à
-      esquerda e ferramentas à direita; fole, barril sobre caixote, reservatório de carvão, barril; 1º tanque de
-      têmpera na divisória, bigorna na frente da fornalha, 2º tanque com faíscas; pedra de amolar e a bancada de
-      lingotes com o caixote de cristais ao longo da parede sul.
-    - Parede sul com os cantos chanfrados e a porta em arco no meio (x 19-22), entre 2 tochas sobre pilares baixos, com
-      degraus de pedra."""
-    w, h = 42, 26
+    """Forja do Ferreiro, 26x16 tiles, na régua do jogador: duas alas separadas por uma parede grossa (x 12-13) que desce
+    do fundo até y 9, com a passagem aberta embaixo (y 10-14).
+    - Loja/Armaria (x 2-11): tábuas, parede de enxaimel, passadeira vermelha (x 5-8) por baixo do balcão da espada; rack
+      de canto em "L", tochas, caixote, rack menor, barril, balcão duplo, mesa de manoplas, armaduras e rack embaixo.
+    - Oficina (x 14-23): pedra escura com manchas de fuligem; fornalha no meio da parede com correntes e ferramentas dos
+      lados; fole, barril sobre caixote, carvão, barril; 1º tanque na divisória, bigorna, 2º tanque com faíscas; pedra
+      de amolar e a bancada de lingotes ao longo da parede sul.
+    - Parede sul com os cantos chanfrados e a porta em arco no meio, entre 2 tochas sobre pilares baixos, com degraus."""
+    w, h = 26, 16
     room = Room("blacksmith", ox, oy, w, h, "madeira")
     k = room.kinds
     k[:, :] = "vazio"
-    k[6:22, 3:20] = "madeira"
-    k[6:22, 20:22] = "madeira"
-    k[6:22, 22:40] = "pedra-escura"
-    # Manchas de fuligem em volta da fornalha, da bigorna e dos tanques: o miolo todo, a borda só em parte (sorteio
-    # fixo), para a mancha não ser um retângulo.
+    k[5:15, 2:14] = "madeira"
+    k[5:15, 14:24] = "pedra-escura"
     pick = random.Random(17)
-    for x0, y0, x1, y1 in ((26, 6, 34, 10), (28, 13, 33, 17), (22, 11, 26, 15), (33, 11, 39, 16)):
+    for x0, y0, x1, y1 in ((17, 5, 21, 8), (17, 9, 21, 12), (14, 8, 17, 11), (20, 8, 23, 12)):
         for y in range(y0, y1 + 1):
             for x in range(x0, x1 + 1):
                 edge = x in (x0, x1) or y in (y0, y1)
                 if not edge or pick.random() < 0.5:
                     k[y, x] = "fuligem"
-    room.carpet("tapete-vertical", RUNNER_SLICES, RUNNER_SLICES, 10, 8, 4, 14)
-    # Paredes do fundo (topo em y 2, face em y 3-5): enxaimel com postes a cada 4 tiles na loja, pedra na oficina.
-    k[2, 1:41] = "topo-madeira"
+    room.carpet("tapete-vertical", RUNNER_SLICES, RUNNER_SLICES, 5, 6, 4, 9)
+    k[1, 0:26] = "topo-madeira"
     for r in range(WALL_FACE_ROWS):
-        for x in range(3, 20):
-            k[3 + r, x] = f"face-enxaimel-poste-{r}" if (x - 3) % 4 == 0 else f"face-enxaimel-{r}"
-        k[3 + r, 22:40] = f"face-pedra-{r}"
-    # Divisória: topo de y 2 a 11 e a ponta vista de frente (face de pedra) em y 12-14.
-    k[2:12, 20:22] = "topo-madeira"
+        for x in range(2, 12):
+            k[2 + r, x] = f"face-enxaimel-poste-{r}" if (x - 2) % 4 == 0 else f"face-enxaimel-{r}"
+        k[2 + r, 14:24] = f"face-pedra-{r}"
+    k[1:7, 12:14] = "topo-madeira"
     for r in range(WALL_FACE_ROWS):
-        k[12 + r, 20:22] = f"face-pedra-{r}"
-    # Laterais, parede sul e os cantos chanfrados (3 tiles na diagonal).
-    k[2:23, 1:3] = "topo-madeira"
-    k[2:23, 40:42] = "topo-madeira"
-    k[22, 1:41] = "topo-madeira"
-    for y in range(19, 22):
-        for x in range(3, 40):
-            if (x - 3) + (21 - y) < 3 or (39 - x) + (21 - y) < 3:
+        k[7 + r, 12:14] = f"face-pedra-{r}"
+    k[1:16, 0:2] = "topo-madeira"
+    k[1:16, 24:26] = "topo-madeira"
+    k[15, :] = "topo-madeira"
+    for y in range(13, 15):
+        for x in range(2, 24):
+            if (x - 2) + (14 - y) < 2 or (23 - x) + (14 - y) < 2:
                 k[y, x] = "topo-madeira"
-    # Porta sul: pilares baixos dos lados e degraus de pedra.
-    k[21, 18] = k[21, 23] = "mureta-pilar"
-    k[21, 19:23] = "degrau-pedra"
+    k[14, 11] = k[14, 14] = "mureta-pilar"
+    k[14, 12:14] = "degrau-pedra"
 
-    # Loja: rack de canto, tochas na parede, caixote, rack menor e barril encostado na divisória.
-    room.prop("blacksmith_corner_rack", 8.75, 10.5)
-    room.prop("guild_wall_torch", 8.0, 5.5)
-    room.prop("guild_wall_torch_b", 14.8, 5.5)
-    room.prop("blacksmith_crate", 15.6, 8.0)
-    room.prop("rack-armas-1", 18.0, 8.6)
-    room.prop("blacksmith_barrel", 19.0, 10.6)
-    # Balcão duplo: o da espada (por cima da passadeira) e a extensão das moedas, colada, até a divisória. A extensão
-    # traz o caixote da frente embaixo: a base da imagem fica 1,24 tile abaixo da do balcão.
-    room.prop("balcao-ferreiro", 11.0, 14.6)
-    room.prop("blacksmith_counter_ext", 17.45, 15.84)
-    room.prop("blacksmith_gauntlet_table", 4.6, 16.8)
-    room.prop("armadura-a", 4.3, 19.9)
-    room.prop("rack-armas-2", 7.4, 20.9)
-    room.prop("armadura-b", 15.5, 20.6)
-    room.prop("armadura-c", 17.5, 20.6)
-    # Oficina: fornalha no meio da parede, correntes à esquerda e ferramentas à direita (na parede); fole, barril sobre
-    # caixote, carvão e barril no chão.
-    room.prop("fornalha", 30.0, 9.0)
-    room.prop("blacksmith_wall_chains", 24.5, 7.9)
-    room.prop("blacksmith_wall_tools", 35.6, 7.0)
-    room.prop("blacksmith_barrel_crates", 23.4, 10.8)
-    room.prop("fole", 26.0, 9.6)
-    room.prop("blacksmith_coal_bin", 35.0, 10.0)
-    room.prop("blacksmith_barrel", 38.3, 9.5)
-    room.prop("tanque-tempera", 24.0, 15.0)
-    room.prop("bigorna", 30.5, 16.1)
-    room.prop("blacksmith_quench_sparks", 36.6, 16.8)
-    room.prop("pedra-amolar", 25.5, 21.6)
-    room.prop("blacksmith_ore_bench", 33.3, 21.3)
-    room.prop("blacksmith_coal_bin", 36.6, 18.0)
-    # Porta sul entre as tochas dos pilares.
-    room.prop("porta-ferreiro", 21.0, 22.6)
-    room.prop("guild_wall_torch", 18.5, 21.6)
-    room.prop("guild_wall_torch_b", 23.5, 21.6)
-    room.point("blacksmith-counter", 11.0, 15.5)
-    room.point("blacksmith-anvil", 30.5, 16.5)
-    room.point("blacksmith-exit", 21.0, 21.0)
-    room.point("arrival", 21.0, 18.0)
+    room.prop("blacksmith_corner_rack", 4.3, 7.6)
+    room.prop("guild_wall_torch", 3.6, 4.3)
+    room.prop("guild_wall_torch_b", 7.4, 4.3)
+    room.prop("blacksmith_crate", 7.6, 6.1)
+    room.prop("rack-armas-1", 10.3, 6.6)
+    room.prop("blacksmith_barrel", 11.4, 7.6)
+    # Balcão duplo: a base do balcão da extensão (o caixote da frente desce 21 px a mais) alinhada com o da espada.
+    room.prop("balcao-ferreiro", 6.8, 10.0)
+    room.prop("blacksmith_counter_ext", 9.9, 10.66)
+    room.prop("blacksmith_gauntlet_table", 2.7, 11.4)
+    room.prop("armadura-a", 2.7, 13.6)
+    room.prop("rack-armas-2", 5.0, 14.6)
+    room.prop("armadura-b", 9.0, 14.3)
+    room.prop("armadura-c", 10.3, 14.3)
+    room.prop("fornalha", 18.9, 7.6)
+    room.prop("blacksmith_wall_chains", 15.6, 5.6)
+    room.prop("blacksmith_wall_tools", 22.0, 5.0)
+    room.prop("blacksmith_barrel_crates", 14.7, 7.8)
+    room.prop("fole", 16.4, 7.3)
+    room.prop("blacksmith_coal_bin", 21.2, 7.0)
+    room.prop("blacksmith_barrel", 23.2, 7.0)
+    room.prop("tanque-tempera", 15.4, 10.6)
+    room.prop("bigorna", 19.0, 11.0)
+    room.prop("blacksmith_quench_sparks", 22.4, 11.4)
+    room.prop("pedra-amolar", 16.2, 14.4)
+    room.prop("blacksmith_ore_bench", 20.5, 14.4)
+    room.prop("blacksmith_coal_bin", 22.6, 13.9)
+    room.prop("porta-ferreiro", 13.0, 15.4)
+    room.prop("guild_wall_torch", 11.5, 14.6)
+    room.prop("guild_wall_torch_b", 14.5, 14.6)
+    room.point("blacksmith-counter", 6.8, 10.6)
+    room.point("blacksmith-anvil", 19.0, 11.5)
+    room.point("blacksmith-exit", 13.0, 14.0)
+    room.point("arrival", 13.0, 11.6)
     return room
 
 
 def inn(ox: int, oy: int) -> Room:
-    """Estalagem / Casa de Comida: salão de madeira com tapete na entrada, cozinha de pedra ocre atrás do balcão
-    longo (forno com caldeirão, açougue, despensa) e, no canto nordeste, a Sala-Forte da Linhagem: parede interna,
-    entrada pelo arco de pedra, a grade de ferro ao lado, cofres e o Baú no pedestal no meio."""
-    room = Room("inn", ox, oy, 32, 22, "madeira")
-    room.paint("pedra-ocre", 1, 3, 19, 8)
-    room.paint("tapete-faixa", 10, 15, 11, 20)
-    # Sala-Forte: colunas 21-30, linhas 3-9; parede interna de topo na coluna 20 e na linha 10, face na linha 11,
-    # com a passagem do arco nas colunas 25-27.
-    room.paint("pedra-escura", 21, 3, 30, 9)
-    room.wall(20, 3, 20, 11)
-    room.wall(21, 10, 30, 11, face=True)
-    room.paint("pedra-escura", 25, 10, 27, 11)
-    room.paint("tapete-centro", 25, 7, 27, 8)
-    room.prop("forno-caldeirao", 10.0, 5.2)
-    room.prop("mesa-acougue", 3.5, 6.6)
-    room.prop("despensa", 16.5, 6.6)
-    room.prop("balcao-comida", 10.0, 9.0)
-    room.prop("mesa-refeicao-a", 5.0, 15.0)
-    room.prop("mesa-refeicao-b", 16.0, 15.0)
-    room.prop("mesa-refeicao-a", 25.5, 17.5)
-    room.prop("arco-pedra", 26.0, 12.0)
-    room.prop("grade-ferro", 23.0, 12.0)
-    room.prop("cofres", 22.0, 5.5)
-    room.prop("cofres", 29.5, 5.5)
-    room.prop("prop_lineage_chest", 26.0, 6.7)
-    room.prop("porta-estalagem", 11.0, 22.0)
-    room.point("inn-counter", 10.0, 10.2)
-    room.point("inn-chest", 26.0, 8.6)
-    room.point("inn-exit", 11.0, 20.4)
-    room.point("arrival", 11.0, 18.0)
+    """Estalagem / Casa de Comida, 24x16 tiles, na régua do jogador: salão de madeira com passadeira na entrada, cozinha
+    de pedra ocre atrás do balcão longo (forno com caldeirão, açougue, despensa) e, no canto nordeste, a Sala-Forte da
+    Linhagem: parede interna, entrada pelo arco de pedra, a grade ao lado, cofres e o Baú no meio."""
+    room = Room("inn", ox, oy, 24, 16, "madeira")
+    room.paint("pedra-ocre", 1, 3, 14, 6)
+    room.paint("tapete-faixa", 7, 11, 8, 14)
+    # Sala-Forte: colunas 16-22, linhas 3-6; parede interna de topo na coluna 15 e na linha 7, face na linha 8, com a
+    # passagem do arco nas colunas 18-20.
+    room.paint("pedra-escura", 16, 3, 22, 6)
+    room.wall(15, 3, 15, 8)
+    room.wall(16, 7, 22, 8, face=True)
+    room.paint("pedra-escura", 18, 7, 20, 8)
+    room.paint("tapete-centro", 18, 5, 20, 6)
+    room.prop("forno-caldeirao", 7.0, 4.8)
+    room.prop("mesa-acougue", 2.6, 5.2)
+    room.prop("despensa", 11.8, 5.3)
+    room.prop("balcao-comida", 7.2, 7.6)
+    room.prop("mesa-refeicao-a", 3.8, 11.0)
+    room.prop("mesa-refeicao-b", 11.8, 11.0)
+    room.prop("mesa-refeicao-a", 19.2, 12.8)
+    room.prop("arco-pedra", 19.0, 9.0)
+    room.prop("grade-ferro", 16.9, 9.0)
+    room.prop("cofres", 16.7, 4.6)
+    room.prop("cofres", 21.9, 4.6)
+    room.prop("prop_lineage_chest", 19.0, 5.0)
+    room.prop("porta-estalagem", 8.0, 16.0)
+    room.point("inn-counter", 7.2, 8.5)
+    room.point("inn-chest", 19.0, 5.6)
+    room.point("inn-exit", 8.0, 14.5)
+    room.point("arrival", 8.0, 12.5)
     return room
 
 
@@ -490,8 +468,8 @@ FOOTPRINT: dict[str, tuple[float, float, float, float] | None] = {
     "tanque-tempera": (0.03, 0.4, 0.97, 0.95),
     "pedra-amolar": (0.1, 0.6, 0.9, 0.98),
     # Rack de canto em "L": a parte inclinada na parede oeste (desce até a base da imagem) e o rack reto da parede
-    # norte, mais ao fundo (a base dele fica a 63% da altura da imagem).
-    "blacksmith_corner_rack": [(0.0, 0.5, 0.42, 1.0), (0.42, 0.5, 1.0, 0.64)],
+    # norte, mais ao fundo (a base dele fica a 63% da altura da imagem); os dois bloqueiam até a parede.
+    "blacksmith_corner_rack": [(0.0, 0.2, 0.42, 1.0), (0.42, 0.2, 1.0, 0.64)],
     "blacksmith_gauntlet_table": (0.05, 0.3, 0.95, 0.95),
     "blacksmith_counter_ext": (0.02, 0.4, 0.98, 0.97),
     "blacksmith_barrel": (0.05, 0.5, 0.95, 0.97),

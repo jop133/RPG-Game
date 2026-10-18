@@ -1045,3 +1045,16 @@ Slot vazio usa a moldura comum.
 
 **Limites:** a porta sul é desenhada de frente (é a arte que existe), embora na vista de cima a parede sul fosse vista por trás.
 
+---
+
+## 2026-10 — Móveis dos interiores pela régua do jogador; salas menores
+
+**Pedido do dono do projeto:** os móveis estavam enormes perto do personagem (manopla do tamanho dele, armaduras com o dobro da altura, tanque como piscina). Reduzir a partir das folhas originais, com uma tabela de tamanhos em px, e tirar a sombra oval dos móveis largos.
+
+**Muda** as escalas das decisões "Salão da Guilda 44x28" e "Forja do Ferreiro 42x26" (folhas 12% e 1,4x maiores) e o tamanho das salas: Guilda 32x20, Forja 26x16, Estalagem 24x16, na mesma composição (as coordenadas da planta de referência encolheram junto).
+
+**Como:**
+- **Tamanho final, não fator de escala:** `TARGETS` em `process_interiors.py` (altura, largura ou lado maior, em px, na régua de corpo ~48 px e tile de 32). Um fator por folha não serve: as peças da mesma folha têm proporções diferentes entre si e da régua (o balcão da Guilda, na folha, é tão alto quanto a mesa longa com os bancos)
+- **Colisão e luzes acompanham sozinhas** (são frações da imagem); as posições nas salas foram refeitas à mão, com os móveis encostados nas paredes e os pontos de E na frente de cada um
+- **Sombra oval:** na cidade e nos interiores, só em enfeites finos em pé; o labirinto não mudou
+

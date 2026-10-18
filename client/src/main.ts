@@ -291,9 +291,12 @@ const EXIT_PORTAL_TINT = 0x80d8ff;
 // Sombra nos pés: elipse escura no chão, embaixo de jogadores, mobs e enfeites em pé.
 const SHADOW_ALPHA = 0.45;
 const AVATAR_SHADOW = { width: 26, height: 9 };
-// Enfeites deitados no chão ficam sem sombra; prédios também (a base deles já é desenhada na arte).
+// Labirinto: enfeites deitados no chão ficam sem sombra; prédios também (a base deles já é desenhada na arte).
 const FLAT_PROPS = new Set(["esqueleto", "ossada", "cogumelos-a", "cogumelos-b"]);
 const BUILDING = /^(house_|landmark_)/;
+// Cidade e interiores: só enfeites finos em pé (postes, árvores, placa, pilares) ganham a elipse; móveis largos
+// (balcões, mesas, caixotes, tanques, fornalha) já têm a sombra de contato desenhada na arte, e a elipse ficava enorme.
+const THIN_PROP = /^(poste|arvore|placa-direcao|pilar)/;
 
 // Ordem de desenho: sombras e aviso de golpe no chão, mobs por baixo dos jogadores, luz por cima do mundo,
 // barras, nomes e golpes por cima da luz, HUD por cima de tudo.
@@ -805,7 +808,8 @@ Subiu para o nível ${info.level}!` : "";
         const box = { left: object.x, top: object.y - image.displayHeight, right: object.x + image.displayWidth, bottom: object.y };
         this.culler.add(image, box);
         const name = key.slice(key.lastIndexOf("/") + 1);
-        if (!FLAT_PROPS.has(name) && !BUILDING.test(name)) {
+        const shadow = this.place === "labyrinth" ? !FLAT_PROPS.has(name) && !BUILDING.test(name) : THIN_PROP.test(name);
+        if (shadow) {
           this.culler.add(this.addPropShadow(object.x + image.displayWidth / 2, object.y, image.displayWidth), box);
         }
       }

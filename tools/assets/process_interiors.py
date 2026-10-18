@@ -256,6 +256,51 @@ def mirror_left(rgba: np.ndarray) -> np.ndarray:
     return out
 
 
+# Tamanho final de cada móvel dos interiores, na régua do jogador (corpo ~48 px; tile 32 px): ("h", px) = altura,
+# ("w", px) = largura, ("max", px) = o lado maior. A escala sai do recorte (o aspecto é mantido); os números de escala
+# das tabelas acima só valem para quem não está aqui. Colisão (FOOTPRINT) e luzes são frações da imagem: acompanham.
+TARGETS: dict[str, tuple[str, int]] = {
+    # Forja
+    "armadura-a": ("h", 56), "armadura-b": ("h", 56), "armadura-c": ("h", 56),
+    "bigorna": ("h", 40), "bigorna-tempera": ("h", 50),
+    "balcao-ferreiro": ("h", 54),
+    "blacksmith_counter_ext": ("h", 75),  # o balcão em si com 54 px; o caixote da frente desce mais
+    "blacksmith_gauntlet_table": ("h", 85), "blacksmith_ore_bench": ("w", 94),
+    "bancada-lingotes": ("w", 92), "bancada-manoplas": ("w", 92),
+    "blacksmith_crate": ("max", 36), "blacksmith_coal_bin": ("max", 36),
+    "blacksmith_barrel": ("h", 44), "blacksmith_barrel_crates": ("h", 64),
+    "tanque-tempera": ("w", 82), "blacksmith_quench_sparks": ("w", 86),
+    "fole": ("max", 46), "pedra-amolar": ("max", 46),
+    "rack-armas-1": ("h", 62), "rack-armas-2": ("h", 62), "rack-armas-3": ("h", 62),
+    "blacksmith_corner_rack": ("h", 100),  # o rack reto, mais ao fundo, fica com ~63 px
+    "fornalha": ("h", 122), "porta-ferreiro": ("h", 76),
+    "blacksmith_wall_chains": ("h", 80), "blacksmith_wall_tools": ("h", 63),
+    # Guilda
+    "balcao-recepcao": ("h", 54), "guild_counter_right": ("h", 57),
+    "mesa-longa-a": ("h", 74), "mesa-longa-b": ("h", 74), "mesa-redonda": ("h", 70), "mesa-bestiario": ("h", 60),
+    "quadro-contratos": ("h", 76), "estandarte-a": ("h", 84), "estandarte-b": ("h", 84),
+    "cranio-chifres": ("w", 72), "escudo-espadas": ("h", 46), "braseiro-guilda": ("h", 44),
+    "pilar-lanterna-a": ("h", 112), "pilar-lanterna-b": ("h", 112), "porta-guilda": ("h", 78),
+    "guild_lectern_bestiary": ("h", 72), "guild_bookshelf": ("h", 84), "guild_scroll_crates": ("h", 46),
+    "guild_wall_torch": ("h", 40), "guild_wall_torch_b": ("h", 40),
+    "guild_wall_window": ("h", 52), "guild_wall_window_b": ("h", 52),
+    # Estalagem
+    "balcao-comida": ("h", 54), "mesa-refeicao-a": ("h", 58), "mesa-refeicao-b": ("h", 58),
+    "mesa-acougue": ("h", 66), "despensa": ("h", 76), "forno-caldeirao": ("w", 110), "cofres": ("h", 52),
+    "prop_lineage_chest": ("w", 68), "porta-estalagem": ("h", 76), "arco-pedra": ("h", 90), "grade-ferro": ("h", 70),
+}
+
+
+def fitted(name: str, crop: np.ndarray, scale: float) -> Image.Image:
+    """O recorte no tamanho de TARGETS (ou na escala dada, se o móvel não estiver lá)."""
+    if name in TARGETS:
+        axis, px = TARGETS[name]
+        h, w = crop.shape[:2]
+        size = {"h": h, "w": w, "max": max(h, w)}[axis]
+        scale = px / size
+    return scaled(crop, scale)
+
+
 def cut_rect(art: np.ndarray, rect: Rect, excluded: list[Rect]) -> np.ndarray:
     """O que há no retângulo, menos os excluídos, aparado."""
     x0, y0, x1, y1 = rect
@@ -272,13 +317,13 @@ def process_props(sheet: list) -> None:
         art, holes = clean(load_rgba(SRC / file))
         art = soften_shadows(relaxed_background(art, RELAXED_BACKGROUND.get(file, [])))
         for name, crop in kit_objects(art, holes, names, file).items():
-            image = scaled(crop, names[name][1])
+            image = fitted(name, crop, names[name][1])
             image.save(OUT / f"{name}.png")
             sheet.append((f"{name} {image.width}x{image.height}", image))
     smithy, _ = clean(load_rgba(SRC / "interior_ferreiro.png"))
     smithy = soften_shadows(smithy)
     for name, (rect, excluded) in SMITHY_CUTS.items():
-        image = scaled(cut_rect(smithy, rect, excluded), 0.5 * SMITHY_SCALE)
+        image = fitted(name, cut_rect(smithy, rect, excluded), 0.5 * SMITHY_SCALE)
         image.save(OUT / f"{name}.png")
         sheet.append((f"{name} {image.width}x{image.height}", image))
     deco = dark_sheet_art(load_rgba(SRC / SMITHY_DECO_FILE))
@@ -286,12 +331,12 @@ def process_props(sheet: list) -> None:
         crop = cut_rect(deco, rect, excluded)
         if name in MIRROR_LEFT:
             crop = mirror_left(crop)
-        image = scaled(crop, SMITHY_DECO_SCALE)
+        image = fitted(name, crop, SMITHY_DECO_SCALE)
         image.save(OUT / f"{name}.png")
         sheet.append((f"{name} {image.width}x{image.height}", image))
     art = dark_sheet_art(load_rgba(SRC / DECO_FILE))
     for name, crop in kit_objects(art, np.zeros(art.shape[:2], bool), DECO, DECO_FILE).items():
-        image = scaled(crop, DECO[name][1])
+        image = fitted(name, crop, DECO[name][1])
         image.save(OUT / f"{name}.png")
         sheet.append((f"{name} {image.width}x{image.height}", image))
 
