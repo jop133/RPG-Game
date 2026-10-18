@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ADVENTURER_RANKS, LEVEL_XP, MOB_KINDS } from "./balance";
-import { adventurerRank, levelForXp, xpForNextLevel } from "./progression";
+import { adventurerRank, levelForXp, levelProgress, xpForNextLevel } from "./progression";
 
 describe("levelForXp", () => {
   it("começa no nível 1", () => {
@@ -60,6 +60,27 @@ describe("adventurerRank", () => {
   it("os degraus sobem em ordem e o primeiro não pede nada", () => {
     expect(ADVENTURER_RANKS[0]?.bestiary).toBe(0);
     ADVENTURER_RANKS.slice(1).forEach((step, i) => expect(step.bestiary).toBeGreaterThan(ADVENTURER_RANKS[i]?.bestiary ?? 0));
+  });
+});
+
+describe("levelProgress", () => {
+  it("nível 1 com 0 XP: anel vazio, de 0 até o primeiro limite", () => {
+    expect(levelProgress(1, 0)).toEqual({ xpStart: 0, xpNext: LEVEL_XP[0], progress: 0 });
+  });
+
+  it("no meio do caminho entre dois limites: a fração do nível atual", () => {
+    // Nível 3 começa em LEVEL_XP[1] = 2 e vai até LEVEL_XP[2] = 4: com 3 XP, metade.
+    expect(levelProgress(3, 3)).toEqual({ xpStart: 2, xpNext: 4, progress: 0.5 });
+  });
+
+  it("fora da faixa (dado atrasado do servidor) fica entre 0 e 1", () => {
+    expect(levelProgress(3, 1).progress).toBe(0);
+    expect(levelProgress(3, 9).progress).toBe(1);
+  });
+
+  it("no nível máximo da tabela: anel cheio e sem próximo limite", () => {
+    const max = LEVEL_XP.length + 1;
+    expect(levelProgress(max, 99)).toEqual({ xpStart: LEVEL_XP.at(-1), progress: 1 });
   });
 });
 

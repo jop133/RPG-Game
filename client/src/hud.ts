@@ -1,4 +1,4 @@
-import { HUNGER_MAX, INVENTORY_SLOTS, ITEMS, LEVEL_XP, type BuildingId, type ItemId, type StationId } from "shared";
+import { HUNGER_MAX, INVENTORY_SLOTS, ITEMS, LEVEL_XP, levelProgress, type BuildingId, type ItemId, type StationId } from "shared";
 import layout from "../../assets/ui/hud/layout.json";
 import { ForgeWindow, GuildWindow, InnWindow, type CityWindow, type Send } from "./cityWindows";
 import "./hud.css";
@@ -52,6 +52,12 @@ const SOCKET = 28;
 // Nível = slots de essência desbloqueados; o maior nível é o último limite de LEVEL_XP.
 const MAX_ESSENCE_SLOTS = LEVEL_XP.length + 1;
 const DOCK_SCALE = 1.5; // vãos de 40 px do dock -> 60 px
+// Recurso de classe (barra azul): ainda não existe (passo 10); a barra fica cheia com este texto até lá.
+const CLASS_RESOURCE_PLACEHOLDER = 100;
+// Anel de XP em volta do medalhão do nível (SVG): raio e espessura do trilho, em px do bloco de status.
+// Mesmo centro do medalhão (46 px, em (124, 134)); o traço fica todo por fora dele (raio 23).
+const XP_RING = { size: 62, radius: 27, stroke: 5 };
+const XP_RING_LENGTH = 2 * Math.PI * XP_RING.radius;
 const BAG_BUTTON = 56;
 const BAG_GAP = 8;
 // Mochila em pixel-art (16x16, cada letra uma cor; "." = vazio), desenhada como SVG.
@@ -123,6 +129,31 @@ function bagIcon(): SVGSVGElement {
   return svg;
 }
 
+function xpRing(parent: HTMLElement, x: number, y: number): SVGCircleElement {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", `0 0 ${XP_RING.size} ${XP_RING.size}`);
+  svg.classList.add("hud-abs", "hud-xp-ring");
+  svg.style.left = `${x}px`;
+  svg.style.top = `${y}px`;
+  svg.style.width = svg.style.height = `${XP_RING.size}px`;
+  const circle = (className: string) => {
+    const c = document.createElementNS(ns, "circle");
+    c.setAttribute("cx", String(XP_RING.size / 2));
+    c.setAttribute("cy", String(XP_RING.size / 2));
+    c.setAttribute("r", String(XP_RING.radius));
+    c.setAttribute("class", className);
+    svg.append(c);
+    return c;
+  };
+  circle("hud-xp-track");
+  const arc = circle("hud-xp-arc");
+  arc.setAttribute("stroke-dasharray", String(XP_RING_LENGTH));
+  arc.setAttribute("stroke-dashoffset", String(XP_RING_LENGTH));
+  parent.append(svg);
+  return arc;
+}
+
 interface Socket {
   box: HTMLDivElement;
   frame: HTMLImageElement;
@@ -141,6 +172,8 @@ export class Hud {
   private readonly ghost: HTMLDivElement;
   private readonly hpText: HTMLSpanElement;
   private readonly hungerText: HTMLSpanElement;
+  private readonly xpArc: SVGCircleElement;
+  private xpTooltip = "";
   private readonly hungerIcon: HTMLImageElement;
   private readonly nameText: HTMLSpanElement;
   private readonly levelText: HTMLSpanElement;
@@ -171,15 +204,18 @@ export class Hud {
     ring.style.backgroundImage = `url(${ART.get("status_frame")})`;
     ring.style.backgroundSize = `${layout.status_frame.w * RING.art}px ${layout.status_frame.h * RING.art}px`;
     this.portrait = place(image("portrait-mago", "hud-abs hud-portrait", status), PORTRAIT.x, PORTRAIT.y, PORTRAIT.w, PORTRAIT.h);
+    // Medalhão do nível com o anel de XP em volta: trilho escuro e o arco dourado, que enche do topo em sentido
+    // horário com o progresso dentro do nível (levelProgress).
+    this.xpArc = xpRing(status, 124 + 23 - XP_RING.size / 2, 134 + 23 - XP_RING.size / 2);
     const medal = place(el("div", "hud-abs hud-level", status), 124, 134, 46, 46);
     this.levelText = el("span", "", medal);
-    this.tooltip.attach(medal, () => ({ title: this.levelText.textContent ?? "", lines: [medal.dataset.xp ?? ""] }));
+    this.tooltip.attach(medal, () => ({ title: this.xpTooltip, lines: [] }));
     const nameplate = place(el("div", "hud-abs hud-nameplate", status), BARS_X - 40, 6, BAR.w + 48, 28);
     this.nameText = el("span", "", nameplate);
     const hp = this.bar(status, "hp");
     hp.trough.prepend(this.ghost = el("div", "hud-ghost"));
     this.hpText = hp.text;
-    this.bar(status, "mp");
+    setText(this.bar(status, "mp").text, `${CLASS_RESOURCE_PLACEHOLDER} / ${CLASS_RESOURCE_PLACEHOLDER}`);
     const hunger = this.bar(status, "hunger");
     this.hungerIcon = hunger.icon;
     this.hungerText = hunger.text;
@@ -317,8 +353,13 @@ export class Hud {
     }
     setText(this.nameText, view.name);
     setText(this.levelText, `Nv. ${view.level}`);
-    const medal = this.levelText.parentElement;
-    if (medal) medal.dataset.xp = view.nextLevelXp === undefined ? `XP ${view.xp} (nível máximo)` : `XP ${view.xp} / ${view.nextLevelXp}`;
+    const xp = levelProgress(view.level, view.xp);
+    const offset = (XP_RING_LENGTH * (1 - xp.progress)).toFixed(2);
+    if (this.xpArc.getAttribute("stroke-dashoffset") !== offset) this.xpArc.setAttribute("stroke-dashoffset", offset);
+    this.xpTooltip =
+      xp.xpNext === undefined
+        ? `Nível ${view.level} — XP: ${view.xp} (nível máximo)`
+        : `Nível ${view.level} — XP: ${view.xp} / ${xp.xpNext} para o Nv. ${view.level + 1}`;
     setText(this.essenceText, `Essências (${view.essences.length}/${view.level})`);
     this.updateSockets(view.level, view.essences);
     setText(this.coinText, String(view.coins));

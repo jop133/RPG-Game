@@ -18,6 +18,23 @@ export function xpForNextLevel(level: number): number | undefined {
   return LEVEL_XP[level - 1];
 }
 
+// Progresso dentro do nível atual (anel de XP do HUD): de xpStart (o XP que deu este nível; 0 no 1) a xpNext (o do
+// próximo). progress vai de 0 a 1; no nível máximo da tabela, 1 e xpNext undefined.
+export interface LevelProgress {
+  xpStart: number;
+  xpNext?: number;
+  progress: number;
+}
+
+export function levelProgress(level: number, xp: number): LevelProgress {
+  const xpStart = level > 1 ? (LEVEL_XP[level - 2] ?? 0) : 0;
+  const xpNext = xpForNextLevel(level);
+  if (xpNext === undefined) return { xpStart, progress: 1 };
+  const span = xpNext - xpStart;
+  const progress = span > 0 ? Math.min(1, Math.max(0, (xp - xpStart) / span)) : 1;
+  return { xpStart, xpNext, progress };
+}
+
 // Um degrau do Rank de Aventureiro: `bestiary` = tipos de mob no bestiário para chegar a ele (ADVENTURER_RANKS).
 export interface AdventurerRank {
   rank: string;

@@ -11,6 +11,8 @@
   --s: 1;
   --m: 6px;
   --u: 1;
+  /* Tamanho do status e da barra rápida em relação ao desenho em px (o redesenho ficou grande: 22% menor). */
+  --k: 0.78;
 }
 
 .hud[hidden],
@@ -39,9 +41,9 @@
 /* Status e barra rápida: medidas em px de tela numa tela de até 1366x768, ampliadas por --u (fracionária, em passos
    de 1/4; ver hudUnit em hud.ts). As janelas continuam na escala inteira --s. */
 .hud-status {
-  left: 18px;
-  top: 18px;
-  transform: scale(var(--u));
+  left: 12px;
+  top: 12px;
+  transform: scale(calc(var(--u) * var(--k)));
   transform-origin: 0 0;
 }
 
@@ -50,7 +52,7 @@
 .hud-top {
   z-index: 2;
   left: 50%;
-  top: calc(18px + 196px * var(--u));
+  top: calc(12px + 196px * var(--u) * var(--k));
   width: 420px;
   display: flex;
   flex-direction: column;
@@ -65,8 +67,8 @@
 .hud-dockbar {
   z-index: 2;
   left: 50%;
-  bottom: 16px;
-  transform: translateX(-50%) scale(var(--u));
+  bottom: 12px;
+  transform: translateX(-50%) scale(calc(var(--u) * var(--k)));
   transform-origin: 50% 100%;
 }
 
@@ -99,15 +101,39 @@
 }
 
 /* Medalhão de ferro com aro dourado, na quina de baixo do anel. */
+/* Anel de XP: trilho escuro com aro de ferro e o arco dourado, que começa no topo (12 horas) e enche em sentido
+   horário (o SVG gira -90°). */
+.hud-xp-ring {
+  transform: rotate(-90deg);
+  overflow: visible;
+  filter: drop-shadow(0 1px 2px #000);
+}
+
+.hud-xp-track {
+  fill: none;
+  stroke: rgba(30, 26, 22, 0.9);
+  stroke-width: 6;
+}
+
+.hud-xp-arc {
+  fill: none;
+  stroke: #ffd166;
+  stroke-width: 4;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.6s ease-out;
+  filter: drop-shadow(0 0 2px #f59e0b);
+}
+
 .hud-level {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
   background: radial-gradient(circle at 35% 30%, #5b5560, #2a2630 55%, #141217);
-  border: 3px solid #c9a227;
-  box-shadow: 0 0 0 2px #1a1208, 0 2px 6px rgba(0, 0, 0, 0.8), inset 0 0 6px rgba(0, 0, 0, 0.9);
-  font-size: 14px;
+  border: 2px solid #6b6460;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.8), inset 0 0 6px rgba(0, 0, 0, 0.9);
+  font-size: 16px;
   font-weight: bold;
   line-height: 1;
   color: #ffd166;
@@ -121,7 +147,7 @@
   align-items: center;
   padding: 0 12px;
   box-sizing: border-box;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: bold;
   letter-spacing: 0.5px;
   color: #f0dca8;
@@ -195,7 +221,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 17px;
   font-weight: bold;
   line-height: 1;
   color: #fff5e6;
@@ -222,7 +248,7 @@
 
 .hud-essence-label {
   margin-left: 6px;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: bold;
   color: #e8d8b4;
   text-shadow: 0 1px 3px #000, 0 0 2px #000;
@@ -234,7 +260,7 @@
   align-items: center;
   gap: 6px;
   padding: 2px 10px 2px 6px;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: bold;
   color: #ffd166;
   text-shadow: 0 1px 3px #000, 0 0 2px #000;
@@ -371,7 +397,7 @@
   top: 3px;
   min-width: 5px;
   padding: 1px 2px;
-  font-size: 8.7px;
+  font-size: 10.7px;
   text-align: center;
   color: #f0dca8;
   background: linear-gradient(#2e2a30, #121014);
@@ -383,7 +409,7 @@
 .hud-dock .hud-slot-count {
   right: 4px;
   bottom: 3px;
-  font-size: 9.3px;
+  font-size: 11.5px;
   color: #fff5e6;
   text-shadow: 0 1px 2px #000, 0 0 1px #000, 0 0 1px #000;
 }
@@ -419,7 +445,7 @@
   top: -7px;
   transform: translateX(-50%);
   padding: 1px 5px;
-  font-size: 12px;
+  font-size: 15px;
   font-weight: bold;
   line-height: 1;
   color: #f0dca8;
@@ -441,8 +467,8 @@
   position: absolute;
   left: 0;
   right: 0;
-  bottom: -16px;
-  font-size: 12px;
+  bottom: -18px;
+  font-size: 15px;
   font-weight: bold;
   text-align: center;
   color: #f0dca8;
