@@ -1072,3 +1072,13 @@ Slot vazio usa a moldura comum.
 - Duas portas de saída (`inn-exit` duas vezes): as duas levam à porta em arco da rua
 - Pedestal com pivô no topo, para o Baú pousar por cima dele; portas da parede sul também
 
+---
+
+## 2026-10 — Status e barra rápida com escala fracionária e calhas em CSS
+
+**Pedido do dono do projeto:** a HUD estava pequena (barras finas, textos de 7-8 px): status ~60% maior, calhas de 22-26 px de altura, textos de 14-16 px, engastes de essência e bolsa de moedas no lugar da plaqueta de texto, dock 50% maior e um botão de Mochila de verdade.
+
+**Muda** a decisão da HUD em HTML "ampliada por fator inteiro" só para o status e a barra rápida: em telas abaixo de 1920x1080 o fator inteiro era 1 (a arte em tamanho natural). Agora eles usam `--u` (1 até 1366x768, crescendo em passos de 1/4), e a arte vai em fatores escolhidos por peça: o anel do retrato em 2x, o retrato em 4x, os ícones em 2x (inteiros, nítidos) e o dock em 1,5x (pixels um pouco desiguais, aceito pelo tamanho pedido). As janelas (inventário, prédios) e a ficha continuam na escala inteira.
+
+**Calhas em CSS:** a calha da arte tem 7 px de altura e não estica até 24 sem deformar o desenho; as novas são ferro com ponta (clip-path), fundo escuro, o preenchimento com a textura das barras e um brilho no topo. O anel do retrato continua sendo a arte (as 86 colunas da esquerda do `status_frame`).
+

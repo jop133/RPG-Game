@@ -10,6 +10,7 @@
   color: #e8dcc4;
   --s: 1;
   --m: 6px;
+  --u: 1;
 }
 
 .hud[hidden],
@@ -30,41 +31,49 @@
 
 .hud-status,
 .hud-top,
-.hud-dock,
+.hud-dockbar,
 .hud-window {
   position: absolute;
 }
 
+/* Status e barra rápida: medidas em px de tela numa tela de até 1366x768, ampliadas por --u (fracionária, em passos
+   de 1/4; ver hudUnit em hud.ts). As janelas continuam na escala inteira --s. */
 .hud-status {
-  left: var(--m);
-  top: var(--m);
-  transform: scale(var(--s));
+  left: 18px;
+  top: 18px;
+  transform: scale(var(--u));
   transform-origin: 0 0;
 }
 
-/* Avisos no centro, logo abaixo da altura do bloco de status (113 px de HUD): não cobrem as barras em tela estreita.
+/* Avisos no centro, logo abaixo da altura do bloco de status (182 px): não cobrem as barras em tela estreita.
    Na frente das janelas: a resposta de uma venda ou compra (e a recusa) aparece com a janela aberta. */
 .hud-top {
   z-index: 2;
   left: 50%;
-  top: calc(var(--m) + 118px * var(--s));
-  width: 320px;
+  top: calc(18px + 196px * var(--u));
+  width: 420px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  transform: translateX(-50%) scale(var(--s));
+  transform: translateX(-50%) scale(var(--u));
   transform-origin: 50% 0;
 }
 
 /* A barra fica na frente da janela de inventário: em tela baixa (1920x1080, escala 2) a janela encosta nela, e o
    que fica atrás é só a base de ferro do painel (os slots da janela terminam antes). */
-.hud-dock {
+.hud-dockbar {
   z-index: 2;
   left: 50%;
-  bottom: var(--m);
-  transform: translateX(-50%) scale(var(--s));
+  bottom: 16px;
+  transform: translateX(-50%) scale(var(--u));
   transform-origin: 50% 100%;
+}
+
+/* O dock da arte em 1,5x (vãos de 40 -> 60 px). Os textos dentro dele são escritos em px do dock (÷ 1,5). */
+.hud-dock {
+  transform: scale(1.5);
+  transform-origin: 0 0;
 }
 
 .hud-window {
@@ -76,14 +85,67 @@
   pointer-events: auto;
 }
 
-/* ---- status: retrato, calhas, ícones, plaqueta ---- */
+/* ---- status: anel com retrato, medalhão do nível, placa do nome, calhas, engastes, moedas ---- */
+
+/* As 86 colunas da esquerda do status_frame (o anel gótico), em 2x. */
+.hud-ring {
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  image-rendering: pixelated;
+}
 
 .hud-portrait {
   object-fit: contain;
 }
 
-.hud-gutter {
+/* Medalhão de ferro com aro dourado, na quina de baixo do anel. */
+.hud-level {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #5b5560, #2a2630 55%, #141217);
+  border: 3px solid #c9a227;
+  box-shadow: 0 0 0 2px #1a1208, 0 2px 6px rgba(0, 0, 0, 0.8), inset 0 0 6px rgba(0, 0, 0, 0.9);
+  font-size: 14px;
+  font-weight: bold;
+  line-height: 1;
+  color: #ffd166;
+  text-shadow: 0 1px 2px #000, 0 0 2px #000;
+  pointer-events: auto;
+}
+
+/* Placa fina de ferro e couro com o nome, acima da 1ª calha. */
+.hud-nameplate {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  box-sizing: border-box;
+  font-size: 15px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  color: #f0dca8;
+  text-shadow: 0 1px 3px #000, 0 0 2px #000;
+  background: linear-gradient(#3a2a1e, #22170f);
+  border: 2px solid #5d5458;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px #0c0806, inset 0 1px 0 rgba(255, 230, 180, 0.12);
+}
+
+/* Calha de ferro com ponta à direita (o mesmo desenho da arte, em CSS): aro de ferro por fora, fundo escuro por
+   dentro, preenchimento por cima do fundo. */
+.hud-trough-frame {
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%);
+  background: linear-gradient(#77707a, #3e3940 45%, #26232a);
+}
+
+.hud-trough {
+  position: absolute;
+  inset: 3px 3px 3px 3px;
   overflow: hidden;
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%);
+  background: linear-gradient(#0d0b0e, #1c181d);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.9);
 }
 
 .hud-fill,
@@ -96,7 +158,8 @@
 
 .hud-fill {
   background-repeat: no-repeat;
-  background-size: auto 100%;
+  background-size: 100% 100%;
+  image-rendering: pixelated;
 }
 
 /* O que acabou de ser perdido aparece claro e escorre (hud.ts controla a largura). */
@@ -104,9 +167,17 @@
   background: rgba(255, 214, 196, 0.75);
 }
 
+/* Brilho especular no topo: volume na barra. */
+.hud-shine {
+  position: absolute;
+  inset: 0 0 50% 0;
+  background: linear-gradient(rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0.04));
+  pointer-events: none;
+}
+
 .hud-bar-icon {
-  width: 16px;
-  height: 14px;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 1px 2px #000);
 }
 
 .hud-bar-icon.hud-alert {
@@ -119,41 +190,67 @@
 }
 
 .hud-bar-text {
+  position: absolute;
+  inset: 0 12px 0 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 7px;
+  font-size: 14px;
   font-weight: bold;
   line-height: 1;
-  color: #fff;
-  text-shadow: 0 0 1px #000, 1px 1px 0 #000, -1px -1px 0 #000;
+  color: #fff5e6;
+  text-shadow: 0 1px 3px #000, 0 0 2px #000, 0 0 2px #000;
 }
 
-.hud-plaque {
+/* Engastes de essência, o rótulo e a bolsa de moedas, numa fileira só. */
+.hud-essence-row {
   display: flex;
-  align-items: baseline;
-  gap: 5px;
-  padding: 2px 6px 3px;
-  white-space: nowrap;
-  background: rgba(14, 10, 12, 0.72);
-  border: 1px solid #4a3a2c;
-  border-radius: 2px;
+  align-items: center;
+  gap: 4px;
 }
 
-.hud-name {
-  font-size: 10px;
+.hud-socket {
+  position: relative;
+  flex: none;
+  pointer-events: auto;
+  filter: drop-shadow(0 1px 2px #000);
+}
+
+.hud-socket img {
+  image-rendering: pixelated;
+}
+
+.hud-essence-label {
+  margin-left: 6px;
+  font-size: 14px;
   font-weight: bold;
-  color: #f0e2bf;
+  color: #e8d8b4;
+  text-shadow: 0 1px 3px #000, 0 0 2px #000;
 }
 
-.hud-badge {
-  font-size: 8px;
-  color: #c9b48a;
+.hud-purse {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px 2px 6px;
+  font-size: 16px;
+  font-weight: bold;
+  color: #ffd166;
+  text-shadow: 0 1px 3px #000, 0 0 2px #000;
+  background: linear-gradient(#2c2420, #17110d);
+  border: 2px solid #5d5458;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px #0c0806;
   pointer-events: auto;
 }
 
-/* Moedas: ícone 11x11 desenhado em process_hud.py, em tamanho real ao lado do número dourado. */
-.hud-purse,
+.hud-purse .hud-coin {
+  width: 22px;
+  height: 22px;
+}
+
+/* Moedas nas janelas: ícone 11x11 em tamanho real ao lado do número dourado. */
 .hud-window-purse {
   display: inline-flex;
   align-items: center;
@@ -178,9 +275,9 @@
 
 .hud-hint,
 .hud-notice {
-  max-width: 320px;
-  padding: 3px 10px 4px;
-  font-size: 10px;
+  max-width: 420px;
+  padding: 5px 14px 6px;
+  font-size: 14px;
   text-align: center;
   white-space: pre-line;
   background: rgba(16, 8, 10, 0.82);
@@ -268,20 +365,88 @@
   opacity: 0.6;
 }
 
-.hud-bag-button {
-  white-space: nowrap;
-  padding: 3px 6px;
-  font: inherit;
-  font-size: 8px;
-  color: #d8c8a8;
-  background: rgba(14, 10, 12, 0.8);
-  border: 1px solid #4a3a2c;
-  cursor: pointer;
-  pointer-events: auto;
+/* Barra rápida: selo da tecla no canto de cima e quantidade embaixo, em px do dock (13 e 14 px na tela). */
+.hud-dock .hud-slot-key {
+  left: 3px;
+  top: 3px;
+  min-width: 5px;
+  padding: 1px 2px;
+  font-size: 8.7px;
+  text-align: center;
+  color: #f0dca8;
+  background: linear-gradient(#2e2a30, #121014);
+  border: 1px solid #8a8288;
+  border-radius: 1px;
+  text-shadow: 0 1px 1px #000;
 }
 
-.hud-bag-button:hover {
-  color: #ffd98a;
+.hud-dock .hud-slot-count {
+  right: 4px;
+  bottom: 3px;
+  font-size: 9.3px;
+  color: #fff5e6;
+  text-shadow: 0 1px 2px #000, 0 0 1px #000, 0 0 1px #000;
+}
+
+/* Botão da mochila, colado à direita do dock: moldura lendária, ícone, selo [I] e legenda. */
+.hud-bag {
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  pointer-events: auto;
+  background-color: transparent;
+  background-size: 100% 100%;
+  image-rendering: pixelated;
+  font: inherit;
+  transition: filter 0.12s;
+}
+
+.hud-bag:hover {
+  filter: brightness(1.3) drop-shadow(0 0 4px #ffcf5a);
+}
+
+.hud-bag-icon {
+  position: absolute;
+  left: 12px;
+  top: 8px;
+  width: 32px;
+  height: 32px;
+}
+
+.hud-bag-key {
+  position: absolute;
+  left: 50%;
+  top: -7px;
+  transform: translateX(-50%);
+  padding: 1px 5px;
+  font-size: 12px;
+  font-weight: bold;
+  line-height: 1;
+  color: #f0dca8;
+  background: linear-gradient(#2e2a30, #121014);
+  border: 1px solid #c9a227;
+  border-radius: 2px;
+  text-shadow: 0 1px 1px #000;
+}
+
+.hud-bag-key::before {
+  content: "[";
+}
+
+.hud-bag-key::after {
+  content: "]";
+}
+
+.hud-bag-label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -16px;
+  font-size: 12px;
+  font-weight: bold;
+  text-align: center;
+  color: #f0dca8;
+  text-shadow: 0 1px 3px #000, 0 0 2px #000;
 }
 
 /* ---- janela de inventário ---- */
