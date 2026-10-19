@@ -15,7 +15,6 @@ import {
   INTERACTION_LAYER,
   REGION_LAYER,
   LIGHT_LAYER,
-  PLAYER_ATTACK,
   PLAYER_LIGHT_RADIUS,
   PLAYER_MAX_HP,
   PLAYER_SIZE,
@@ -30,6 +29,7 @@ import {
   mobStrikeArc,
   playerStats,
   viewportSize,
+  weaponStats,
   xpForNextLevel,
   type InteractionId,
   type InteractionPoint,
@@ -75,6 +75,8 @@ import labyrinthMapUrl from "../../assets/maps/dungeon_floor1.json?url";
 interface PlayerView extends Vec2 {
   name?: string;
   classId?: string;
+  // A arma na mão (id de item; "" = desarmado). Pública: todos veem.
+  weapon?: string;
   // Só no labirinto: a cidade não tem vida nem combate.
   hp?: number;
   maxHp?: number;
@@ -440,8 +442,11 @@ const SPIRAL_RATE = 12;
 const SPIRAL_COLORS: Record<string, number> = { portal: 0xe0aaff, saida: 0x80d8ff };
 // A luz do portal fica no meio da arte; a espiral nasce perto do pé dele.
 const SPIRAL_START_BELOW: Record<string, number> = { portal: 30, saida: 0 };
-const SWING_RADIUS = PLAYER_ATTACK.range + PLAYER_SIZE / 2;
-const SWING_HALF_ARC = (PLAYER_ATTACK.arcDegrees * Math.PI) / 180 / 2;
+// Tamanho do desenho do golpe: o alcance (da borda de quem bate) e o arco da arma na mão, ou do soco.
+function swingShape(weapon: string | undefined): { radius: number; halfArc: number } {
+  const attack = weaponStats(weapon ? { weapon: weapon as ItemId } : {});
+  return { radius: attack.range + PLAYER_SIZE / 2, halfArc: (attack.arcDegrees * Math.PI) / 180 / 2 };
+}
 const TELEGRAPH_COLOR = 0xff1744;
 
 type MoveKeys = Record<keyof MoveInput, Phaser.Input.Keyboard.Key>;
@@ -761,6 +766,7 @@ Subiu para o nível ${info.level}!` : "";
       {
         name: self.name ?? "",
         classId: self.classId ?? "",
+        weapon: self.weapon ?? "",
         level,
         xp: self.xp ?? 0,
         nextLevelXp: xpForNextLevel(level),
@@ -829,17 +835,18 @@ Subiu para o nível ${info.level}!` : "";
       }
       const classId = player.classId ?? "";
       const seed = Math.floor(Math.random() * 1e9);
-      this.swings.push({ x: player.x, y: player.y, angle: player.attackAngle ?? 0, classId, startMs: time, seed });
+      const shape = swingShape(player.weapon);
+      this.swings.push({ x: player.x, y: player.y, angle: player.attackAngle ?? 0, classId, startMs: time, seed, ...shape });
     });
     this.swings = this.swings.filter((swing) => time - swing.startMs < swingDuration(swing.classId));
   }
 
   private drawOverlay(room: Room<unknown, ServerState>, g: Phaser.GameObjects.Graphics, time: number) {
     g.clear();
-    for (const swing of this.swings) drawSwing(g, swing, time, SWING_RADIUS, SWING_HALF_ARC);
+    for (const swing of this.swings) drawSwing(g, swing, time);
     for (const avatar of this.avatars.values()) {
       const pose = weaponPose(avatar.swingAt, avatar.swingAngle, time);
-      if (pose.visible) drawBladeTrail(g, avatar.weapon.x, avatar.weapon.y, avatar.swingAngle, pose, WEAPON_REACH * pose.scale);
+      if (pose.visible && avatar.weapon.visible) drawBladeTrail(g, avatar.weapon.x, avatar.weapon.y, avatar.swingAngle, pose, WEAPON_REACH * pose.scale);
     }
     // Barra de vida do jogador acima da cabeça do sprite.
     room.state.players.forEach((player) => {
@@ -971,7 +978,7 @@ Subiu para o nível ${info.level}!` : "";
       const bodyY = feet + recoil.y + lunge.y;
       avatar.body.setPosition(bodyX, bodyY).setDepth(sortDepth(feet)).setScale(lunge.sx, lunge.sy);
       applyFlash(avatar.body, avatar.reaction, time, isSelf ? SELF_FLASH_COLOR : HIT_FLASH_COLOR);
-      this.poseWeapon(avatar, player.classId, sortDepth(feet), time);
+      this.poseWeapon(avatar, player.classId, player.weapon, sortDepth(feet), time);
       avatar.shadow.setPosition(player.x, feet - 1).setScale(stepSquash(avatar.body));
       avatar.label.setPosition(player.x, feet - AVATAR_HEIGHT - HP_BAR_GAP - HP_BAR_HEIGHT - 2);
     });
@@ -990,7 +997,15 @@ Subiu para o nível ${info.level}!` : "";
   // compressão). Parado ou andando, em guarda (WEAPON_GUARD_DEGREES, respirando); no golpe, o braço estica até
   // WEAPON_ARM_EXTEND e a lâmina varre o arco (weaponPose). Atrás do corpo quando a mão está atrás; na frente, com o
   // punho do sprite redesenhado por cima do cabo (poseGrip), para a mão parecer fechada nele.
-  private poseWeapon(avatar: Avatar, classId: string | undefined, bodyDepth: number, time: number) {
+  // Desarmado: sem espada nem punho por cima (o golpe é um soco, só o impulso do corpo e o rastro da classe).
+  private poseWeapon(avatar: Avatar, classId: string | undefined, weapon: string | undefined, bodyDepth: number, time: number) {
+    const key = `weapons/${weapon}`;
+    if (!weapon || !this.textures.exists(key)) {
+      avatar.weapon.setVisible(false);
+      avatar.grip.setVisible(false);
+      return;
+    }
+    if (avatar.weapon.texture.key !== key) avatar.weapon.setTexture(key);
     const socket = this.handSocket(avatar, classId);
     const body = avatar.body;
     let x = body.x + socket.dx * body.scaleX;
@@ -1271,8 +1286,9 @@ Subiu para o nível ${info.level}!` : "";
 
   // Algum golpe recente alcançava este ponto (raio do golpe mais a metade do maior mob)?
   private swingReached(x: number, y: number, time: number): boolean {
-    const reach = SWING_RADIUS + TILE_HALF;
-    return this.swings.some((swing) => time - swing.startMs < RECENT_SWING_MS && Math.hypot(swing.x - x, swing.y - y) <= reach);
+    return this.swings.some(
+      (swing) => time - swing.startMs < RECENT_SWING_MS && Math.hypot(swing.x - x, swing.y - y) <= swing.radius + TILE_HALF,
+    );
   }
 
   private popNumber(x: number, top: number, label: string, kind: NumberKind) {

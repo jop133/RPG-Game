@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { PLAYER_ATTACK } from "./balance";
+import { ITEMS, PLAYER_ATTACK_COOLDOWN_MS, UNARMED_ATTACK } from "./balance";
 import { applyDamage, isInArc, isInSwing, isOffCooldown, parseAttackAngle } from "./combat";
 
 const origin = { x: 0, y: 0 };
 const HALF = 8;
 const RIGHT = 0;
 const DOWN = Math.PI / 2;
-const halfArc = (PLAYER_ATTACK.arcDegrees * Math.PI) / 180 / 2;
+const SWORD = ITEMS.espada_ferro.equip.weapon;
+const halfArc = (SWORD.arcDegrees * Math.PI) / 180 / 2;
 // Ponto a `distance` pixels do atacante, na direção `angle`.
 const at = (angle: number, distance: number) => ({ x: Math.cos(angle) * distance, y: Math.sin(angle) * distance });
 
@@ -30,43 +31,49 @@ describe("isOffCooldown", () => {
   });
 
   it("antes do tempo de recarga, não pode; a partir dele, pode", () => {
-    expect(isOffCooldown(1000, 1000 + PLAYER_ATTACK.cooldownMs - 1)).toBe(false);
-    expect(isOffCooldown(1000, 1000 + PLAYER_ATTACK.cooldownMs)).toBe(true);
+    expect(isOffCooldown(1000, 1000 + PLAYER_ATTACK_COOLDOWN_MS - 1)).toBe(false);
+    expect(isOffCooldown(1000, 1000 + PLAYER_ATTACK_COOLDOWN_MS)).toBe(true);
   });
 });
 
 describe("isInSwing", () => {
   it("alvo à frente, no alcance, é atingido", () => {
-    expect(isInSwing(origin, RIGHT, at(RIGHT, 30), HALF)).toBe(true);
+    expect(isInSwing(origin, RIGHT, SWORD, at(RIGHT, 30), HALF)).toBe(true);
   });
 
   it("alcance conta da borda do alvo: alvo maior é atingido mais longe", () => {
-    const distance = PLAYER_ATTACK.range + 10;
-    expect(isInSwing(origin, RIGHT, at(RIGHT, distance), 8)).toBe(false);
-    expect(isInSwing(origin, RIGHT, at(RIGHT, distance), 12)).toBe(true);
+    const distance = SWORD.range + 10;
+    expect(isInSwing(origin, RIGHT, SWORD, at(RIGHT, distance), 8)).toBe(false);
+    expect(isInSwing(origin, RIGHT, SWORD, at(RIGHT, distance), 12)).toBe(true);
+  });
+
+  it("o soco alcança menos que a espada", () => {
+    const target = at(RIGHT, (UNARMED_ATTACK.range + SWORD.range) / 2);
+    expect(isInSwing(origin, RIGHT, SWORD, target, 0)).toBe(true);
+    expect(isInSwing(origin, RIGHT, UNARMED_ATTACK, target, 0)).toBe(false);
   });
 
   it("alvo atrás não é atingido", () => {
-    expect(isInSwing(origin, RIGHT, at(Math.PI, 20), HALF)).toBe(false);
+    expect(isInSwing(origin, RIGHT, SWORD, at(Math.PI, 20), HALF)).toBe(false);
   });
 
   it("borda do arco: um pouco dentro acerta, um pouco fora não", () => {
-    expect(isInSwing(origin, RIGHT, at(halfArc - 0.01, 30), HALF)).toBe(true);
-    expect(isInSwing(origin, RIGHT, at(halfArc + 0.01, 30), HALF)).toBe(false);
+    expect(isInSwing(origin, RIGHT, SWORD, at(halfArc - 0.01, 30), HALF)).toBe(true);
+    expect(isInSwing(origin, RIGHT, SWORD, at(halfArc + 0.01, 30), HALF)).toBe(false);
   });
 
   it("arco atravessando o ângulo 0: mirando a 350°, alvo a 10° está dentro", () => {
     const aim = (350 * Math.PI) / 180;
-    expect(isInSwing(origin, aim, at((10 * Math.PI) / 180, 30), HALF)).toBe(true);
+    expect(isInSwing(origin, aim, SWORD, at((10 * Math.PI) / 180, 30), HALF)).toBe(true);
   });
 
   it("y cresce para baixo, como na tela: mirar para baixo acerta quem está embaixo", () => {
-    expect(isInSwing(origin, DOWN, { x: 0, y: 30 }, HALF)).toBe(true);
-    expect(isInSwing(origin, DOWN, { x: 0, y: -30 }, HALF)).toBe(false);
+    expect(isInSwing(origin, DOWN, SWORD, { x: 0, y: 30 }, HALF)).toBe(true);
+    expect(isInSwing(origin, DOWN, SWORD, { x: 0, y: -30 }, HALF)).toBe(false);
   });
 
   it("alvo exatamente em cima do atacante é atingido", () => {
-    expect(isInSwing(origin, RIGHT, origin, HALF)).toBe(true);
+    expect(isInSwing(origin, RIGHT, SWORD, origin, HALF)).toBe(true);
   });
 });
 

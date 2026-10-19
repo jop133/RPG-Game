@@ -28,6 +28,8 @@ export interface HudView {
   // Moedas da linhagem.
   coins: number;
   inventory: readonly (HudSlot | undefined)[];
+  // A arma equipada ("" = desarmado).
+  weapon: string;
   // Só na cidade: baú da linhagem e, para o Bestiário, os tipos mortos pela linhagem e por este personagem.
   stash?: readonly (HudSlot | undefined)[];
   bestiary?: readonly string[];
@@ -253,7 +255,7 @@ export class Hud {
     bag.addEventListener("click", () => this.toggleWindow());
     this.tooltip.attach(bag, () => ({ title: "Mochila", lines: ["Inventário, essências e equipamento."], hint: "Clique ou pressione [I]" }));
 
-    this.window = new InventoryWindow(this.root, this.tooltip, onUse, () => this.closeWindow());
+    this.window = new InventoryWindow(this.root, this.tooltip, onUse, send, () => this.closeWindow());
     this.buildings = {
       guild: new GuildWindow(this.root, this.tooltip, send),
       inn: new InnWindow(this.root, this.tooltip, send),

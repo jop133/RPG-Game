@@ -11,9 +11,10 @@ export type ItemSlotState = SchemaType<typeof ItemSlotState>;
 // hunger e inventory são privados: os outros veem a sua vida, não a sua fome nem o que você carrega.
 export const PlayerState = schema(
   {
-    // Públicos: os outros veem nome e classe (o desenho do personagem).
+    // Públicos: os outros veem nome e classe (o desenho do personagem) e a arma na mão ("" = desarmado).
     name: t.string(),
     classId: t.string(),
+    weapon: t.string(),
     x: t.number(),
     y: t.number(),
     hp: t.number(),
@@ -71,6 +72,8 @@ export const CityPlayerState = schema(
   {
     name: t.string(),
     classId: t.string(),
+    // Pública, como no labirinto: a arma na mão ("" = desarmado).
+    weapon: t.string(),
     x: t.number(),
     y: t.number(),
     xp: t.number().view(OWNER_TAG),

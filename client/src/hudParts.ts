@@ -1,4 +1,4 @@
-import { ITEMS, type EquipSlot, type EssenceEffect, type ItemId, type Rarity } from "shared";
+import { ITEMS, type EquipSlot, type EssenceEffect, type ItemId, type ItemStats, type Rarity, type WeaponStats } from "shared";
 
 // Peças comuns do HUD (hud.ts e inventoryWindow.ts): arte, montagem de elementos, slot clicável e dica (tooltip).
 
@@ -150,19 +150,26 @@ export function rarityStyle(rarity: Rarity): { name: string; color: string } {
   return { name: RARITY_NAMES[rarity], color: RARITY_COLORS[rarity] };
 }
 
-// key: tecla do slot (o clique usa o item). hint: o que o clique faz em outro lugar (ex.: guardar no baú).
+// Dano, alcance e arco de um golpe, numa linha.
+export function attackText(attack: WeaponStats): string {
+  return `Dano ${attack.damage}  ·  Alcance ${attack.range} px  ·  Arco ${attack.arcDegrees}°`;
+}
+
+// key: tecla do slot (o clique usa o item; arma: equipa). hint: o que o clique faz em outro lugar (ex.: guardar no baú).
 export function itemTooltip(itemId: string, count: number, key?: string, hint?: string): TooltipContent | undefined {
   const stats = ITEMS[itemId as ItemId] as (typeof ITEMS)[ItemId] | undefined;
   if (!stats) return undefined;
   const food = "food" in stats ? stats.food : undefined;
   const essence = "essence" in stats ? stats.essence : undefined;
+  const weapon = (stats as ItemStats).equip?.weapon;
   const lines: string[] = [];
+  if (weapon) lines.push(`Arma: ${attackText(weapon)}.`);
   if (food) lines.push(`Restaura ${food} de fome.`);
   if (essence) {
     lines.push(`Consuma para absorver ${essenceEffectText(essence)} num slot de essência.`);
     lines.push("Absorvida, só sai por purificação na igreja.");
   }
-  if (!food && !essence) lines.push("Material de monstro — extraia vivo do labirinto.");
+  if (!food && !essence && !weapon) lines.push("Material de monstro — extraia vivo do labirinto.");
   if (count > 1) lines.push(`Quantidade: ${count} (até ${stats.maxStack} por slot)`);
   const usable = food !== undefined || essence !== undefined;
   const rarity = rarityStyle(stats.rarity);
@@ -171,7 +178,7 @@ export function itemTooltip(itemId: string, count: number, key?: string, hint?: 
     titleColor: rarity.color,
     subtitle: rarity.name,
     lines,
-    hint: hint ?? (usable && key ? `Clique ou pressione [${key}] para usar` : undefined),
+    hint: hint ?? (weapon && key ? `Clique ou pressione [${key}] para equipar` : usable && key ? `Clique ou pressione [${key}] para usar` : undefined),
   };
 }
 

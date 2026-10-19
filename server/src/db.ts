@@ -4,10 +4,12 @@ import Database from "better-sqlite3";
 import {
   FIRST_KILL_XP,
   parseClassId,
+  restoreEquipment,
   restoreInventory,
   restoreStash,
   type ClassId,
   type DeathCause,
+  type Equipment,
   type Inventory,
   type ItemId,
   type MobKind,
@@ -88,6 +90,11 @@ export const MIGRATIONS: string[] = [
   -- inventário, com STASH_SLOTS slots; NULL = nunca usado (vazio).
   ALTER TABLE lineages ADD COLUMN coins INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE lineages ADD COLUMN stash TEXT;
+  `,
+  `
+  -- Equipamento do personagem (JSON: slot -> item). NULL = nunca gravado: recebe STARTING_EQUIPMENT (a espada), o que
+  -- vale também para quem já existia antes do equipamento. Como o inventário: no labirinto, só gravado na extração.
+  ALTER TABLE characters ADD COLUMN equipment TEXT;
   `,
 ];
 
@@ -187,6 +194,26 @@ export class Store {
 
   setInventory(characterId: number, inventory: Inventory) {
     this.db.prepare("UPDATE characters SET inventory = ? WHERE id = ?").run(JSON.stringify(inventory), characterId);
+  }
+
+  equipment(characterId: number): Equipment {
+    const row = this.db.prepare("SELECT equipment FROM characters WHERE id = ?").get(characterId) as {
+      equipment: string | null;
+    };
+    return restoreEquipment(row.equipment === null ? null : (JSON.parse(row.equipment) as Equipment));
+  }
+
+  setEquipment(characterId: number, equipment: Equipment) {
+    this.db.prepare("UPDATE characters SET equipment = ? WHERE id = ?").run(JSON.stringify(equipment), characterId);
+  }
+
+  // Mochila e equipamento juntos (equipar e desequipar mexem nos dois; a extração grava os dois): uma queda no meio
+  // não pode deixar a espada duplicada nem sumida.
+  saveGear(characterId: number, inventory: Inventory, equipment: Equipment) {
+    this.db.transaction(() => {
+      this.setInventory(characterId, inventory);
+      this.setEquipment(characterId, equipment);
+    })();
   }
 
   coins(lineageId: number): number {

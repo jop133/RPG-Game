@@ -1,4 +1,5 @@
 import type { AreaConfig } from "./areas";
+import type { Equipment } from "./equipment";
 import type { ForgeItem } from "./forge";
 import type { ItemStats } from "./inventory";
 import type { DropEntry } from "./loot";
@@ -26,6 +27,7 @@ export const STARVATION_DAMAGE_PER_SECOND = 2;
 // rarity: comum (comida e materiais de monstro), rara (fragmento de cristal e essências), épica (essência rara);
 // lendária ainda não há. Por enquanto só decide a moldura do slot no HUD.
 // Efeitos de essências iguais se somam. speedPercent: % de velocidade; damage: dano a mais no golpe; maxHp: vida máxima a mais.
+// equip: o item se equipa no slot dado; arma (weapon) troca o golpe: dano, alcance e arco (como UNARMED_ATTACK).
 // O rato saiu do 1º andar (a essência de velocidade agora é do lobo), mas os itens dele ficam: há personagens com eles.
 export const ITEMS = {
   racao: { name: "Ração", rarity: "common", maxStack: 5, food: 40 },
@@ -38,6 +40,12 @@ export const ITEMS = {
   essencia_lobo: { name: "Essência de lobo", rarity: "rare", maxStack: 3, essence: { speedPercent: 15 } },
   essencia_goblin: { name: "Essência de goblin", rarity: "rare", maxStack: 3, essence: { damage: 4 } },
   essencia_goblin_rara: { name: "Essência rara de goblin", rarity: "epic", maxStack: 3, essence: { maxHp: 25 } },
+  espada_ferro: {
+    name: "Espada de Ferro",
+    rarity: "common",
+    maxStack: 1,
+    equip: { slot: "weapon", weapon: { damage: 10, range: 40, arcDegrees: 100 } },
+  },
 } satisfies Record<string, ItemStats>;
 
 export type ItemId = keyof typeof ITEMS;
@@ -136,9 +144,13 @@ export const CITY_PORTAL_RADIUS = 28;
 // e só dali o servidor aceita vender, comprar e mexer no baú.
 export const CITY_INTERACT_RADIUS = 48;
 
-// Golpe do jogador: arma placeholder única até o passo 8 (maestria de armas).
+// Golpe do jogador: dano, alcance e arco vêm da arma equipada (ITEMS[...].equip.weapon); sem arma, o soco.
 // range: alcance em pixels, contado da borda do alvo. arcDegrees: abertura do arco à frente.
-export const PLAYER_ATTACK = { damage: 10, range: 40, arcDegrees: 100, cooldownMs: 500 };
+export const UNARMED_ATTACK = { damage: 4, range: 28, arcDegrees: 90 };
+// Tempo mínimo entre dois golpes, com ou sem arma.
+export const PLAYER_ATTACK_COOLDOWN_MS = 500;
+// Com o que o personagem entra equipado na primeira vez (o novo e os que existiam antes do equipamento).
+export const STARTING_EQUIPMENT: Equipment = { weapon: "espada_ferro" };
 
 // Ticks de simulação do servidor por segundo.
 export const TICK_RATE = 20;

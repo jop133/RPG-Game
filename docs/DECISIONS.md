@@ -1122,3 +1122,22 @@ Slot vazio usa a moldura comum.
 **Mão fechada no cabo:** com a mão na frente do corpo, a espada fica na frente do tronco (a lâmina cruza tronco e pernas) e um recorte de 9x9 px do próprio sprite, só o punho direito (2 px para fora do corpo), é redesenhado por cima dela, no mesmo quadro, lugar, escala e cor do corpo. Assim a mão cobre o cabo sem o tronco cobrir a lâmina. Com a mão atrás (N, NW, W), o recorte some e a espada vai para trás do corpo. O centro do recorte vem da origem do sprite (pés em altura x origem y), que vale para o parado (64x64) e para os quadros de caminhada (96x96), onde os pés não ficam a 3 px da base. Golpe: varrida de ± 55°, braço esticando até 3 px no pico, impulso do corpo de 4 px.
 
 **Não seguido do pedido, com o motivo:** (1) a `espada_ferro.png` é horizontal (punho em x 5-11, y 23-28), não diagonal, então a origem fica em (0,18; 0,5) e o ângulo-base é 0, sem a compensação de -45°; (2) a caminhada continua rastreada quadro a quadro na arte, e a tabela genérica `WALK_HAND_BOB` fica só de reserva para classe sem dado; (3) os dados ficam no cliente (`hand_sockets.json`), não em `shared/`, por serem só desenho (regra 2). Os três por escolha do dono do projeto.
+
+---
+
+## 2026-10 — Equipamento de verdade: a Espada de Ferro vira item, equipada no servidor
+
+**Pedido do dono do projeto:** dar utilidade ao inventário: mover itens entre slots e equipar e desequipar. Por enquanto o único equipável é a Espada de Ferro.
+
+**Muda** a decisão da janela de inventário ("Equipamento não existe no jogo ainda"): o slot de arma agora mostra a arma equipada de verdade, e a espada deixou de ser desenhada em todo mundo; só aparece na mão de quem a tem equipada.
+
+**Escolhas do dono do projeto:**
+- **A espada começa equipada.** Personagem novo e os que já existiam (migração 7: coluna `equipment`, NULL = `STARTING_EQUIPMENT`). O herdeiro de quem morreu também começa com ela.
+- **Desarmado, soco mais fraco.** `UNARMED_ATTACK` (dano 4, alcance 28, arco 90°) em `balance.ts`; a espada dá o golpe que antes era de todos (`ITEMS.espada_ferro.equip.weapon`: 10, 40, 100°). O dano das essências soma ao da arma. Recarga igual para os dois (`PLAYER_ATTACK_COOLDOWN_MS`). Números para ajustar jogando.
+- **Na morte, a arma equipada cai na pilha** com a mochila: quem pegar fica com ela.
+
+**Como:**
+- Regras puras em `shared/src/equipment.ts` (regra 2): `moveSlot` (move, junta pilhas do mesmo item ou troca), `equipFromSlot` (o que estava equipado vai para o lugar do que entrou), `unequip` (para o slot escolhido, ou troca com outra arma, ou o primeiro livre; mochila cheia = recusa), `weaponStats`, `restoreEquipment` (descarta item desconhecido ou no slot errado), `equipmentToPile` e os parsers das mensagens. 18 testes (mais 3 de combate e status com a arma).
+- Servidor (regra 1): mensagens `move`, `equip` e `unequip`, validadas pelos parsers; `server/src/gear.ts` aplica a regra e traduz a recusa em aviso, para a cidade e o labirinto não repetirem a lógica. Usar (tecla ou clique) um item equipável é equipá-lo. Na cidade grava na hora, mochila e equipamento numa transação (`saveGear`); no labirinto, só na extração, como o inventário. Trocar de arma recalcula o golpe na hora.
+- Estado: `weapon` público nos dois esquemas de jogador (todos veem a arma na mão; "" = desarmado). Os outros slots de equipamento entram quando houver item para eles.
+- Cliente: espada na mão e rastro da lâmina só com arma; o desenho do golpe usa o alcance e o arco da arma de quem bateu. Na janela, arrastar e soltar feito com eventos de ponteiro (o ícone segue o cursor; vale o alvo embaixo ao soltar), e não com o arrastar nativo do HTML: funciona igual com mouse e toque, e o clique simples continua usando o item. Nada muda na tela antes do servidor responder.

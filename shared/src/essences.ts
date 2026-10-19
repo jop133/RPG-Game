@@ -1,4 +1,5 @@
-import { ITEMS, type ItemId, PLAYER_ATTACK, PLAYER_MAX_HP, PLAYER_SPEED } from "./balance";
+import { ITEMS, type ItemId, PLAYER_MAX_HP, PLAYER_SPEED } from "./balance";
+import { type Equipment, type WeaponStats, weaponStats } from "./equipment";
 import type { ItemStats } from "./inventory";
 
 export interface EssenceEffect {
@@ -7,14 +8,16 @@ export interface EssenceEffect {
   maxHp?: number;
 }
 
-// Status do personagem com as essências equipadas. Efeitos iguais se somam.
+// Status do personagem com as essências absorvidas e o equipamento. Efeitos iguais se somam. O golpe (alcance e arco)
+// é o da arma equipada, ou o soco; o dano é o dela mais o das essências.
 export interface PlayerStats {
   speed: number;
   damage: number;
   maxHp: number;
+  attack: WeaponStats;
 }
 
-export function playerStats(essences: readonly ItemId[]): PlayerStats {
+export function playerStats(essences: readonly ItemId[], equipment: Equipment = {}): PlayerStats {
   let speedPercent = 0;
   let damage = 0;
   let maxHp = 0;
@@ -24,9 +27,11 @@ export function playerStats(essences: readonly ItemId[]): PlayerStats {
     damage += effect?.damage ?? 0;
     maxHp += effect?.maxHp ?? 0;
   }
+  const attack = weaponStats(equipment);
   return {
     speed: PLAYER_SPEED * (1 + speedPercent / 100),
-    damage: PLAYER_ATTACK.damage + damage,
+    damage: attack.damage + damage,
     maxHp: PLAYER_MAX_HP + maxHp,
+    attack,
   };
 }

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import { STASH_SLOTS, addItems, emptyInventory, restoreStash, startingInventory, STARTING_ITEMS } from "shared";
+import { STARTING_EQUIPMENT, STASH_SLOTS, addItems, emptyInventory, restoreStash, startingInventory, STARTING_ITEMS } from "shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { MIGRATIONS, Store } from "./db";
 
@@ -90,6 +90,36 @@ describe("baú e moedas da linhagem", () => {
     store.saveCityChange(ana, { inventory: emptyInventory(), coins: 5, stash: addItems(restoreStash(null), "racao", 1).inventory });
     expect(store.coins(bia.lineageId)).toBe(0);
     expect(store.stash(bia.lineageId)).toEqual(restoreStash(null));
+    store.close();
+  });
+});
+
+describe("equipamento (migração 7)", () => {
+  it("personagem de antes do equipamento entra com a espada equipada; a mochila não muda", () => {
+    const file = tempFile();
+    const old = new Database(file);
+    MIGRATIONS.slice(0, 6).forEach((sql) => old.exec(sql));
+    old.pragma("user_version = 6");
+    old.prepare("INSERT INTO lineages (id, name) VALUES (1, 'Ana')").run();
+    old.prepare("INSERT INTO characters (id, lineage_id, class, inventory) VALUES (7, 1, 'mago', ?)").run(JSON.stringify(furs));
+    old.close();
+
+    const store = new Store(file);
+    expect(store.equipment(7)).toEqual(STARTING_EQUIPMENT);
+    expect(store.inventory(7)).toEqual(furs);
+    store.close();
+  });
+
+  it("mochila e equipamento gravados juntos; o herdeiro recomeça com a espada", () => {
+    const store = new Store(":memory:");
+    const first = store.enter("Eva");
+    const withSword = addItems(emptyInventory(), "espada_ferro", 1).inventory;
+    store.saveGear(first.characterId, withSword, {});
+    expect(store.equipment(first.characterId)).toEqual({});
+    expect(store.inventory(first.characterId)).toEqual(withSword);
+    store.markDead(first.characterId, { kind: "starvation" });
+    const heir = store.enter("Eva");
+    expect(store.equipment(heir.characterId)).toEqual(STARTING_EQUIPMENT);
     store.close();
   });
 });

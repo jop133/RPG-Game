@@ -2,13 +2,15 @@ import {
   INVENTORY_SLOTS,
   ITEMS,
   LEVEL_XP,
-  PLAYER_ATTACK,
   PLAYER_MAX_HP,
   PLAYER_SPEED,
+  equipSlotOf,
   levelProgress,
   playerStats,
+  type Equipment,
   type ItemId,
 } from "shared";
+import type { Send } from "./cityWindows";
 import layout from "../../assets/ui/hud/layout.json";
 import {
   ART,
@@ -19,6 +21,7 @@ import {
   SlotView,
   WEAPONS,
   el,
+  attackText,
   essenceEffectText,
   frameName,
   image,
@@ -40,6 +43,9 @@ import { classLabel } from "./registration";
 //   essências absorvidas.
 // Só desenho: os números vêm do servidor ou das mesmas regras puras de shared. Medidas em px de tela na tela-base
 // (1366x768), ampliadas com o resto da HUD (--u).
+// Arrastar e soltar (só pede; quem decide e muda é o servidor, regra 1): entre slots da mochila manda "move"; da
+// mochila para o slot de arma, "equip"; da arma para a mochila, "unequip". Clicar num item usa (arma: equipa); clicar
+// na arma equipada guarda na mochila.
 
 export interface InventoryView {
   name: string;
@@ -51,7 +57,22 @@ export interface InventoryView {
   essences: readonly string[];
   coins: number;
   inventory: readonly (HudSlot | undefined)[];
+  // A arma equipada (id de item; "" = desarmado). Os outros slots de equipamento ainda não têm item no jogo.
+  weapon: string;
 }
+
+// O que está sendo arrastado: um slot da mochila ou a arma equipada.
+type Dragging = { from: "bag"; slot: number } | { from: "weapon" };
+// Arrasto em andamento: de onde saiu, onde o ponteiro desceu e o ícone que segue o cursor (só depois de andar).
+interface Drag {
+  source: Dragging;
+  node: HTMLElement;
+  x: number;
+  y: number;
+  ghost?: HTMLImageElement;
+}
+const DRAG_START_PX = 5;
+const GHOST = 48;
 
 const PANEL = layout.inv_panel_wide;
 const LEATHER = layout.leather_wide;
@@ -108,8 +129,13 @@ export class InventoryWindow {
   private inspected: number | undefined;
   private view?: InventoryView;
   private shownEssences = "";
+  private drag: Drag | undefined;
+  private readonly targets = new Map<HTMLElement, (dragging: Dragging, drop: boolean) => boolean>();
+  private weaponSlot!: HTMLImageElement;
+  private weaponIcon!: HTMLImageElement;
 
-  constructor(parent: HTMLElement, tooltip: Tooltip, onUse: (slot: number) => void, onClose: () => void) {
+  constructor(parent: HTMLElement, tooltip: Tooltip, onUse: (slot: number) => void, private readonly send: Send, onClose: () => void) {
+    this.listenDrag();
     this.backdrop = el("div", "hud-inv-backdrop", parent);
     this.backdrop.hidden = true;
     this.backdrop.addEventListener("click", onClose);
@@ -147,6 +173,8 @@ export class InventoryWindow {
         slot.root.classList.add("hud-inv-slot");
         slot.root.addEventListener("mouseenter", () => this.setInspected(i));
         slot.root.addEventListener("mouseleave", () => this.setInspected(undefined));
+        this.dragSource(slot.root, () => (this.view?.inventory[i]?.count ? { from: "bag", slot: i } : undefined));
+        this.dropTarget(slot.root, (dragging, drop) => this.dropOnBag(dragging, i, drop));
         this.bagSlots.push(slot);
       }
     };
@@ -169,7 +197,8 @@ export class InventoryWindow {
       text: place(el("div", "hud-abs hud-inv-inspect-text", card), 72, 21, LEATHER.w - 96, 28),
       hint: place(el("div", "hud-abs hud-inv-inspect-hint", card), 72, 50, LEATHER.w - 96),
     };
-    place(el("div", "hud-abs hud-inv-footer", left), 0, PANEL.h - 44, PANEL.w).textContent = "[I / Tab / B] ou [Esc] fecha";
+    place(el("div", "hud-abs hud-inv-footer", left), 0, PANEL.h - 44, PANEL.w).textContent =
+      "Arraste para mover · solte na arma para equipar · [Esc] fecha";
 
     // ---- Ala direita: personagem, equipamento, atributos, essências ----
     this.heroTitle = place(el("div", "hud-abs hud-inv-title", right), 0, LEATHER.y - 30, PANEL.w);
@@ -197,10 +226,14 @@ export class InventoryWindow {
       return { value, bonus };
     };
     this.plates = { hp: plate("Vida Máx.", 0), damage: plate("Dano", 1), speed: plate("Velocidade", 2), level: plate("Nível", 3) };
-    tooltip.attach(this.plates.damage.value.parentElement as HTMLElement, () => ({
-      title: "Espada de Ferro (arma inicial)",
-      lines: [`Alcance ${PLAYER_ATTACK.range} px  ·  Arco ${PLAYER_ATTACK.arcDegrees}°`, "Golpe com o clique, na direção do mouse."],
-    }));
+    tooltip.attach(this.plates.damage.value.parentElement as HTMLElement, () => {
+      const weapon = this.view?.weapon;
+      const stats = playerStats([], this.equipment());
+      return {
+        title: weapon ? ITEMS[weapon as ItemId].name : "Desarmado (soco)",
+        lines: [attackText(stats.attack), "Golpe com o clique, na direção do mouse."],
+      };
+    });
     // Altar das essências: os slots que o nível abre e os próximos, trancados.
     const altarTop = platesTop + 2 * 34 + 2;
     this.essenceTitle = place(el("div", "hud-abs hud-section-title hud-inv-section", right), LEATHER.x, altarTop, LEATHER.w);
@@ -236,8 +269,8 @@ export class InventoryWindow {
     const sprite = FRONT_SPRITES.get(view.classId) ?? FRONT_SPRITES.get("mago") ?? "";
     if (this.sprite.getAttribute("src") !== sprite) this.sprite.src = sprite;
     setText(this.heroTitle, `${view.name} — ${classLabel(view.classId)}`);
-    const stats = playerStats(view.essences as ItemId[]);
-    const base = playerStats([]);
+    const stats = playerStats(view.essences as ItemId[], this.equipment());
+    const base = playerStats([], this.equipment());
     this.setPlate(this.plates.hp, String(view.maxHp), view.maxHp - PLAYER_MAX_HP, "");
     this.setPlate(this.plates.damage, String(stats.damage), stats.damage - base.damage, "");
     const speedBonus = Math.round((stats.speed / PLAYER_SPEED - 1) * 100);
@@ -256,7 +289,107 @@ export class InventoryWindow {
       const slot = view.inventory[i];
       this.bagSlots[i]?.set(slot && slot.count > 0 ? slot : undefined);
     }
+    this.updateWeapon(view.weapon);
     this.renderInspect();
+  }
+
+  private equipment(): Equipment {
+    const weapon = this.view?.weapon;
+    return weapon ? { weapon: weapon as ItemId } : {};
+  }
+
+  // O slot de arma mostra a arma equipada (a mesma arte que gira no golpe, em diagonal) ou só a silhueta.
+  private updateWeapon(weapon: string) {
+    const src = weapon ? (WEAPONS.get(weapon) ?? "") : "";
+    this.weaponIcon.hidden = !src;
+    if (src && this.weaponIcon.getAttribute("src") !== src) this.weaponIcon.src = src;
+    this.weaponSlot.classList.toggle("hud-equipped", Boolean(src));
+  }
+
+  // ---- arrastar e soltar ----
+  // Com eventos de ponteiro (não o arrastar nativo do HTML): o ícone segue o cursor e, ao soltar, vale o alvo que
+  // estiver embaixo. Funciona igual com mouse e toque. Só depois de DRAG_START_PX de movimento vira arrasto; antes
+  // disso é um clique comum (usar o item, guardar a arma).
+
+  private dragSource(node: HTMLElement, start: () => Dragging | undefined) {
+    node.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      const source = start();
+      if (source) this.drag = { source, node, x: event.clientX, y: event.clientY };
+    });
+  }
+
+  // `accept` diz se o que está sendo arrastado pode cair aqui (drop = false, enquanto passa por cima) e, ao soltar
+  // (drop = true), manda o pedido.
+  private dropTarget(node: HTMLElement, accept: (dragging: Dragging, drop: boolean) => boolean) {
+    this.targets.set(node, accept);
+  }
+
+  private listenDrag() {
+    window.addEventListener("pointermove", (event) => {
+      const drag = this.drag;
+      if (!drag) return;
+      if (!drag.ghost) {
+        if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < DRAG_START_PX) return;
+        drag.ghost = this.ghost(drag.source);
+        drag.node.classList.add("hud-dragging");
+      }
+      drag.ghost.style.left = `${event.clientX - GHOST / 2}px`;
+      drag.ghost.style.top = `${event.clientY - GHOST / 2}px`;
+      const target = this.targetAt(event.clientX, event.clientY);
+      for (const node of this.targets.keys()) node.classList.toggle("hud-drop", node === target?.node && target.accept(drag.source, false));
+    });
+    window.addEventListener("pointerup", (event) => {
+      const drag = this.drag;
+      this.drag = undefined;
+      if (!drag?.ghost) return;
+      drag.ghost.remove();
+      drag.node.classList.remove("hud-dragging");
+      for (const node of this.targets.keys()) node.classList.remove("hud-drop");
+      this.targetAt(event.clientX, event.clientY)?.accept(drag.source, true);
+      // O clique que o navegador manda depois de soltar não pode usar o item nem fechar a janela.
+      const stopClick = (click: MouseEvent) => click.stopPropagation();
+      window.addEventListener("click", stopClick, { capture: true, once: true });
+      setTimeout(() => window.removeEventListener("click", stopClick, { capture: true }), 0);
+    });
+  }
+
+  // O alvo sob o cursor: o elemento lá ou um dos pais dele que seja alvo.
+  private targetAt(x: number, y: number): { node: HTMLElement; accept: (dragging: Dragging, drop: boolean) => boolean } | undefined {
+    for (let node = document.elementFromPoint(x, y); node; node = node.parentElement) {
+      const accept = this.targets.get(node as HTMLElement);
+      if (accept) return { node: node as HTMLElement, accept };
+    }
+    return undefined;
+  }
+
+  // O ícone que acompanha o cursor: o do item, ou a arma em diagonal.
+  private ghost(source: Dragging): HTMLImageElement {
+    const ghost = document.createElement("img");
+    ghost.className = `hud-drag-ghost${source.from === "weapon" ? " hud-drag-ghost-weapon" : ""}`;
+    ghost.alt = "";
+    const item = source.from === "bag" ? this.view?.inventory[source.slot]?.item : this.view?.weapon;
+    ghost.src = (source.from === "weapon" ? WEAPONS.get(item ?? "") : ICONS.get(item ?? "")) ?? "";
+    document.body.append(ghost);
+    return ghost;
+  }
+
+  // Soltar num slot da mochila: outro slot da mochila move (ou junta, ou troca); a arma volta para a mochila ali.
+  private dropOnBag(dragging: Dragging, to: number, drop: boolean): boolean {
+    if (dragging.from === "bag" && dragging.slot === to) return false;
+    if (!drop) return true;
+    if (dragging.from === "bag") this.send("move", { from: dragging.slot, to });
+    else this.send("unequip", { slot: "weapon", to });
+    return true;
+  }
+
+  // Soltar no slot de arma: só um item da mochila que se equipe como arma.
+  private dropOnWeapon(dragging: Dragging, drop: boolean): boolean {
+    if (dragging.from !== "bag") return false;
+    const item = this.view?.inventory[dragging.slot]?.item;
+    if (!item || equipSlotOf(item as ItemId) !== "weapon") return false;
+    if (drop) this.send("equip", { slot: dragging.slot });
+    return true;
   }
 
   private setPlate(plate: StatPlate, value: string, bonus: number, unit: string) {
@@ -321,23 +454,37 @@ export class InventoryWindow {
       tooltip.attach(slot, () => ({ title: name, lines: [SOON] }));
       return;
     }
-    // Arma inicial: a única até a maestria de armas (passo 8). Dano com as essências; alcance e arco da arma.
-    slot.classList.add("hud-equipped");
-    // A espada de ferro (a mesma que gira no golpe), em diagonal no slot.
+    // Arma: a equipada (a mesma arte que gira no golpe), em diagonal no slot. Dano com as essências; alcance e arco da
+    // arma. Clicar guarda na mochila; arrastar leva para um slot escolhido.
+    this.weaponSlot = slot;
     const icon = place(el("img", "hud-abs hud-weapon-icon", parent), x + (EQUIP - 48) / 2, y + (EQUIP - 48) / 2, 48, 48);
-    icon.src = WEAPONS.get("espada_ferro") ?? "";
     icon.alt = "";
+    icon.hidden = true;
+    // Sem o arrastar nativo de imagem: o arrasto é o nosso (dragSource).
     icon.draggable = false;
+    this.weaponIcon = icon;
     const describe = () => {
-      const damage = playerStats((this.view?.essences ?? []) as ItemId[]).damage;
+      const weapon = this.view?.weapon;
+      const stats = playerStats((this.view?.essences ?? []) as ItemId[], this.equipment());
+      if (!weapon) {
+        return { title: `${name}: vazio`, subtitle: "Desarmado (soco)", lines: [attackText({ ...stats.attack, damage: stats.damage })], hint: "Arraste uma arma da mochila para cá" };
+      }
       return {
-        title: "Espada de Ferro",
-        subtitle: `${name} (arma inicial)`,
-        lines: [`Dano ${damage}  ·  Alcance ${PLAYER_ATTACK.range} px  ·  Arco ${PLAYER_ATTACK.arcDegrees}°`, "Golpe com o clique, na direção do mouse."],
+        title: ITEMS[weapon as ItemId].name,
+        subtitle: `${name} (equipada)`,
+        lines: [attackText({ ...stats.attack, damage: stats.damage }), "Golpe com o clique, na direção do mouse."],
+        hint: "Clique para guardar na mochila · arraste para um slot",
       };
     };
     tooltip.attach(slot, describe);
     tooltip.attach(icon, describe);
+    const unequip = () => {
+      if (this.view?.weapon) this.send("unequip", { slot: "weapon" });
+    };
+    slot.addEventListener("click", unequip);
+    icon.addEventListener("click", unequip);
+    for (const node of [slot, icon]) this.dragSource(node, () => (this.view?.weapon ? { from: "weapon" } : undefined));
+    for (const node of [slot, icon]) this.dropTarget(node, (dragging, drop) => this.dropOnWeapon(dragging, drop));
   }
 
   private essenceSlot(parent: HTMLElement, tooltip: Tooltip, index: number, x: number, y: number): EssenceSlot {

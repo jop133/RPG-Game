@@ -26,6 +26,7 @@ import {
   useSlot,
   withdraw,
   type StationId,
+  type Equipment,
   type Inventory,
   type ItemId,
   type MoveInput,
@@ -33,6 +34,7 @@ import {
   type TradeOutcome,
 } from "shared";
 import type { CharacterRecord } from "./db";
+import { applyGearAction, isEquippableSlot, type GearAction } from "./gear";
 import { loadCity } from "./level";
 import { admit, release } from "./presence";
 import { CityPlayerState, CityState, ItemSlotState, OWNER_TAG } from "./state";
@@ -81,6 +83,8 @@ export class CityRoom extends Room<{ state: CityState }> {
   private essences = new Map<string, ItemId[]>();
   // A verdade do inventário. CityPlayerState.inventory só espelha isto para o dono ver.
   private inventories = new Map<string, Inventory>();
+  // O que cada um tem equipado. CityPlayerState.weapon espelha a arma, para todos verem na mão.
+  private equipment = new Map<string, Equipment>();
   private lineages = new Map<string, Lineage>();
 
   onCreate() {
@@ -90,6 +94,9 @@ export class CityRoom extends Room<{ state: CityState }> {
     this.onMessage("enterPortal", (client) => this.handlePortal(client));
     this.onMessage("door", (client) => this.handleDoor(client.sessionId));
     this.onMessage("use", (client, message) => this.handleUse(client.sessionId, message));
+    for (const action of ["move", "equip", "unequip"] as const) {
+      this.onMessage(action, (client, message) => this.handleGear(client.sessionId, action, message));
+    }
     this.onMessage("deposit", (client, message) => this.handleStash(client.sessionId, message, "deposit"));
     this.onMessage("withdraw", (client, message) => this.handleStash(client.sessionId, message, "withdraw"));
     this.onMessage("sell", (client, message) => this.handleTrade(client.sessionId, message, "sell"));
@@ -114,6 +121,7 @@ export class CityRoom extends Room<{ state: CityState }> {
     const player = new CityPlayerState({
       name: record.name,
       classId: record.classId ?? "",
+      weapon: "", // setEquipment, logo abaixo
       ...pickSpawnPoint(city.spawnPoints, Math.random()),
       xp,
       level: levelForXp(xp),
@@ -125,6 +133,7 @@ export class CityRoom extends Room<{ state: CityState }> {
     for (let i = 0; i < INVENTORY_SLOTS; i++) player.inventory.push(new ItemSlotState({ item: "", count: 0 }));
     for (let i = 0; i < STASH_SLOTS; i++) player.stash.push(new ItemSlotState({ item: "", count: 0 }));
     this.setInventory(client.sessionId, player, store.inventory(record.characterId));
+    this.setEquipment(client.sessionId, player, store.equipment(record.characterId));
     mirror(player.stash, lineage.stash);
     this.state.players.set(client.sessionId, player);
     client.view = new StateView();
@@ -142,6 +151,7 @@ export class CityRoom extends Room<{ state: CityState }> {
     this.speeds.delete(sessionId);
     this.essences.delete(sessionId);
     this.inventories.delete(sessionId);
+    this.equipment.delete(sessionId);
     this.lineages.delete(sessionId);
     const record = this.characters.get(sessionId);
     if (record) release(record);
@@ -153,8 +163,35 @@ export class CityRoom extends Room<{ state: CityState }> {
     mirror(player.inventory, inventory);
   }
 
+  private setEquipment(sessionId: string, player: CityPlayerState, equipment: Equipment) {
+    this.equipment.set(sessionId, equipment);
+    player.weapon = equipment.weapon ?? "";
+  }
+
+  // Arrastar na mochila, equipar e desequipar: em qualquer lugar da cidade. Grava antes de mudar a memória, mochila e
+  // equipamento juntos (como nas trocas).
+  private handleGear(sessionId: string, action: GearAction, message: unknown) {
+    const player = this.state.players.get(sessionId);
+    const record = this.characters.get(sessionId);
+    const inventory = this.inventories.get(sessionId);
+    const equipment = this.equipment.get(sessionId);
+    if (!player || !record || !inventory || !equipment) return;
+    const result = applyGearAction(action, message, { inventory, equipment });
+    if (result.kind === "refused") this.notify(sessionId, result.notice);
+    if (result.kind !== "changed") return;
+    store.saveGear(record.characterId, result.gear.inventory, result.gear.equipment);
+    this.setInventory(sessionId, player, result.gear.inventory);
+    this.setEquipment(sessionId, player, result.gear.equipment);
+  }
+
   // Tecla do slot, como no labirinto. Sem fome na cidade: comida é gasta sem efeito (escolha do dono do projeto).
+  // Item equipável: usar é equipar.
   private handleUse(sessionId: string, message: unknown) {
+    const bag = this.inventories.get(sessionId);
+    if (bag && isEquippableSlot(bag, message)) {
+      this.handleGear(sessionId, "equip", message);
+      return;
+    }
     const slot = parseSlotIndex(message);
     const player = this.state.players.get(sessionId);
     const inventory = this.inventories.get(sessionId);

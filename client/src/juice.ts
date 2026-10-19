@@ -145,6 +145,9 @@ export interface Swing {
   angle: number;
   classId: string;
   startMs: number;
+  // Tamanho do golpe de quem bateu (o alcance e o arco da arma dele, ou do soco).
+  radius: number;
+  halfArc: number;
   // Para as partículas do mago não serem iguais em todo golpe.
   seed: number;
 }
@@ -159,7 +162,8 @@ export function swingDuration(classId: string): number {
 
 // Desenha o rastro do golpe. Toda classe mostra a área de acerto de verdade (fatia clara: a arma é a mesma para
 // todos, passo 8); por cima vai o enfeite da classe. p vai de 0 (golpe saiu) a 1 (rastro some).
-export function drawSwing(g: Phaser.GameObjects.Graphics, swing: Swing, time: number, radius: number, halfArc: number) {
+export function drawSwing(g: Phaser.GameObjects.Graphics, swing: Swing, time: number) {
+  const { radius, halfArc } = swing;
   const p = Math.min(1, (time - swing.startMs) / swingDuration(swing.classId));
   const fade = 1 - p;
   const a0 = swing.angle - halfArc;
@@ -239,7 +243,7 @@ function drawClaws(g: Phaser.GameObjects.Graphics, s: Swing, radius: number, fad
 
 // A espada varre de (ângulo do golpe - WEAPON_SWEEP) até (+ WEAPON_SWEEP) em WEAPON_SWING_MS, rápido no começo e
 // devagar no fim (cubic ease-out), com um "pop" de escala no meio. O arco de acerto de verdade é o do servidor
-// (PLAYER_ATTACK.arcDegrees); a varrida é só desenho.
+// (o arcDegrees da arma); a varrida é só desenho.
 export const WEAPON_SWING_MS = 160;
 const WEAPON_SWEEP = (55 * Math.PI) / 180;
 const WEAPON_POP = 0.15;

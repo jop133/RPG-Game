@@ -10,11 +10,11 @@ import {
   MOB_KINDS,
   NO_INPUT,
   PICKUP_RADIUS,
-  PLAYER_ATTACK,
   PLAYER_LIGHT_RADIUS,
   PLAYER_SIZE,
   TICK_RATE,
   applyDamage,
+  equipmentToPile,
   isInArc,
   isInSwing,
   inventoryToPile,
@@ -46,6 +46,7 @@ import {
   useSlot,
   type Area,
   type DeathCause,
+  type Equipment,
   type ExtractionResult,
   type FirstKillMessage,
   type Inventory,
@@ -59,6 +60,7 @@ import {
   type Vec2,
 } from "shared";
 import type { CharacterRecord } from "./db";
+import { applyGearAction, isEquippableSlot, type GearAction } from "./gear";
 import { loadLevel } from "./level";
 import { admit, release } from "./presence";
 import { ExitState, GameState, ItemSlotState, LootState, MobState, OWNER_TAG, PlayerState } from "./state";
@@ -84,6 +86,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   private lastAttackMs = new Map<string, number>();
   // A verdade do inventário. PlayerState.inventory só espelha isto para o dono ver.
   private inventories = new Map<string, Inventory>();
+  // O que cada um tem equipado (a arma decide o golpe). PlayerState.weapon espelha a arma, para todos verem na mão.
+  private equipment = new Map<string, Equipment>();
   // Conteúdo das pilhas no chão, por id. O cliente só recebe a posição (LootState).
   private lootPiles = new Map<string, ItemStack[]>();
   private nextLootId = 1;
@@ -94,7 +98,7 @@ export class GameRoom extends Room<{ state: GameState }> {
   private extractProgress = new Map<string, number>();
   // Quem é cada sessão no banco.
   private characters = new Map<string, CharacterRecord>();
-  // Essências equipadas e os status que resultam delas (velocidade, dano, vida máxima).
+  // Essências absorvidas e os status que resultam delas e da arma (velocidade, dano, vida máxima, golpe).
   private essences = new Map<string, ItemId[]>();
   private stats = new Map<string, PlayerStats>();
   private mobBrains = new Map<string, MobBrain>();
@@ -109,6 +113,9 @@ export class GameRoom extends Room<{ state: GameState }> {
     });
     this.onMessage("attack", (client, message) => this.handleAttack(client.sessionId, message));
     this.onMessage("use", (client, message) => this.handleUse(client.sessionId, message));
+    for (const action of ["move", "equip", "unequip"] as const) {
+      this.onMessage(action, (client, message) => this.handleGear(client.sessionId, action, message));
+    }
     this.onMessage("pickup", (client) => this.handlePickup(client.sessionId));
     this.spawnMobs();
     this.openExits();
@@ -124,12 +131,15 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.characters.set(client.sessionId, record);
     const xp = store.xp(record.characterId);
     const essences = store.essences(record.characterId);
-    const stats = playerStats(essences);
+    const equipment = store.equipment(record.characterId);
+    const stats = playerStats(essences, equipment);
     this.essences.set(client.sessionId, essences);
+    this.equipment.set(client.sessionId, equipment);
     this.stats.set(client.sessionId, stats);
     const player = new PlayerState({
       name: record.name,
       classId: record.classId ?? "",
+      weapon: equipment.weapon ?? "",
       ...this.entryPoint(),
       hp: stats.maxHp,
       maxHp: stats.maxHp,
@@ -171,6 +181,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.moveInputs.delete(sessionId);
     this.lastAttackMs.delete(sessionId);
     this.inventories.delete(sessionId);
+    this.equipment.delete(sessionId);
     this.extractProgress.delete(sessionId);
     const record = this.characters.get(sessionId);
     if (record) release(record);
@@ -202,13 +213,14 @@ export class GameRoom extends Room<{ state: GameState }> {
   }
 
   // Extraiu: sai da sala levando tudo o que carregava, que fica gravado no personagem. Ninguém deixa pilha ao extrair.
-  // Só aqui o inventário vai para o banco: se o servidor cair no meio da run, ela "não aconteceu".
+  // Só aqui o inventário e o equipamento vão para o banco: se o servidor cair no meio da run, ela "não aconteceu".
   private extractPlayer(sessionId: string) {
     const client = this.clients.getById(sessionId);
     const inventory = this.inventories.get(sessionId);
+    const equipment = this.equipment.get(sessionId);
     const result: ExtractionResult = { items: inventory ? inventoryToPile(inventory) : [] };
     const record = this.characters.get(sessionId);
-    if (record && inventory) store.setInventory(record.characterId, inventory);
+    if (record && inventory && equipment) store.saveGear(record.characterId, inventory, equipment);
     client?.send("extracted", result);
     this.removePlayer(sessionId);
     client?.leave(CloseCode.CONSENTED);
@@ -224,12 +236,33 @@ export class GameRoom extends Room<{ state: GameState }> {
     });
   }
 
+  // Arrastar na mochila, equipar e desequipar, a qualquer momento da run. Nada vai para o banco aqui (só na extração).
+  // Trocar de arma muda o golpe na hora.
+  private handleGear(sessionId: string, action: GearAction, message: unknown) {
+    const player = this.state.players.get(sessionId);
+    const inventory = this.inventories.get(sessionId);
+    const equipment = this.equipment.get(sessionId);
+    if (!player || !inventory || !equipment) return;
+    const result = applyGearAction(action, message, { inventory, equipment });
+    if (result.kind === "refused") this.clients.getById(sessionId)?.send("notice", { text: result.notice });
+    if (result.kind !== "changed") return;
+    this.setInventory(sessionId, player, result.gear.inventory);
+    this.equipment.set(sessionId, result.gear.equipment);
+    player.weapon = result.gear.equipment.weapon ?? "";
+    this.stats.set(sessionId, playerStats(this.essences.get(sessionId) ?? [], result.gear.equipment));
+  }
+
   // O jogador escolhe o slot (tecla do número). O servidor confere o que há nele e aplica o efeito.
+  // Item equipável: usar é equipar.
   private handleUse(sessionId: string, message: unknown) {
     const slot = parseSlotIndex(message);
     const player = this.state.players.get(sessionId);
     const inventory = this.inventories.get(sessionId);
     if (slot === undefined || !player || !inventory) return;
+    if (isEquippableSlot(inventory, message)) {
+      this.handleGear(sessionId, "equip", message);
+      return;
+    }
     const essences = this.essences.get(sessionId) ?? [];
     const outcome = useSlot(inventory, slot, { hunger: player.hunger, essences, essenceSlots: player.level });
     if (outcome.kind === "noEssenceSlot") {
@@ -248,7 +281,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     const record = this.characters.get(sessionId);
     if (record) store.setEssences(record.characterId, essences);
     const before = this.stats.get(sessionId) ?? playerStats([]);
-    const after = playerStats(essences);
+    const after = playerStats(essences, this.equipment.get(sessionId));
     this.essences.set(sessionId, essences);
     this.stats.set(sessionId, after);
     player.essences.push(essences[essences.length - 1] as ItemId);
@@ -267,10 +300,11 @@ export class GameRoom extends Room<{ state: GameState }> {
   private resolveDeaths() {
     for (const [sessionId, cause] of this.deaths) {
       const client = this.clients.getById(sessionId);
-      // O que ele carregava fica no chão, para quem pegar (aliado ou não).
+      // O que ele carregava e o que tinha equipado ficam no chão, para quem pegar (aliado ou não).
       const body = this.state.players.get(sessionId);
       const inventory = this.inventories.get(sessionId);
-      if (body && inventory) this.dropPile(body, inventoryToPile(inventory));
+      const equipped = equipmentToPile(this.equipment.get(sessionId) ?? {});
+      if (body && inventory) this.dropPile(body, [...inventoryToPile(inventory), ...equipped]);
       const record = this.characters.get(sessionId);
       if (record) store.markDead(record.characterId, cause);
       client?.send("death", cause);
@@ -301,11 +335,17 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.resolveDeaths();
   }
 
+  // Status de quem golpeia (dano e golpe da arma, ou do soco).
+  private attackerStats(sessionId: string): PlayerStats {
+    return this.stats.get(sessionId) ?? playerStats([]);
+  }
+
   private hitMobs(attackerId: string, attacker: PlayerState, angle: number) {
     const dead: string[] = [];
+    const { damage, attack } = this.attackerStats(attackerId);
     this.state.mobs.forEach((mob, id) => {
-      if (!isInSwing(attacker, angle, mob, MOB_KINDS[mob.kind as MobKind].size / 2)) return;
-      mob.hp = applyDamage(mob.hp, this.stats.get(attackerId)?.damage ?? PLAYER_ATTACK.damage);
+      if (!isInSwing(attacker, angle, attack, mob, MOB_KINDS[mob.kind as MobKind].size / 2)) return;
+      mob.hp = applyDamage(mob.hp, damage);
       if (mob.hp === 0) dead.push(id);
     });
     for (const id of dead) {
@@ -361,9 +401,10 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   // Fogo amigo: o golpe acerta qualquer outro jogador no arco.
   private hitPlayers(attackerId: string, attacker: Vec2, angle: number) {
+    const { damage, attack } = this.attackerStats(attackerId);
     this.state.players.forEach((player, sessionId) => {
-      if (sessionId === attackerId || !isInSwing(attacker, angle, player, PLAYER_SIZE / 2)) return;
-      this.damagePlayer(sessionId, player, this.stats.get(attackerId)?.damage ?? PLAYER_ATTACK.damage, { kind: "player" });
+      if (sessionId === attackerId || !isInSwing(attacker, angle, attack, player, PLAYER_SIZE / 2)) return;
+      this.damagePlayer(sessionId, player, damage, { kind: "player" });
     });
   }
 

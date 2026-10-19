@@ -316,6 +316,7 @@ ICONS = {
     "essencia_lobo": lambda: icon_essence((120, 180, 245)),
     "essencia_goblin": lambda: icon_essence((140, 200, 90)),
     "essencia_goblin_rara": lambda: icon_essence((255, 200, 60)),
+    "espada_ferro": icon_sword,
 }
 
 
