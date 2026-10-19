@@ -103,7 +103,13 @@ describe("buyFromForge", () => {
     expect(buyItems(bag([]), 999, "peitoral_ferro", 1)).toEqual({ kind: "notForSale" });
   });
 
-  it("sem moedas para a peça, nada muda", () => {
-    expect(buyFromForge(bag([]), (FORGE_PRICES.elmo_ferro ?? 0) - 1, "elmo_ferro", 1)).toEqual({ kind: "noCoins" });
+  it("sem moedas para a peça, nada muda (com uma tabela de preço qualquer)", () => {
+    expect(buyItems(bag([]), 59, "elmo_ferro", 1, { elmo_ferro: 60 })).toEqual({ kind: "noCoins" });
+  });
+
+  it("todo o catálogo da Forja está à venda", () => {
+    for (const item of Object.keys(FORGE_PRICES) as (keyof typeof FORGE_PRICES)[]) {
+      expect(buyFromForge(bag([]), 0, item, 1).kind).toBe("done");
+    }
   });
 });

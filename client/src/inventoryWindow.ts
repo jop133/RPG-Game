@@ -313,6 +313,10 @@ export class InventoryWindow {
       icon.hidden = !src;
       if (src && icon.getAttribute("src") !== src) icon.src = src;
       frame.classList.toggle("hud-equipped", Boolean(src));
+      // Ocupado: a moldura da raridade da peça; vazio: a silhueta do slot.
+      const rarity = item ? (ITEMS[item as ItemId] as ItemStats | undefined)?.rarity : undefined;
+      const frameSrc = ART.get(rarity ? frameName(rarity, 48) : `equip_${slot}`) ?? "";
+      if (frame.getAttribute("src") !== frameSrc) frame.src = frameSrc;
     }
     for (const [piece, layer] of this.armorLayers) {
       const item = view.equipment[piece];

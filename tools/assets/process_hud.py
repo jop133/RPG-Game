@@ -3,7 +3,8 @@
 Entrada: assets/tilesets/interface/hud_status_kit.png e hud_inventario_kit.png (fora do git: guarde uma cópia).
 Saída:   assets/ui/hud/*.png          peças sem fundo, reduzidas por média de área para o tamanho do HUD
          assets/ui/hud/portrait-<classe>.png   rosto de cada classe (do sprite parado de frente)
-         assets/ui/hud/items/<item>.png        ícone 16x16 de cada item, desenhado aqui
+         assets/ui/hud/items/<item>.png        ícone de cada item: 16x16 desenhado aqui, ou 48x48 recortado da folha
+                                               assets/ui/Itens.png (equipamentos da Forja; fora do git)
          assets/ui/hud/status_scroll.png       pergaminho dos status (ao lado da janela de inventário), desenhado aqui
          assets/ui/hud/layout.json    onde ficam os vãos (retrato, calhas, slots da barra, couro da mochila),
                                       medidos na própria arte: o cliente não tem coordenada escrita à mão
@@ -304,116 +305,135 @@ def icon_coin() -> Image.Image:
 
 # Desenhos do HUD que não são itens.
 
-# ---------------------------------------------------------------- conjunto de ferro (Forja) e os slots novos
+# ---------------------------------------------------------------- folha oficial dos equipamentos (Itens.png)
 
-IRON_ICON = (150, 156, 170)
-IRON_DARK_ICON = (98, 104, 118)
-GOLD_ICON = (210, 170, 70)
-
-
-def icon_helm() -> Image.Image:
-    """Elmo fechado: domo redondo, laterais que afinam até o queixo e a fenda em T (olhos e nariz)."""
-    dome, slit = np.zeros((ICON, ICON), bool), np.zeros((ICON, ICON), bool)
-    ellipse(dome, 8, 7.5, 6, 6)
-    polygon(dome, [(2, 7.5), (14, 7.5), (13, 12.5), (10.5, 15), (5.5, 15), (3, 12.5)])
-    polygon(slit, [(4, 8), (12, 8), (12, 9.5), (9, 9.5), (9, 13.5), (7, 13.5), (7, 9.5), (4, 9.5)])
-    return paint([(dome, IRON_ICON), (slit, (34, 36, 44))])
-
-
-def icon_breastplate() -> Image.Image:
-    plate, belt = np.zeros((ICON, ICON), bool), np.zeros((ICON, ICON), bool)
-    polygon(plate, [(2, 3), (6, 2), (8, 4), (10, 2), (14, 3), (13.5, 7), (12, 14), (4, 14), (2.5, 7)])
-    polygon(belt, [(4, 11), (12, 11), (12, 12.5), (4, 12.5)])
-    return paint([(plate, IRON_ICON), (belt, (110, 72, 42))])
-
-
-def icon_greaves() -> Image.Image:
-    legs, belt = np.zeros((ICON, ICON), bool), np.zeros((ICON, ICON), bool)
-    polygon(legs, [(3, 2), (13, 2), (13.5, 14.5), (9.5, 14.5), (8, 7), (6.5, 14.5), (2.5, 14.5)])
-    polygon(belt, [(3, 2), (13, 2), (13, 4), (3, 4)])
-    return paint([(legs, IRON_DARK_ICON), (belt, (110, 72, 42))])
+# Arte do dono do projeto: grade de 4 colunas x 2 linhas sobre fundo preto (ou transparente). Linha de cima: elmo,
+# peitoral, calça e bota de ferro; de baixo: amuleto, anel e as molduras dos slots vazios de calça e amuleto. Fica fora
+# do git, como os kits da HUD.
+ITEMS_SHEET = ROOT / "assets" / "ui" / "Itens.png"
+SHEET_ICONS = {
+    (0, 0): "elmo_ferro",
+    (1, 0): "peitoral_ferro",
+    (2, 0): "calca_ferro",
+    (3, 0): "bota_ferro",
+    (0, 1): "amuleto_runico",
+    (1, 1): "anel_vitalidade",
+}
+SHEET_SLOTS = {(2, 1): "equip_pants", (3, 1): "equip_amulet"}
+# Ícone de item da folha: quadrado, no tamanho em que a mochila, os slots de equipamento e o quadro de inspeção o
+# mostram (48 px), reduzido por média de área; a peça ocupa o quadrado menos ICON_MARGIN de cada lado.
+SHEET_ICON = 48
+ICON_MARGIN = 0.06
+BACKGROUND_MAX = 14  # brilho máximo de um pixel de fundo preto
+HOLE_MIN = 30  # vão interno de preto puro maior que isto (px da folha) é fundo preso, não contorno
 
 
-def icon_iron_boots() -> Image.Image:
-    left, right = np.zeros((ICON, ICON), bool), np.zeros((ICON, ICON), bool)
-    polygon(left, [(1.5, 3), (5.5, 3), (5.5, 11), (7.5, 12), (7.5, 14.5), (1.5, 14.5)])
-    polygon(right, [(8.5, 3), (12.5, 3), (12.5, 11), (14.5, 12), (14.5, 14.5), (8.5, 14.5)])
-    return paint([(left, IRON_ICON), (right, IRON_DARK_ICON)])
+def clear_background(cell: np.ndarray, holes: bool) -> np.ndarray:
+    """Fundo preto vira transparente: o que é preto e se liga à borda da célula (flood-fill a partir da borda). Com
+    `holes`, também os vãos internos de preto (o furo do anel, o laço da corrente), se forem maiores que um contorno.
+    Contornos e sombras do desenho são mais claros que o fundo e continuam."""
+    out = cell.copy()
+    dark = (out[..., :3].max(axis=2) <= BACKGROUND_MAX) | (out[..., 3] < 8)
+    h, w = dark.shape
+    seen = np.zeros_like(dark)
+    queue = deque((y, x) for y in range(h) for x in (0, w - 1) if dark[y, x])
+    queue.extend((y, x) for x in range(w) for y in (0, h - 1) if dark[y, x])
+    for y, x in queue:
+        seen[y, x] = True
+    while queue:
+        y, x = queue.popleft()
+        for ny, nx in ((y + 1, x), (y - 1, x), (y, x + 1), (y, x - 1)):
+            if 0 <= ny < h and 0 <= nx < w and dark[ny, nx] and not seen[ny, nx]:
+                seen[ny, nx] = True
+                queue.append((ny, nx))
+    if holes:
+        for component in dark_groups(dark & ~seen):
+            if len(component) >= HOLE_MIN:
+                for y, x in component:
+                    seen[y, x] = True
+    out[seen, 3] = 0
+    return out
 
 
-def icon_amulet() -> Image.Image:
-    chain, gem, setting = (np.zeros((ICON, ICON), bool) for _ in range(3))
-    polygon(chain, [(2, 1), (3.5, 1), (8.6, 9), (7.4, 9)])
-    polygon(chain, [(12.5, 1), (14, 1), (8.6, 9), (7.4, 9)])
-    ellipse(setting, 8, 11, 4, 4)
-    ellipse(gem, 8, 11, 2.3, 2.3)
-    return paint([(chain, GOLD_ICON), (setting, GOLD_ICON), (gem, (90, 200, 230))])
-
-
-def icon_ring() -> Image.Image:
-    band, hole, gem = (np.zeros((ICON, ICON), bool) for _ in range(3))
-    ellipse(band, 8, 10.5, 5, 5)
-    ellipse(hole, 8, 10.5, 2.8, 2.8)
-    ellipse(gem, 8, 4.5, 2.4, 2.2)
-    band &= ~hole
-    return paint([(band, GOLD_ICON), (gem, (220, 60, 70))])
-
-
-# Slot de equipamento vazio para os slots novos (calça e amuleto): a moldura do slot do anel, sem o anel, com a
-# silhueta nova no mesmo cinza. Desenhada em 4x e reduzida por área, para o traço suave das outras silhuetas.
-def silhouette_slot(base: Image.Image, draw) -> Image.Image:
-    px = np.asarray(base.convert("RGBA")).astype(float).copy()
-    h, w = px.shape[:2]
-    inner = (slice(6, h - 6), slice(6, w - 6))
-    region = px[inner]
-    luminance = region[..., :3].mean(axis=2)
-    background = np.median(region[..., :3].reshape(-1, 3), axis=0)
-    shape = luminance > background.mean() + 6
-    silhouette = region[..., :3][shape].mean(axis=0) if shape.any() else background + 30
-    region[shape, :3] = background
-    k = 4
-    mask = np.zeros((h * k, w * k), float)
-    draw(mask, w * k, h * k)
-    small = np.asarray(Image.fromarray((mask * 255).astype(np.uint8)).resize((w, h), Image.BOX)).astype(float) / 255
-    px[..., :3] = px[..., :3] * (1 - small[..., None]) + silhouette * small[..., None]
-    return Image.fromarray(np.clip(px, 0, 255).astype(np.uint8))
-
-
-def _poly(mask: np.ndarray, points: list[tuple[float, float]]) -> None:
+def dark_groups(mask: np.ndarray) -> list[list[tuple[int, int]]]:
+    """Grupos de pixels ligados (vizinhança de 4) de uma máscara."""
     h, w = mask.shape
-    yy, xx = np.mgrid[0:h, 0:w] + 0.5
-    inside = np.zeros(mask.shape, bool)
-    n = len(points)
-    for i in range(n):
-        (xa, ya), (xb, yb) = points[i], points[(i + 1) % n]
-        crosses = (ya > yy) != (yb > yy)
-        x_at = xa + (yy - ya) * (xb - xa) / np.where(yb == ya, 1e-9, yb - ya)
-        inside ^= crosses & (xx < x_at)
-    mask[inside] = 1
+    left = mask.copy()
+    groups = []
+    for y0, x0 in zip(*np.nonzero(left)):
+        if not left[y0, x0]:
+            continue
+        left[y0, x0] = False
+        group, queue = [], deque([(y0, x0)])
+        while queue:
+            y, x = queue.popleft()
+            group.append((y, x))
+            for ny, nx in ((y + 1, x), (y - 1, x), (y, x + 1), (y, x - 1)):
+                if 0 <= ny < h and 0 <= nx < w and left[ny, nx]:
+                    left[ny, nx] = False
+                    queue.append((ny, nx))
+        groups.append(group)
+    return groups
 
 
-def _disc(mask: np.ndarray, cx: float, cy: float, r: float, value: float = 1) -> None:
-    h, w = mask.shape
-    yy, xx = np.mgrid[0:h, 0:w] + 0.5
-    mask[(xx - cx) ** 2 + (yy - cy) ** 2 <= r * r] = value
+def crop_to_content(cell: np.ndarray) -> np.ndarray:
+    ys, xs = np.nonzero(cell[..., 3] > 16)
+    return cell[ys.min() : ys.max() + 1, xs.min() : xs.max() + 1]
 
 
-def draw_pants(mask: np.ndarray, w: int, h: int) -> None:
-    u = w / 40
-    _poly(mask, [(12 * u, 9 * u), (28 * u, 9 * u), (29 * u, 31 * u), (22.5 * u, 31 * u), (20 * u, 16 * u),
-                 (17.5 * u, 31 * u), (11 * u, 31 * u)])
+def area_resize(art: np.ndarray, width: int, height: int) -> Image.Image:
+    """Redução por média de área com alfa pré-multiplicado (sem franja escura na borda)."""
+    return Image.fromarray(art).convert("RGBa").resize((width, height), Image.BOX).convert("RGBA")
 
 
-def draw_amulet(mask: np.ndarray, w: int, h: int) -> None:
-    u = w / 40
-    _poly(mask, [(11 * u, 8 * u), (13 * u, 8 * u), (20.8 * u, 21 * u), (19.2 * u, 21 * u)])
-    _poly(mask, [(27 * u, 8 * u), (29 * u, 8 * u), (20.8 * u, 21 * u), (19.2 * u, 21 * u)])
-    _disc(mask, 20 * u, 25 * u, 5.5 * u)
-    _disc(mask, 20 * u, 25 * u, 2.6 * u, 0)
+def sheet_icon(art: np.ndarray) -> Image.Image:
+    """A peça centrada num quadrado com margem, reduzida para SHEET_ICON."""
+    h, w = art.shape[:2]
+    side = round(max(h, w) / (1 - 2 * ICON_MARGIN))
+    square = np.zeros((side, side, 4), np.uint8)
+    square[(side - h) // 2 : (side - h) // 2 + h, (side - w) // 2 : (side - w) // 2 + w] = art
+    return area_resize(square, SHEET_ICON, SHEET_ICON)
+
+
+def opaque_luminance(image: Image.Image) -> float:
+    px = np.asarray(image.convert("RGBA")).astype(float)
+    solid = px[..., 3] > 128
+    return float((0.299 * px[..., 0] + 0.587 * px[..., 1] + 0.114 * px[..., 2])[solid].mean())
+
+
+def sheet_slot(art: np.ndarray, size: tuple[int, int], target_luminance: float) -> Image.Image:
+    """Moldura de slot vazio da folha no tamanho dos outros slots de equipamento, com o brilho médio deles."""
+    image = area_resize(art, *size)
+    px = np.asarray(image).astype(float)
+    gain = target_luminance / max(1.0, opaque_luminance(image))
+    px[..., :3] = np.clip(px[..., :3] * gain, 0, 255)
+    return Image.fromarray(px.astype(np.uint8))
+
+
+def items_from_sheet(layout: dict, sheet: list[tuple[str, Image.Image]]) -> None:
+    """Recorta a folha: 6 ícones em items/<item>.png e as 2 molduras de slot vazio, no tamanho e no brilho das 6
+    molduras que já existem (equip_helm ... equip_ring)."""
+    art = np.asarray(Image.open(ITEMS_SHEET).convert("RGBA"))
+    cell_w, cell_h = art.shape[1] // 4, art.shape[0] // 2
+    cell = lambda col, row: art[row * cell_h : (row + 1) * cell_h, col * cell_w : (col + 1) * cell_w]
+    for (col, row), item in SHEET_ICONS.items():
+        image = sheet_icon(crop_to_content(clear_background(cell(col, row), holes=True)))
+        image.save(OUT / "items" / f"{item}.png")
+        sheet.append((item, image.resize((SHEET_ICON * 2, SHEET_ICON * 2), Image.NEAREST)))
+    others = ["equip_helm", "equip_chest", "equip_boots", "equip_weapon", "equip_shield", "equip_ring"]
+    target = float(np.mean([opaque_luminance(Image.open(OUT / f"{name}.png")) for name in others]))
+    size = (layout["equip_ring"]["w"], layout["equip_ring"]["h"])
+    for (col, row), name in SHEET_SLOTS.items():
+        image = sheet_slot(crop_to_content(clear_background(cell(col, row), holes=False)), size, target)
+        image.save(OUT / f"{name}.png")
+        sheet.append((name, image))
+        layout[name] = dict(layout["equip_ring"])
+
 
 EXTRA_ICONS = {"weapon": icon_sword, "lock": icon_lock, "coin": icon_coin}
 
-# Um ícone por item de ITEMS (shared/src/balance.ts). Item novo sem ícone aqui aparece com a sigla no slot.
+# Um ícone por item de ITEMS (shared/src/balance.ts), desenhado aqui; os equipamentos da Forja vêm da folha oficial
+# (SHEET_ICONS). Item novo sem ícone aparece com a sigla no slot.
 ICONS = {
     "racao": icon_ration,
     "pele_de_rato": lambda: icon_pelt((140, 134, 128)),
@@ -426,12 +446,6 @@ ICONS = {
     "essencia_goblin": lambda: icon_essence((140, 200, 90)),
     "essencia_goblin_rara": lambda: icon_essence((255, 200, 60)),
     "espada_ferro": icon_sword,
-    "elmo_ferro": icon_helm,
-    "peitoral_ferro": icon_breastplate,
-    "calca_ferro": icon_greaves,
-    "bota_ferro": icon_iron_boots,
-    "amuleto_runico": icon_amulet,
-    "anel_vitalidade": icon_ring,
 }
 
 
@@ -588,13 +602,8 @@ def main() -> None:
             layout["leather_wide"] = {"x": leather["x"], "y": leather["y"], "w": leather["w"] + WIDE_PANEL[0] - width,
                                       "h": leather["h"] + WIDE_PANEL[1] - layout["inv_panel"]["h"]}
 
-    # Slots de equipamento novos (calça e amuleto), a partir da moldura do slot do anel.
-    ring_slot = Image.open(OUT / "equip_ring.png")
-    for name, draw in (("equip_pants", draw_pants), ("equip_amulet", draw_amulet)):
-        image = silhouette_slot(ring_slot, draw)
-        image.save(OUT / f"{name}.png")
-        sheet.append((name, image))
-        layout[name] = dict(layout["equip_ring"])
+    # Equipamentos da Forja e os slots de calça e amuleto: recortes da folha oficial (Itens.png).
+    items_from_sheet(layout, sheet)
 
     scroll, content = status_scroll()
     scroll.save(OUT / "status_scroll.png")

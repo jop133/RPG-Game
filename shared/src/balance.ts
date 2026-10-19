@@ -88,15 +88,16 @@ export const SELL_PRICES: Partial<Record<ItemId, number>> = {
   essencia_goblin_rara: 40,
 };
 export const BUY_PRICES: Partial<Record<ItemId, number>> = { racao: 10 };
-// O catálogo da Forja (balcão do ferreiro): o que se compra, por unidade. Valores provisórios.
+// O catálogo da Forja (balcão do ferreiro): o que se compra, por unidade. Tudo de graça por enquanto (pedido do dono do
+// projeto, para testar o equipamento); os preços de verdade vêm com o balanceamento da economia.
 export const FORGE_PRICES: Partial<Record<ItemId, number>> = {
-  espada_ferro: 120,
-  elmo_ferro: 60,
-  peitoral_ferro: 140,
-  calca_ferro: 90,
-  bota_ferro: 70,
-  amuleto_runico: 150,
-  anel_vitalidade: 110,
+  espada_ferro: 0,
+  elmo_ferro: 0,
+  peitoral_ferro: 0,
+  calca_ferro: 0,
+  bota_ferro: 0,
+  amuleto_runico: 0,
+  anel_vitalidade: 0,
 };
 // Maior quantidade aceita numa compra ou venda (só para recusar números absurdos vindos do cliente).
 export const MAX_TRADE_COUNT = 999;

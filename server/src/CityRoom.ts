@@ -251,7 +251,8 @@ export class CityRoom extends Room<{ state: CityState }> {
     const amount = Math.abs(outcome.coins - lineage.coins);
     this.apply(sessionId, customer, { inventory: outcome.inventory, coins: outcome.coins });
     const verb = side === "sell" ? "Vendeu" : "Comprou";
-    this.notify(sessionId, `${verb} ${trade.count}x ${ITEMS[trade.item].name} (${side === "sell" ? "+" : "-"}${amount} moedas)`);
+    const price = amount === 0 ? "de graça" : `${side === "sell" ? "+" : "-"}${amount} moedas`;
+    this.notify(sessionId, `${verb} ${trade.count}x ${ITEMS[trade.item].name} (${price})`);
   }
 
   // E numa porta: a da rua leva para dentro do prédio; a de dentro, de volta à rua. Quem decide se o jogador está
