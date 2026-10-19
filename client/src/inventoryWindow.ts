@@ -272,7 +272,7 @@ export class InventoryWindow {
     const stats = playerStats(view.essences as ItemId[], this.equipment());
     const base = playerStats([], this.equipment());
     this.setPlate(this.plates.hp, String(view.maxHp), view.maxHp - PLAYER_MAX_HP, "");
-    this.setPlate(this.plates.damage, String(stats.damage), stats.damage - base.damage, "");
+    this.setPlate(this.plates.damage, String(stats.physicalDamage), stats.physicalDamage - base.physicalDamage, "");
     const speedBonus = Math.round((stats.speed / PLAYER_SPEED - 1) * 100);
     this.setPlate(this.plates.speed, String(Math.round(stats.speed)), speedBonus, "%");
     const progress = levelProgress(view.level, view.xp);
@@ -467,12 +467,12 @@ export class InventoryWindow {
       const weapon = this.view?.weapon;
       const stats = playerStats((this.view?.essences ?? []) as ItemId[], this.equipment());
       if (!weapon) {
-        return { title: `${name}: vazio`, subtitle: "Desarmado (soco)", lines: [attackText({ ...stats.attack, damage: stats.damage })], hint: "Arraste uma arma da mochila para cá" };
+        return { title: `${name}: vazio`, subtitle: "Desarmado (soco)", lines: [attackText({ ...stats.attack, damage: stats.physicalDamage })], hint: "Arraste uma arma da mochila para cá" };
       }
       return {
         title: ITEMS[weapon as ItemId].name,
         subtitle: `${name} (equipada)`,
-        lines: [attackText({ ...stats.attack, damage: stats.damage }), "Golpe com o clique, na direção do mouse."],
+        lines: [attackText({ ...stats.attack, damage: stats.physicalDamage }), "Golpe com o clique, na direção do mouse."],
         hint: "Clique para guardar na mochila · arraste para um slot",
       };
     };

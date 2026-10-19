@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { areaAt } from "./areas";
 import { MOB_LOSE_TRACK_MS, MOB_WAKE_RADIUS, PATH_RECALC_MS, PLAYER_SIZE } from "./balance";
 import { type CollisionGrid, boxFits } from "./collision";
-import { type MobWorld, type ThinkingMob, isDormant, stepMob } from "./mobAi";
+import { type MobTarget, type MobWorld, type ThinkingMob, isDormant, stepMob } from "./mobAi";
 import type { Vec2 } from "./movement";
 import { startIdle } from "./wander";
 
@@ -35,7 +35,7 @@ const center = (col: number, row: number): Vec2 => ({ x: (col + 0.5) * TILE, y: 
 const home = { name: "casa", rects: [{ x: 32, y: 32, width: 128, height: 96 }] };
 const homeCells = [1, 2, 3].flatMap((row) => [1, 2, 3, 4].map((col) => center(col, row)));
 
-const world = (players: Record<string, Vec2>): MobWorld => ({
+const world = (players: Record<string, MobTarget>): MobWorld => ({
   grid,
   home,
   homeCells,
@@ -62,6 +62,14 @@ describe("stepMob: notar", () => {
   it("vagando, nota jogador perto e à vista e passa a perseguir", () => {
     const next = stepMob(wandering(center(2, 2)), world({ p: center(4, 2) }), 100, Math.random);
     expect(next.mind).toMatchObject({ mode: "chase", targetId: "p" });
+  });
+
+  it("Furtividade encurta o raio em que o mob nota o jogador", () => {
+    // A 64 px, com aggro de 100: nota quem não é furtivo; com 50% de Furtividade (raio 50), não.
+    const visible = stepMob(wandering(center(2, 2)), world({ p: center(4, 2) }), 100, Math.random);
+    const sneaky = stepMob(wandering(center(2, 2)), world({ p: { ...center(4, 2), stealthPercent: 50 } }), 100, Math.random);
+    expect(visible.mind.mode).toBe("chase");
+    expect(sneaky.mind.mode).toBe("wander");
   });
 
   it("não nota jogador além do raio de aggro", () => {

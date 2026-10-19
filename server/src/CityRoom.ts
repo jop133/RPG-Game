@@ -78,7 +78,7 @@ export class CityRoom extends Room<{ state: CityState }> {
 
   private moveInputs = new Map<string, MoveInput>();
   private characters = new Map<string, CharacterRecord>();
-  // Velocidade de cada um, que vem das essências equipadas.
+  // Velocidade de cada um, que vem dos status (essências e equipamento).
   private speeds = new Map<string, number>();
   private essences = new Map<string, ItemId[]>();
   // A verdade do inventário. CityPlayerState.inventory só espelha isto para o dono ver.
@@ -115,7 +115,6 @@ export class CityRoom extends Room<{ state: CityState }> {
     const lineage = { coins: store.coins(record.lineageId), stash: store.stash(record.lineageId) };
     this.characters.set(client.sessionId, record);
     this.essences.set(client.sessionId, essences);
-    this.speeds.set(client.sessionId, playerStats(essences).speed);
     this.moveInputs.set(client.sessionId, NO_INPUT);
     this.lineages.set(client.sessionId, lineage);
     const player = new CityPlayerState({
@@ -166,6 +165,12 @@ export class CityRoom extends Room<{ state: CityState }> {
   private setEquipment(sessionId: string, player: CityPlayerState, equipment: Equipment) {
     this.equipment.set(sessionId, equipment);
     player.weapon = equipment.weapon ?? "";
+    this.refreshSpeed(sessionId);
+  }
+
+  // A cidade só usa a Velocidade dos status (sem combate, fome nem escuridão).
+  private refreshSpeed(sessionId: string) {
+    this.speeds.set(sessionId, playerStats(this.essences.get(sessionId) ?? [], this.equipment.get(sessionId)).speed);
   }
 
   // Arrastar na mochila, equipar e desequipar: em qualquer lugar da cidade. Grava antes de mudar a memória, mochila e
@@ -209,7 +214,7 @@ export class CityRoom extends Room<{ state: CityState }> {
     if (outcome.essences.length === essences.length) return;
     store.setEssences(record.characterId, outcome.essences);
     this.essences.set(sessionId, outcome.essences);
-    this.speeds.set(sessionId, playerStats(outcome.essences).speed);
+    this.refreshSpeed(sessionId);
     player.essences.push(outcome.essences[outcome.essences.length - 1] as ItemId);
   }
 

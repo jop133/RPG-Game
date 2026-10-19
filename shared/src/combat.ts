@@ -1,5 +1,6 @@
 import { PLAYER_ATTACK_COOLDOWN_MS } from "./balance";
 import type { WeaponStats } from "./equipment";
+import type { PlayerStats } from "./stats";
 import type { Vec2 } from "./movement";
 
 // Vem do cliente: só aceita { angle: número finito }. Ângulo em radianos, 0 = direita, y cresce para baixo.
@@ -9,8 +10,13 @@ export function parseAttackAngle(raw: unknown): number | undefined {
   return typeof angle === "number" && Number.isFinite(angle) ? angle : undefined;
 }
 
-export function isOffCooldown(lastAttackMs: number | undefined, nowMs: number): boolean {
-  return lastAttackMs === undefined || nowMs - lastAttackMs >= PLAYER_ATTACK_COOLDOWN_MS;
+export function isOffCooldown(lastAttackMs: number | undefined, nowMs: number, cooldownMs = PLAYER_ATTACK_COOLDOWN_MS): boolean {
+  return lastAttackMs === undefined || nowMs - lastAttackMs >= cooldownMs;
+}
+
+// Recarga do golpe com a Velocidade de Ataque: +100% = golpes duas vezes mais frequentes.
+export function attackCooldownMs(stats: PlayerStats): number {
+  return PLAYER_ATTACK_COOLDOWN_MS / (1 + stats.attackSpeedPercent / 100);
 }
 
 // Diferença entre dois ângulos, sempre em [0, π]: 350° e 10° estão a 20°, não a 340°.

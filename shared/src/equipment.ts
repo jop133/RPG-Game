@@ -1,6 +1,7 @@
 import { ITEMS, STARTING_EQUIPMENT, UNARMED_ATTACK, type ItemId } from "./balance";
 import type { EquipSlot } from "./forge";
 import { addItems, type Inventory, type ItemStack, type ItemStats } from "./inventory";
+import type { StatBonus } from "./stats";
 
 // Golpe de uma arma (ou do soco): dano, alcance (do centro de quem golpeia até a borda do alvo, em px) e abertura do
 // arco à frente, em graus.
@@ -10,10 +11,11 @@ export interface WeaponStats {
   arcDegrees: number;
 }
 
-// O que um item equipável faz: em que slot vai e, se for arma, o golpe.
+// O que um item equipável faz: em que slot vai, o golpe (se for arma) e o que soma aos status enquanto equipado.
 export interface EquipStats {
   slot: EquipSlot;
   weapon?: WeaponStats;
+  bonus?: StatBonus;
 }
 
 // O que o personagem tem equipado: um item por slot. Slot ausente = vazio.

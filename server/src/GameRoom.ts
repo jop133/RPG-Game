@@ -10,10 +10,11 @@ import {
   MOB_KINDS,
   NO_INPUT,
   PICKUP_RADIUS,
-  PLAYER_LIGHT_RADIUS,
   PLAYER_SIZE,
   TICK_RATE,
   applyDamage,
+  attackCooldownMs,
+  damageTaken,
   equipmentToPile,
   isInArc,
   isInSwing,
@@ -32,6 +33,7 @@ import {
   playerStats,
   pickActiveExits,
   pickSpawnPoint,
+  regenerate,
   planMobSpawns,
   rollDrops,
   startIdle,
@@ -45,6 +47,7 @@ import {
   tickHunger,
   useSlot,
   type Area,
+  type DamageType,
   type DeathCause,
   type Equipment,
   type ExtractionResult,
@@ -52,10 +55,12 @@ import {
   type Inventory,
   type ItemId,
   type ItemStack,
+  type LightCarrier,
   type LitMap,
   type PlayerStats,
   type MobKind,
   type MobMind,
+  type MobTarget,
   type MoveInput,
   type Vec2,
 } from "shared";
@@ -84,6 +89,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   // Fora do state de propósito: teclas apertadas não são replicadas para os outros jogadores.
   private moveInputs = new Map<string, MoveInput>();
   private lastAttackMs = new Map<string, number>();
+  // Quando cada um levou dano pela última vez (a Regeneração espera REGEN_DELAY_MS depois disso).
+  private lastHurtMs = new Map<string, number>();
   // A verdade do inventário. PlayerState.inventory só espelha isto para o dono ver.
   private inventories = new Map<string, Inventory>();
   // O que cada um tem equipado (a arma decide o golpe). PlayerState.weapon espelha a arma, para todos verem na mão.
@@ -180,6 +187,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.state.players.delete(sessionId);
     this.moveInputs.delete(sessionId);
     this.lastAttackMs.delete(sessionId);
+    this.lastHurtMs.delete(sessionId);
     this.inventories.delete(sessionId);
     this.equipment.delete(sessionId);
     this.extractProgress.delete(sessionId);
@@ -289,10 +297,13 @@ export class GameRoom extends Room<{ state: GameState }> {
     player.hp = Math.min(after.maxHp, player.hp + (after.maxHp - before.maxHp));
   }
 
-  // Toda perda de vida de jogador passa por aqui, para a morte nunca ser esquecida em algum caminho.
-  private damagePlayer(sessionId: string, player: PlayerState, amount: number, cause: DeathCause) {
+  // Toda perda de vida de jogador passa por aqui, para a morte nunca ser esquecida em algum caminho. A Defesa (físico)
+  // ou a Resistência Mágica (mágico) de quem leva reduzem o dano; a fome é dano verdadeiro.
+  private damagePlayer(sessionId: string, player: PlayerState, amount: number, cause: DeathCause, type: DamageType) {
     if (player.hp === 0) return;
-    player.hp = applyDamage(player.hp, amount);
+    const taken = damageTaken(amount, type, this.statsOf(sessionId));
+    this.lastHurtMs.set(sessionId, this.clock.currentTime);
+    player.hp = applyDamage(player.hp, taken);
     if (player.hp === 0) this.deaths.set(sessionId, cause);
   }
 
@@ -326,7 +337,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     const angle = parseAttackAngle(message);
     const attacker = this.state.players.get(sessionId);
     const now = this.clock.currentTime;
-    if (angle === undefined || !attacker || !isOffCooldown(this.lastAttackMs.get(sessionId), now)) return;
+    const cooldown = attackCooldownMs(this.statsOf(sessionId));
+    if (angle === undefined || !attacker || !isOffCooldown(this.lastAttackMs.get(sessionId), now, cooldown)) return;
     this.lastAttackMs.set(sessionId, now);
     attacker.attackSeq += 1;
     attacker.attackAngle = angle;
@@ -335,17 +347,17 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.resolveDeaths();
   }
 
-  // Status de quem golpeia (dano e golpe da arma, ou do soco).
-  private attackerStats(sessionId: string): PlayerStats {
+  // Os status de um jogador (base, arma, equipamento e essências).
+  private statsOf(sessionId: string): PlayerStats {
     return this.stats.get(sessionId) ?? playerStats([]);
   }
 
   private hitMobs(attackerId: string, attacker: PlayerState, angle: number) {
     const dead: string[] = [];
-    const { damage, attack } = this.attackerStats(attackerId);
+    const { physicalDamage, attack } = this.statsOf(attackerId);
     this.state.mobs.forEach((mob, id) => {
       if (!isInSwing(attacker, angle, attack, mob, MOB_KINDS[mob.kind as MobKind].size / 2)) return;
-      mob.hp = applyDamage(mob.hp, damage);
+      mob.hp = applyDamage(mob.hp, physicalDamage);
       if (mob.hp === 0) dead.push(id);
     });
     for (const id of dead) {
@@ -401,10 +413,10 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   // Fogo amigo: o golpe acerta qualquer outro jogador no arco.
   private hitPlayers(attackerId: string, attacker: Vec2, angle: number) {
-    const { damage, attack } = this.attackerStats(attackerId);
+    const { physicalDamage, attack } = this.statsOf(attackerId);
     this.state.players.forEach((player, sessionId) => {
       if (sessionId === attackerId || !isInSwing(attacker, angle, attack, player, PLAYER_SIZE / 2)) return;
-      this.damagePlayer(sessionId, player, damage, { kind: "player" });
+      this.damagePlayer(sessionId, player, physicalDamage, { kind: "player" }, "physical");
     });
   }
 
@@ -427,6 +439,7 @@ export class GameRoom extends Room<{ state: GameState }> {
   private tick(dtMs: number) {
     this.movePlayers(dtMs);
     this.starvePlayers(dtMs);
+    this.regeneratePlayers(dtMs);
     this.moveMobs(dtMs);
     this.resolveDeaths();
     this.updateExtraction(dtMs);
@@ -434,8 +447,11 @@ export class GameRoom extends Room<{ state: GameState }> {
   }
 
   private moveMobs(dtMs: number) {
-    const players = new Map<string, Vec2>();
-    this.state.players.forEach((player, sessionId) => players.set(sessionId, { x: player.x, y: player.y }));
+    // A Furtividade de cada um encurta a distância em que os mobs o notam.
+    const players = new Map<string, MobTarget>();
+    this.state.players.forEach((player, sessionId) =>
+      players.set(sessionId, { x: player.x, y: player.y, stealthPercent: this.statsOf(sessionId).stealthPercent }),
+    );
     this.state.mobs.forEach((mob, id) => {
       const brain = this.mobBrains.get(id);
       if (!brain) return;
@@ -460,16 +476,25 @@ export class GameRoom extends Room<{ state: GameState }> {
     const arc = mobStrikeArc(stats);
     this.state.players.forEach((player, sessionId) => {
       if (!isInArc(origin, angle, arc, player, PLAYER_SIZE / 2)) return;
-      this.damagePlayer(sessionId, player, stats.attackDamage, { kind: "mob", mob: kind });
+      this.damagePlayer(sessionId, player, stats.attackDamage, { kind: "mob", mob: kind }, "physical");
     });
   }
 
-  // Fome é tick do servidor (regra 6): cai para todos, e quem está zerado perde vida.
+  // Fome é tick do servidor (regra 6): cai para todos (mais devagar com Vigor), e quem está zerado perde vida.
   private starvePlayers(dtMs: number) {
     this.state.players.forEach((player, sessionId) => {
-      player.hunger = tickHunger(player.hunger, dtMs);
+      player.hunger = tickHunger(player.hunger, dtMs, this.statsOf(sessionId).vigorPercent);
       const damage = starvationDamage(player.hunger, dtMs);
-      if (damage > 0) this.damagePlayer(sessionId, player, damage, { kind: "starvation" });
+      if (damage > 0) this.damagePlayer(sessionId, player, damage, { kind: "starvation" }, "true");
+    });
+  }
+
+  // Regeneração: vida que volta com o tempo, só depois de REGEN_DELAY_MS sem levar dano.
+  private regeneratePlayers(dtMs: number) {
+    const now = this.clock.currentTime;
+    this.state.players.forEach((player, sessionId) => {
+      const sinceHurt = now - (this.lastHurtMs.get(sessionId) ?? -Infinity);
+      player.hp = regenerate(player.hp, this.statsOf(sessionId), dtMs, sinceHurt);
     });
   }
 
@@ -484,12 +509,14 @@ export class GameRoom extends Room<{ state: GameState }> {
   }
 
   // O próprio jogador entra na visão no onJoin e nunca sai; aqui só os outros e os mobs.
-  // Jogadores e saídas brilham: são vistos até o raio de visão. Mobs e pilhas só se estiverem na luz (regra 4).
+  // Jogadores e saídas brilham: são vistos até o raio de visão. Mobs e pilhas só se estiverem na luz (regra 4); a luz
+  // de cada jogador vai até a Percepção dele.
   private updateViews() {
-    const carriers: Vec2[] = [];
-    this.state.players.forEach((player) => carriers.push(player));
-    const lit = (entity: MobState | LootState, view: StateView) =>
-      isLit(entity, this.lit, carriers, PLAYER_LIGHT_RADIUS, view.has(entity));
+    const carriers: LightCarrier[] = [];
+    this.state.players.forEach((player, sessionId) =>
+      carriers.push({ x: player.x, y: player.y, radius: this.statsOf(sessionId).lightRadius }),
+    );
+    const lit = (entity: MobState | LootState, view: StateView) => isLit(entity, this.lit, carriers, view.has(entity));
     for (const client of this.clients) {
       const view = client.view;
       const self = this.state.players.get(client.sessionId);

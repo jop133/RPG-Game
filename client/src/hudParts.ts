@@ -141,7 +141,7 @@ export class Tooltip {
 export function essenceEffectText(effect: EssenceEffect): string {
   const parts: string[] = [];
   if (effect.speedPercent) parts.push(`+${effect.speedPercent}% Velocidade`);
-  if (effect.damage) parts.push(`+${effect.damage} Dano`);
+  if (effect.physicalDamage) parts.push(`+${effect.physicalDamage} Dano Físico`);
   if (effect.maxHp) parts.push(`+${effect.maxHp} Vida Máxima`);
   return parts.join(", ");
 }

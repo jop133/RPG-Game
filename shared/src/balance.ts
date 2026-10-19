@@ -26,8 +26,10 @@ export const STARVATION_DAMAGE_PER_SECOND = 2;
 // essence: efeito ao consumir a essência, que passa a ocupar um slot de essência do personagem (até o nível).
 // rarity: comum (comida e materiais de monstro), rara (fragmento de cristal e essências), épica (essência rara);
 // lendária ainda não há. Por enquanto só decide a moldura do slot no HUD.
-// Efeitos de essências iguais se somam. speedPercent: % de velocidade; damage: dano a mais no golpe; maxHp: vida máxima a mais.
-// equip: o item se equipa no slot dado; arma (weapon) troca o golpe: dano, alcance e arco (como UNARMED_ATTACK).
+// Efeitos de essências iguais se somam (StatBonus, em stats.ts). speedPercent: % de velocidade; physicalDamage: dano
+// físico a mais no golpe; maxHp: vida máxima a mais.
+// equip: o item se equipa no slot dado; arma (weapon) troca o golpe: dano, alcance e arco (como UNARMED_ATTACK);
+// bonus: o que a peça soma aos status (StatBonus), enquanto equipada.
 // O rato saiu do 1º andar (a essência de velocidade agora é do lobo), mas os itens dele ficam: há personagens com eles.
 export const ITEMS = {
   racao: { name: "Ração", rarity: "common", maxStack: 5, food: 40 },
@@ -38,7 +40,7 @@ export const ITEMS = {
   gosma_de_slime: { name: "Gosma de slime", rarity: "common", maxStack: 10 },
   essencia_rato: { name: "Essência de rato", rarity: "rare", maxStack: 3, essence: { speedPercent: 15 } },
   essencia_lobo: { name: "Essência de lobo", rarity: "rare", maxStack: 3, essence: { speedPercent: 15 } },
-  essencia_goblin: { name: "Essência de goblin", rarity: "rare", maxStack: 3, essence: { damage: 4 } },
+  essencia_goblin: { name: "Essência de goblin", rarity: "rare", maxStack: 3, essence: { physicalDamage: 4 } },
   essencia_goblin_rara: { name: "Essência rara de goblin", rarity: "epic", maxStack: 3, essence: { maxHp: 25 } },
   espada_ferro: {
     name: "Espada de Ferro",
@@ -172,6 +174,29 @@ export const VIEW_HYSTERESIS = 32;
 // mesmos raios, então a máscara escura só cobre o mapa, que todo mundo já tem. Na cidade a luz é só desenho.
 export const PLAYER_LIGHT_RADIUS = 240;
 export const EXIT_LIGHT_RADIUS = 200;
+
+// Status base de todo personagem (os 12 de stats.ts), antes da classe (passo 10), do equipamento e das essências. O
+// Dano Físico vem da arma (ou do soco). Bases neutras onde ainda não há fonte de bônus: o jogo joga como antes.
+// lightRadius é a Percepção (raio da luz que cada um carrega); os outros % são reduções.
+export const PLAYER_MAX_MANA = 100;
+export const BASE_STATS = {
+  maxHp: PLAYER_MAX_HP,
+  maxMana: PLAYER_MAX_MANA,
+  magicDamage: 0,
+  defensePercent: 0,
+  magicResistPercent: 0,
+  attackSpeedPercent: 0,
+  speed: PLAYER_SPEED,
+  lightRadius: PLAYER_LIGHT_RADIUS,
+  stealthPercent: 0,
+  vigorPercent: 0,
+  regenPerSecond: 0,
+};
+// Teto de toda redução em % (Defesa, Resistência Mágica, Furtividade, Vigor): ninguém fica imune a dano, invisível
+// aos mobs ou sem fome.
+export const MAX_REDUCTION_PERCENT = 80;
+// Regeneração só começa depois deste tempo sem levar dano (inclusive de fome).
+export const REGEN_DELAY_MS = 5000;
 // Raio de cada tipo de luz da camada "luzes" dos mapas (o nome do ponto é o tipo), em pixels.
 export const LIGHT_RADIUS = {
   "cristal-grande": 170,

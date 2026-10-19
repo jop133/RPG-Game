@@ -38,19 +38,20 @@ export function staticLitMap(lights: readonly LightSource[], width: number, heig
   return { width, height, tileSize, cells };
 }
 
+// Quem carrega luz (os jogadores) e até onde ela vai (a Percepção de cada um).
+export interface LightCarrier extends Vec2 {
+  radius: number;
+}
+
 // Escuridão (regra 4): um ponto está iluminado se cai num tile de luz fixa ou está perto de quem carrega luz
 // (os jogadores). Quem já está sendo visto ganha a folga de VIEW_HYSTERESIS na luz dos jogadores, para não piscar
 // na borda dela.
-export function isLit(
-  p: Vec2,
-  lit: LitMap,
-  carriers: readonly Vec2[],
-  carrierRadius: number,
-  currentlySeen: boolean,
-): boolean {
+export function isLit(p: Vec2, lit: LitMap, carriers: readonly LightCarrier[], currentlySeen: boolean): boolean {
   const col = Math.floor(p.x / lit.tileSize);
   const row = Math.floor(p.y / lit.tileSize);
   if (col >= 0 && row >= 0 && col < lit.width && row < lit.height && lit.cells[row * lit.width + col]) return true;
-  const limit = currentlySeen ? carrierRadius + VIEW_HYSTERESIS : carrierRadius;
-  return carriers.some((c) => (c.x - p.x) ** 2 + (c.y - p.y) ** 2 <= limit * limit);
+  return carriers.some((c) => {
+    const limit = currentlySeen ? c.radius + VIEW_HYSTERESIS : c.radius;
+    return (c.x - p.x) ** 2 + (c.y - p.y) ** 2 <= limit * limit;
+  });
 }

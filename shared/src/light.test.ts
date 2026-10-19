@@ -22,28 +22,35 @@ describe("isLit", () => {
   const lamp = staticLitMap([{ x: 48, y: 48, radius: 40 }], 10, 10, 32);
 
   it("tile de luz fixa ilumina quem está nele", () => {
-    expect(isLit({ x: 50, y: 50 }, lamp, [], 100, false)).toBe(true);
-    expect(isLit({ x: 250, y: 250 }, lamp, [], 100, false)).toBe(false);
+    expect(isLit({ x: 50, y: 50 }, lamp, [], false)).toBe(true);
+    expect(isLit({ x: 250, y: 250 }, lamp, [], false)).toBe(false);
   });
 
   it("jogador ilumina até o raio dele", () => {
-    const player = { x: 0, y: 0 };
-    expect(isLit({ x: 100, y: 0 }, dark, [player], 100, false)).toBe(true);
-    expect(isLit({ x: 101, y: 0 }, dark, [player], 100, false)).toBe(false);
+    const player = { x: 0, y: 0, radius: 100 };
+    expect(isLit({ x: 100, y: 0 }, dark, [player], false)).toBe(true);
+    expect(isLit({ x: 101, y: 0 }, dark, [player], false)).toBe(false);
   });
 
   it("qualquer jogador ilumina, não só quem está olhando", () => {
-    expect(isLit({ x: 300, y: 300 }, dark, [{ x: 0, y: 0 }, { x: 290, y: 300 }], 100, false)).toBe(true);
+    expect(isLit({ x: 300, y: 300 }, dark, [{ x: 0, y: 0, radius: 100 }, { x: 290, y: 300, radius: 100 }], false)).toBe(true);
   });
 
   it("quem já é visto só some depois da folga", () => {
     const p = { x: 100 + VIEW_HYSTERESIS, y: 0 };
-    expect(isLit(p, dark, [{ x: 0, y: 0 }], 100, false)).toBe(false);
-    expect(isLit(p, dark, [{ x: 0, y: 0 }], 100, true)).toBe(true);
+    expect(isLit(p, dark, [{ x: 0, y: 0, radius: 100 }], false)).toBe(false);
+    expect(isLit(p, dark, [{ x: 0, y: 0, radius: 100 }], true)).toBe(true);
+  });
+
+  it("cada jogador ilumina até o raio dele (Percepção)", () => {
+    const near = { x: 0, y: 0, radius: 100 };
+    const far = { x: 0, y: 0, radius: 200 };
+    expect(isLit({ x: 150, y: 0 }, dark, [near], false)).toBe(false);
+    expect(isLit({ x: 150, y: 0 }, dark, [near, far], false)).toBe(true);
   });
 
   it("fora do mapa não quebra: só a luz dos jogadores conta", () => {
-    expect(isLit({ x: -50, y: -50 }, lamp, [], 100, false)).toBe(false);
+    expect(isLit({ x: -50, y: -50 }, lamp, [], false)).toBe(false);
   });
 });
 

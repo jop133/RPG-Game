@@ -32,13 +32,18 @@ export function mobStrikeArc(stats: MobStats): Arc {
   return { range: stats.size / 2 + stats.attackReach, degrees: stats.attackArcDegrees };
 }
 
+// Um jogador como o mob o enxerga: posição e Furtividade (encurta, em %, a distância em que o mob o nota).
+export interface MobTarget extends Vec2 {
+  stealthPercent?: number;
+}
+
 // Tudo o que o mob precisa saber do mundo para decidir o próximo tick.
 export interface MobWorld {
   grid: CollisionGrid;
   home: Area;
   homeCells: readonly Vec2[];
   stats: MobStats;
-  players: ReadonlyMap<string, Vec2>;
+  players: ReadonlyMap<string, MobTarget>;
 }
 
 const distance = (a: Vec2, b: Vec2) => Math.hypot(b.x - a.x, b.y - a.y);
@@ -52,11 +57,12 @@ function sees(grid: CollisionGrid, from: Vec2, to: Vec2, radius: number): boolea
   return distance(from, to) <= radius && hasLineOfSight(grid, from, to);
 }
 
-// Jogador mais próximo que o mob consegue notar agora: dentro do raio e sem parede no meio.
+// Jogador mais próximo que o mob consegue notar agora: dentro do raio (menor para quem é furtivo) e sem parede no meio.
 function noticeTarget(position: Vec2, world: MobWorld): [string, Vec2] | undefined {
   let best: [string, Vec2] | undefined;
   for (const [id, player] of world.players) {
-    if (!sees(world.grid, position, player, world.stats.aggroRadius)) continue;
+    const radius = world.stats.aggroRadius * (1 - (player.stealthPercent ?? 0) / 100);
+    if (!sees(world.grid, position, player, radius)) continue;
     if (!best || distance(position, player) < distance(position, best[1])) best = [id, player];
   }
   return best;

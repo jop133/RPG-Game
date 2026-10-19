@@ -1,6 +1,6 @@
 import { HUNGER_MAX, INVENTORY_SLOTS, ITEMS, STARTING_ITEMS, type ItemId } from "./balance";
 import type { EquipStats } from "./equipment";
-import type { EssenceEffect } from "./essences";
+import type { EssenceEffect } from "./stats";
 
 // Raridade do item: por enquanto só decide a moldura do slot no HUD.
 export type Rarity = "common" | "rare" | "epic" | "legendary";

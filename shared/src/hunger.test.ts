@@ -34,3 +34,9 @@ describe("starvationDamage", () => {
     expect(starvationDamage(0, 50)).toBeCloseTo(STARVATION_DAMAGE_PER_SECOND / 20);
   });
 });
+
+describe("tickHunger com Vigor", () => {
+  it("Vigor de 50% faz a fome cair na metade da velocidade", () => {
+    expect(50 - tickHunger(50, 1000, 50)).toBeCloseTo((50 - tickHunger(50, 1000)) / 2);
+  });
+});

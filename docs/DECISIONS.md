@@ -1141,3 +1141,28 @@ Slot vazio usa a moldura comum.
 - Servidor (regra 1): mensagens `move`, `equip` e `unequip`, validadas pelos parsers; `server/src/gear.ts` aplica a regra e traduz a recusa em aviso, para a cidade e o labirinto não repetirem a lógica. Usar (tecla ou clique) um item equipável é equipá-lo. Na cidade grava na hora, mochila e equipamento numa transação (`saveGear`); no labirinto, só na extração, como o inventário. Trocar de arma recalcula o golpe na hora.
 - Estado: `weapon` público nos dois esquemas de jogador (todos veem a arma na mão; "" = desarmado). Os outros slots de equipamento entram quando houver item para eles.
 - Cliente: espada na mão e rastro da lâmina só com arma; o desenho do golpe usa o alcance e o arco da arma de quem bateu. Na janela, arrastar e soltar feito com eventos de ponteiro (o ícone segue o cursor; vale o alvo embaixo ao soltar), e não com o arrastar nativo do HTML: funciona igual com mouse e toque, e o clique simples continua usando o item. Nada muda na tela antes do servidor responder.
+
+---
+
+## 2026-10 — Os 12 status do personagem
+
+**Pedido do dono do projeto:** definir quais status o jogo tem, sem decidir ainda os números de cada classe. Lista escolhida a partir de uma proposta: Vida, Mana, Dano Físico, Dano Mágico, Defesa, Resistência Mágica, Velocidade de Ataque (combate); Velocidade, Percepção, Furtividade (exploração); Vigor, Regeneração (sobrevivência). **Defesa reduz o dano em %**, não em valor fixo (escolha do dono do projeto, por enquanto).
+
+**Por que esses, e não outros:**
+- **Defesa e Resistência Mágica separadas:** com uma resistência só, ela protegeria contra tudo e o Dano Mágico perderia a identidade.
+- **Percepção = raio da luz que o personagem carrega.** Como a escuridão é raio de replicação (regra 4), quem tem mais Percepção recebe do servidor mobs e pilhas de mais longe, e ilumina para os aliados também.
+- **Furtividade** encurta a distância em que os mobs notam o personagem; **Vigor** faz a fome cair mais devagar. Ligam a ficha ao planejamento (GDD) e à fome.
+- **Sem crítico nem esquiva por sorte:** com morte definitiva, morrer por azar contraria o GDD ("consequência de decisão ruim, não de reflexo perdido").
+- **Sem atributos-base derivando status** (Força, Inteligência...): uma camada a mais para balancear; essências e equipamento mexem direto nos status finais.
+- Nível continua sem dar status (decisão anterior).
+
+**Como:**
+- `shared/src/stats.ts` (era `essences.ts`): `StatBonus` (o que essência e peça de equipamento somam; `EssenceEffect` é ele), `PlayerStats` com os 12, `playerStats(essências, equipamento)` e `statsFrom(bônus, golpe)` (para a base da classe, no passo 10). O `damage` das essências virou `physicalDamage`. Peças de equipamento ganharam `equip.bonus`.
+- Base em `balance.ts` (`BASE_STATS`), **neutra** onde ainda não há fonte de bônus: Defesa, Resistência, Vel. de Ataque, Furtividade, Vigor e Regeneração em 0; Percepção = `PLAYER_LIGHT_RADIUS`; Mana 100. O jogo joga como antes até alguém ter bônus.
+- Teto de toda redução em % (`MAX_REDUCTION_PERCENT` = 80): ninguém fica imune a dano, invisível aos mobs ou sem fome.
+- Efeitos ligados no labirinto: dano recebido passa por `damageTaken` (golpe de mob e de jogador é físico; fome é dano verdadeiro, sem redução); recarga do golpe por `attackCooldownMs`; luz de cada jogador com o próprio raio (`isLit` recebe o raio por portador); Furtividade no raio de aggro (`MobTarget`); Vigor em `tickHunger`; Regeneração por `regenerate`, só depois de `REGEN_DELAY_MS` (5 s) sem levar dano. Na cidade, só a Velocidade.
+- Ainda sem uso: **Mana** (nada a gasta; não há mana atual no estado) e **Dano Mágico** (não há golpe mágico nem mob que cause dano mágico). Entram com as habilidades de classe (passo 10).
+
+**Pendente para quando houver bônus de verdade (nada na tela por enquanto, pedido do dono do projeto):**
+- O cliente desenha a luz do jogador com `PLAYER_LIGHT_RADIUS`. Com Percepção diferente da base, o raio precisa ir no estado para o desenho bater com o que o servidor manda (regra 4).
+- Com Defesa, o dano recebido deixa de ser inteiro: os números flutuantes e a barra precisam arredondar.
