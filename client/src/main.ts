@@ -63,6 +63,7 @@ import {
   type Swing,
 } from "./juice";
 import { LightIndex, StaticCuller } from "./culling";
+import handSockets from "../../assets/characters/hand_sockets.json";
 import { Hud } from "./hud";
 import { Lighting, mergeNearby, phaseAt, type Light, type LightLook } from "./lighting";
 import { Particles } from "./particles";
@@ -134,7 +135,10 @@ const TILESET_URLS = Object.entries(
 const CHARACTER_URLS = Object.entries(
   import.meta.glob<string>("../../assets/characters/*/*.png", { eager: true, query: "?url", import: "default" }),
 ).map(([path, url]) => ({ key: path.slice(path.indexOf("characters/"), -".png".length), url }));
-const IDLE_URLS = CHARACTER_URLS.filter(({ key }) => !key.includes("/walk-"));
+const IDLE_URLS = CHARACTER_URLS.filter(({ key }) => !key.includes("/walk-") && !key.includes("/attack-"));
+// Golpe desenhado (futuro): "characters/<classe>/attack-<direção>", fita de quadros 96x96 como a caminhada. Se a classe
+// tiver, toca no golpe e a espada segue a mão de cada quadro (hand_sockets.json); se não, fica a pose parada.
+const ATTACK_URLS = CHARACTER_URLS.filter(({ key }) => key.includes("/attack-"));
 // Sprites dos inimigos (tools/assets/process_mobs.py): parado "mobs/<tipo>/<direção>" (64x64, 8 direções) e
 // caminhada "mobs/<tipo>/walk-<direção>" (fita de quadros 96x96), só nas direções que têm arte: o lobo e o goblin
 // andam nas 8, o gnomo só nas 4 cardeais, o slime não tem caminhada. Só se carrega o que existe (nada de 404).
@@ -148,13 +152,55 @@ const WEAPON_URLS = Object.entries(
 ).map(([path, url]) => ({ key: path.slice(path.indexOf("weapons/"), -".png".length), url }));
 // A arma de todo mundo até a maestria de armas (passo 8).
 const WEAPON_KEY = "weapons/espada_ferro";
-// A espada gira em volta do cabo (origem perto da esquerda da imagem), na altura do peito, um pouco à frente.
-const WEAPON_ORIGIN = { x: 0.15, y: 0.5 };
-const WEAPON_CHEST_Y = 22; // px acima do centro da caixa do jogador
-const WEAPON_FORWARD = 8; // px na direção do golpe
-const WEAPON_REACH = 38; // do cabo até a ponta, em px (para o rastro)
-// Golpe para o norte: a espada fica atrás do corpo.
-const WEAPON_BEHIND_SIN = -0.25;
+// A espada gira em volta do punho (origem no cabo, perto da esquerda da imagem), preso à mão do personagem: o ponto
+// da mão de cada quadro vem de hand_sockets.json (tools/assets/process_ui.py), a partir dos pés do sprite.
+const WEAPON_ORIGIN = { x: 0.18, y: 0.5 };
+const WEAPON_REACH = 36; // do punho até a ponta, em px (para o rastro)
+// No golpe, o braço estica até WEAPON_ARM_EXTEND px na direção do ataque, no pico da varrida.
+const WEAPON_ARM_EXTEND = 3;
+// Guarda (parado ou andando): a lâmina levemente para cima e para a frente de onde o personagem olha, em graus
+// (0 = direita, -90 = para cima). A arte da espada aponta para a direita, então o ângulo vai direto na rotação. Em
+// north-west (mão atrás do corpo) ela sobe quase reta, para não sumir atrás do tronco; em south e south-east cruza a
+// frente do tronco, na diagonal para cima e para a direita.
+const WEAPON_GUARD_DEGREES: Record<string, number> = {
+  south: -35,
+  "south-west": -150,
+  west: -150,
+  "north-west": -85,
+  north: -65,
+  "north-east": -40,
+  east: -30,
+  "south-east": -35,
+};
+// Guarda própria de uma classe numa direção. O mago, em south, segura a espada subindo ao lado do corpo em vez de
+// cruzar o tronco; em south-east cruza, mas mais deitada que os outros.
+const WEAPON_GUARD_BY_CLASS: Record<string, Record<string, number>> = {
+  mago: { south: -115, "south-east": -30 },
+};
+// Mão por cima do cabo: um recorte do próprio sprite, só o punho (GRIP_SIZE px de lado), desenhado por cima da espada.
+// O recorte sai GRIP_OUTWARD px para fora do corpo, para pegar dedos e braçadeira e nada do tronco.
+const GRIP_SIZE = 9;
+const GRIP_OUTWARD = 2;
+// Respiração da guarda: ±3° num ciclo lento parado; andando, ±8° acompanhando os passos (um ciclo por volta da fita).
+const WEAPON_IDLE_SWAY = (3 * Math.PI) / 180;
+const WEAPON_IDLE_SWAY_MS = 2400;
+const WEAPON_WALK_SWAY = (8 * Math.PI) / 180;
+// Reserva para classe sem dado de caminhada: balanço da mão por quadro somado ao parado (bobX invertido para oeste).
+const WALK_HAND_BOB = [
+  { x: 0, y: 0 },
+  { x: 1, y: -2 },
+  { x: 1, y: -1 },
+  { x: 0, y: 0 },
+  { x: -1, y: -2 },
+  { x: -1, y: -1 },
+];
+interface HandSocket {
+  dx: number;
+  dy: number;
+  behindBody: boolean;
+}
+// classe -> animação (idle, walk, attack) -> direção -> um socket por quadro.
+const HAND_SOCKETS = handSockets as Record<string, Record<string, Record<string, HandSocket[]>>>;
 const MOB_WALK_URLS = MOB_URLS.filter(({ key }) => key.includes("/walk-"));
 const MOB_FRAME = 64;
 // Linha dos pés parado (de 64) e andando (de 96, mediana dos quadros), altura do bicho e largura da sombra, medidas
@@ -216,6 +262,8 @@ interface Avatar {
   lastHp?: number;
   // Espada do golpe (escondida fora dele) e o golpe mais recente: quando saiu e para onde.
   weapon: Phaser.GameObjects.Image;
+  // O punho do sprite recortado, por cima do cabo da espada (só quando a mão está na frente do corpo).
+  grip: Phaser.GameObjects.Image;
   swingAt: number;
   swingAngle: number;
 }
@@ -448,7 +496,7 @@ class WorldScene extends Phaser.Scene {
     for (const { key, url } of [...TILESET_URLS, ...IDLE_URLS, ...MOB_IDLE_URLS, ...WEAPON_URLS]) {
       if (!this.textures.exists(key)) this.load.image(key, url);
     }
-    for (const { key, url } of [...WALK_URLS, ...MOB_WALK_URLS]) {
+    for (const { key, url } of [...WALK_URLS, ...MOB_WALK_URLS, ...ATTACK_URLS]) {
       if (!this.textures.exists(key)) this.load.spritesheet(key, url, { frameWidth: WALK_FRAME, frameHeight: WALK_FRAME });
     }
   }
@@ -879,6 +927,12 @@ Subiu para o nível ${info.level}!` : "";
       if (this.anims.exists(key)) continue;
       this.anims.create({ key, frames: this.anims.generateFrameNumbers(key, {}), frameRate: WALK_FPS, repeat: -1 });
     }
+    // Golpe: a fita inteira uma vez, durante a janela em que o personagem olha para o golpe.
+    for (const { key } of ATTACK_URLS) {
+      if (this.anims.exists(key)) continue;
+      const frames = this.anims.generateFrameNumbers(key, {});
+      this.anims.create({ key, frames, frameRate: (frames.length * 1000) / ATTACK_FACING_MS, repeat: 0 });
+    }
   }
 
   // Cria, move e tira os personagens conforme o estado. Direção e andar/parar são só visuais: saem de quanto
@@ -910,14 +964,14 @@ Subiu para o nível ${info.level}!` : "";
         }
         avatar.lastHp = player.hp;
       }
-      this.animateAvatar(avatar, player.classId, time - avatar.lastMoveAt < WALK_LINGER_MS);
+      this.animateAvatar(avatar, player.classId, time - avatar.lastMoveAt < WALK_LINGER_MS, time - avatar.swingAt < ATTACK_FACING_MS);
       const recoil = recoilOffset(avatar.reaction, time);
       const lunge = lungeOffset(avatar.swingAt, avatar.swingAngle, time);
       const bodyX = player.x + recoil.x + lunge.x;
       const bodyY = feet + recoil.y + lunge.y;
       avatar.body.setPosition(bodyX, bodyY).setDepth(sortDepth(feet)).setScale(lunge.sx, lunge.sy);
       applyFlash(avatar.body, avatar.reaction, time, isSelf ? SELF_FLASH_COLOR : HIT_FLASH_COLOR);
-      this.poseWeapon(avatar, bodyX, bodyY - PLAYER_SIZE / 2, sortDepth(feet), time);
+      this.poseWeapon(avatar, player.classId, sortDepth(feet), time);
       avatar.shadow.setPosition(player.x, feet - 1).setScale(stepSquash(avatar.body));
       avatar.label.setPosition(player.x, feet - AVATAR_HEIGHT - HP_BAR_GAP - HP_BAR_HEIGHT - 2);
     });
@@ -927,29 +981,103 @@ Subiu para o nível ${info.level}!` : "";
       avatar.shadow.destroy();
       avatar.label.destroy();
       avatar.weapon.destroy();
+      avatar.grip.destroy();
       this.avatars.delete(sessionId);
     }
   }
 
-  // Espada no golpe: no peito, um pouco à frente, girando do começo ao fim da varrida (weaponPose). Golpe para o
-  // norte fica atrás do corpo; os outros, na frente. (x, y) é o centro da caixa do jogador, já com o impulso.
-  private poseWeapon(avatar: Avatar, x: number, y: number, bodyDepth: number, time: number) {
+  // Espada sempre na mão: o punho no socket do quadro que o sprite mostra agora (o sprite já com impulso, recuo e
+  // compressão). Parado ou andando, em guarda (WEAPON_GUARD_DEGREES, respirando); no golpe, o braço estica até
+  // WEAPON_ARM_EXTEND e a lâmina varre o arco (weaponPose). Atrás do corpo quando a mão está atrás; na frente, com o
+  // punho do sprite redesenhado por cima do cabo (poseGrip), para a mão parecer fechada nele.
+  private poseWeapon(avatar: Avatar, classId: string | undefined, bodyDepth: number, time: number) {
+    const socket = this.handSocket(avatar, classId);
+    const body = avatar.body;
+    let x = body.x + socket.dx * body.scaleX;
+    let y = body.y + socket.dy * body.scaleY;
     const pose = weaponPose(avatar.swingAt, avatar.swingAngle, time);
-    avatar.weapon.setVisible(pose.visible);
-    if (!pose.visible) return;
-    const forward = { x: Math.cos(avatar.swingAngle), y: Math.sin(avatar.swingAngle) };
-    const behind = forward.y < WEAPON_BEHIND_SIN;
+    const guard = WEAPON_GUARD_BY_CLASS[classId ?? ""]?.[avatar.facing] ?? WEAPON_GUARD_DEGREES[avatar.facing] ?? -90;
+    let angle = (guard * Math.PI) / 180 + this.guardSway(avatar, time);
+    let scale = 1;
+    if (pose.visible) {
+      const reach = WEAPON_ARM_EXTEND * Math.sin(Math.PI * pose.p);
+      x += Math.cos(avatar.swingAngle) * reach;
+      y += Math.sin(avatar.swingAngle) * reach;
+      angle = pose.angle;
+      scale = pose.scale;
+    }
     avatar.weapon
-      .setPosition(x + forward.x * WEAPON_FORWARD, y - WEAPON_CHEST_Y + forward.y * WEAPON_FORWARD)
-      .setRotation(pose.angle)
-      .setScale(pose.scale)
-      .setDepth(bodyDepth + (behind ? -0.1 : 0.1));
+      .setVisible(true)
+      .setPosition(x, y)
+      .setRotation(angle)
+      .setScale(scale)
+      .setDepth(bodyDepth + (socket.behindBody ? -0.05 : 0.05));
+    this.poseGrip(avatar, socket, bodyDepth);
   }
 
+  // O punho por cima do cabo: cópia do sprite no mesmo quadro, lugar, escala e cor, recortada num quadrado em volta
+  // da mão (coordenadas do quadro: pés em largura/2 e altura * origem y).
+  private poseGrip(avatar: Avatar, socket: HandSocket, bodyDepth: number) {
+    const { body, grip } = avatar;
+    grip.setVisible(!socket.behindBody);
+    if (socket.behindBody) return;
+    const frame = body.frame;
+    const outward = Math.sign(socket.dx) * GRIP_OUTWARD;
+    const cx = frame.width / 2 + socket.dx + outward;
+    const cy = frame.height * body.originY + socket.dy;
+    const half = Math.floor(GRIP_SIZE / 2);
+    grip
+      .setTexture(body.texture.key, frame.name)
+      .setOrigin(body.originX, body.originY)
+      .setPosition(body.x, body.y)
+      .setScale(body.scaleX, body.scaleY)
+      .setCrop(cx - half, cy - half, GRIP_SIZE, GRIP_SIZE)
+      .setDepth(bodyDepth + 0.1);
+    if (body.isTinted) grip.setTintFill(body.tintTopLeft);
+    else if (grip.isTinted) grip.clearTint();
+  }
+
+  // Balanço da guarda: andando, uma volta do seno por volta da fita de caminhada; parado, o relógio.
+  private guardSway(avatar: Avatar, time: number): number {
+    const anims = avatar.body.anims;
+    if (anims.isPlaying && avatar.body.texture.key.includes("/walk-")) {
+      return WEAPON_WALK_SWAY * Math.sin(2 * Math.PI * anims.getProgress());
+    }
+    return WEAPON_IDLE_SWAY * Math.sin((2 * Math.PI * time) / WEAPON_IDLE_SWAY_MS);
+  }
+
+  // O socket da mão no quadro que o sprite mostra: animação e direção pela textura ("characters/<classe>/walk-east"),
+  // quadro pela animação tocando. Sem dado (classe nova), a mão do parado de frente.
+  private handSocket(avatar: Avatar, classId: string | undefined): HandSocket {
+    const key = avatar.body.texture.key;
+    const name = key.slice(key.lastIndexOf("/") + 1);
+    const [animation, direction] = name.startsWith("walk-")
+      ? ["walk", name.slice("walk-".length)]
+      : name.startsWith("attack-")
+        ? ["attack", name.slice("attack-".length)]
+        : ["idle", name];
+    const frame = animation === "idle" ? 0 : (avatar.body.anims.currentFrame?.index ?? 1) - 1;
+    const sockets = HAND_SOCKETS[classId ?? ""] ?? HAND_SOCKETS.mago;
+    const frames = sockets?.[animation]?.[direction];
+    const tracked = frames?.[Math.min(frame, frames.length - 1)];
+    if (tracked) return tracked;
+    const idle = sockets?.idle?.[direction]?.[0] ?? sockets?.idle?.south?.[0] ?? { dx: 0, dy: -20, behindBody: false };
+    if (animation !== "walk") return idle;
+    const bob = WALK_HAND_BOB[frame % WALK_HAND_BOB.length] ?? { x: 0, y: 0 };
+    const flip = direction.includes("west") ? -1 : 1;
+    return { dx: idle.dx + bob.x * flip, dy: idle.dy + bob.y, behindBody: idle.behindBody };
+  }
+
+  // Golpe (se a classe tiver a fita attack-<direção>): toca o golpe uma vez.
   // Andando: toca a caminhada da direção (trocar de direção no meio do passo continua do mesmo quadro).
   // Parado: sprite parado da última direção.
-  private animateAvatar(avatar: Avatar, classId: string | undefined, walking: boolean) {
+  private animateAvatar(avatar: Avatar, classId: string | undefined, walking: boolean, attacking: boolean) {
     const body = avatar.body;
+    const attack = characterKey(classId, `attack-${avatar.facing}`);
+    if (attacking && this.anims.exists(attack)) {
+      if (body.anims.currentAnim?.key !== attack) body.setOrigin(0.5, WALK_FEET).play(attack);
+      return;
+    }
     if (walking) {
       const key = characterKey(classId, avatar.facing, true);
       if (body.anims.currentAnim?.key === key && body.anims.isPlaying) return;
@@ -981,6 +1109,7 @@ Subiu para o nível ${info.level}!` : "";
     if (isSelf) this.cameras.main.startFollow(body, true);
     const reaction = newReaction();
     const weapon = this.add.image(player.x, feet, WEAPON_KEY).setOrigin(WEAPON_ORIGIN.x, WEAPON_ORIGIN.y).setVisible(false);
+    const grip = this.add.image(player.x, feet, body.texture.key).setVisible(false);
     return {
       body,
       shadow,
@@ -991,6 +1120,7 @@ Subiu para o nível ${info.level}!` : "";
       lastMoveAt: -Infinity,
       reaction,
       weapon,
+      grip,
       swingAt: -Infinity,
       swingAngle: 0,
     };

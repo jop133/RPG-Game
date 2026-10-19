@@ -107,6 +107,16 @@ Os GIFs de caminhada (`walk/<direção>.gif`, 6 quadros de 96x96) viram fitas ho
 `assets/characters/<classe>/walk-<direção>.png`, sem reamostrar. Se faltar uma direção, o script espelha o lado
 leste (para oeste) ou usa a cardinal mais próxima (para diagonal), e avisa.
 
+Por fim grava `assets/characters/hand_sockets.json`: a mão que segura a arma em cada quadro, por classe, animação
+(`idle`, `walk` e `attack` quando houver `attack-<direção>.png`) e direção, como `{dx, dy, behindBody}` em px a partir
+dos pés do sprite. A mão é sempre a direita do personagem; a do parado é a tabela `HAND_IDLE`, marcada no punho da arte;
+nos quadros das fitas, o punho do parado (9x9 px) é procurado a até 8 px do mesmo lugar. Só os sockets, sem
+reprocessar o resto:
+
+```bash
+tools/assets/.venv/Scripts/python.exe -I tools/assets/process_ui.py --sockets
+```
+
 > **Licença do Paper UI:** pode usar e modificar em jogos; **não pode redistribuir** o pacote, nem modificado.
 > Enquanto `assets/tilesets/interface/` e `assets/ui/` estiverem no repositório, ele não pode ser público.
 
@@ -178,5 +188,6 @@ tools/assets/.venv/Scripts/python.exe -I tools/assets/weapons.py
 ```
 
 Desenha as armas em pixel art em `assets/weapons/<arma>.png` (48x48, fundo transparente, na horizontal apontando para
-a direita, cabo em x 6-14 e ponta em x 44, y 24). O cliente gira a arma no golpe em volta do cabo (origem 0,15 x 0,5).
+a direita, cabo em x 6-14 e ponta em x 44, y 24). O cliente prende o punho à mão do personagem (origem 0,18 x 0,5, no ponto de `hand_sockets.json`) e gira a
+arma em volta dele.
 

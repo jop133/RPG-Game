@@ -1,0 +1,1274 @@
+{
+ "barbaro": {
+  "idle": {
+   "south": [
+    {
+     "dx": -19,
+     "dy": -19,
+     "behindBody": false
+    }
+   ],
+   "south-east": [
+    {
+     "dx": -14,
+     "dy": -16,
+     "behindBody": false
+    }
+   ],
+   "east": [
+    {
+     "dx": -5,
+     "dy": -16,
+     "behindBody": false
+    }
+   ],
+   "north-east": [
+    {
+     "dx": 15,
+     "dy": -16,
+     "behindBody": false
+    }
+   ],
+   "north": [
+    {
+     "dx": 18,
+     "dy": -18,
+     "behindBody": true
+    }
+   ],
+   "north-west": [
+    {
+     "dx": 15,
+     "dy": -20,
+     "behindBody": true
+    }
+   ],
+   "west": [
+    {
+     "dx": -8,
+     "dy": -21,
+     "behindBody": true
+    }
+   ],
+   "south-west": [
+    {
+     "dx": -19,
+     "dy": -21,
+     "behindBody": false
+    }
+   ]
+  },
+  "walk": {
+   "south": [
+    {
+     "dx": -15,
+     "dy": -18,
+     "behindBody": false
+    },
+    {
+     "dx": -15,
+     "dy": -17,
+     "behindBody": false
+    },
+    {
+     "dx": -14,
+     "dy": -17,
+     "behindBody": false
+    },
+    {
+     "dx": -15,
+     "dy": -19,
+     "behindBody": false
+    },
+    {
+     "dx": -15,
+     "dy": -22,
+     "behindBody": false
+    },
+    {
+     "dx": -16,
+     "dy": -20,
+     "behindBody": false
+    }
+   ],
+   "south-east": [
+    {
+     "dx": -11,
+     "dy": -14,
+     "behindBody": false
+    },
+    {
+     "dx": -9,
+     "dy": -13,
+     "behindBody": false
+    },
+    {
+     "dx": -8,
+     "dy": -13,
+     "behindBody": false
+    },
+    {
+     "dx": -10,
+     "dy": -14,
+     "behindBody": false
+    },
+    {
+     "dx": -12,
+     "dy": -17,
+     "behindBody": false
+    },
+    {
+     "dx": -11,
+     "dy": -15,
+     "behindBody": false
+    }
+   ],
+   "east": [
+    {
+     "dx": 2,
+     "dy": -13,
+     "behindBody": false
+    },
+    {
+     "dx": 3,
+     "dy": -13,
+     "behindBody": false
+    },
+    {
+     "dx": 1,
+     "dy": -22,
+     "behindBody": false
+    },
+    {
+     "dx": 1,
+     "dy": -13,
+     "behindBody": false
+    },
+    {
+     "dx": -2,
+     "dy": -14,
+     "behindBody": false
+    },
+    {
+     "dx": -1,
+     "dy": -14,
+     "behindBody": false
+    }
+   ],
+   "north-east": [
+    {
+     "dx": 13,
+     "dy": -17,
+     "behindBody": false
+    },
+    {
+     "dx": 8,
+     "dy": -15,
+     "behindBody": false
+    },
+    {
+     "dx": 9,
+     "dy": -14,
+     "behindBody": false
+    },
+    {
+     "dx": 14,
+     "dy": -15,
+     "behindBody": false
+    },
+    {
+     "dx": 21,
+     "dy": -21,
+     "behindBody": false
+    },
+    {
+     "dx": 18,
+     "dy": -19,
+     "behindBody": false
+    }
+   ],
+   "north": [
+    {
+     "dx": 13,
+     "dy": -20,
+     "behindBody": true
+    },
+    {
+     "dx": 14,
+     "dy": -23,
+     "behindBody": true
+    },
+    {
+     "dx": 13,
+     "dy": -23,
+     "behindBody": true
+    },
+    {
+     "dx": 13,
+     "dy": -20,
+     "behindBody": true
+    },
+    {
+     "dx": 13,
+     "dy": -19,
+     "behindBody": true
+    },
+    {
+     "dx": 14,
+     "dy": -19,
+     "behindBody": true
+    }
+   ],
+   "north-west": [
+    {
+     "dx": 10,
+     "dy": -23,
+     "behindBody": true
+    },
+    {
+     "dx": 9,
+     "dy": -28,
+     "behindBody": true
+    },
+    {
+     "dx": 7,
+     "dy": -28,
+     "behindBody": true
+    },
+    {
+     "dx": 10,
+     "dy": -23,
+     "behindBody": true
+    },
+    {
+     "dx": 11,
+     "dy": -21,
+     "behindBody": true
+    },
+    {
+     "dx": 11,
+     "dy": -21,
+     "behindBody": true
+    }
+   ],
+   "west": [
+    {
+     "dx": -7,
+     "dy": -22,
+     "behindBody": true
+    },
+    {
+     "dx": -16,
+     "dy": -13,
+     "behindBody": true
+    },
+    {
+     "dx": -10,
+     "dy": -22,
+     "behindBody": true
+    },
+    {
+     "dx": -8,
+     "dy": -24,
+     "behindBody": true
+    },
+    {
+     "dx": -6,
+     "dy": -28,
+     "behindBody": true
+    },
+    {
+     "dx": -6,
+     "dy": -28,
+     "behindBody": true
+    }
+   ],
+   "south-west": [
+    {
+     "dx": -12,
+     "dy": -26,
+     "behindBody": false
+    },
+    {
+     "dx": -11,
+     "dy": -15,
+     "behindBody": false
+    },
+    {
+     "dx": -11,
+     "dy": -15,
+     "behindBody": false
+    },
+    {
+     "dx": -13,
+     "dy": -26,
+     "behindBody": false
+    },
+    {
+     "dx": -19,
+     "dy": -22,
+     "behindBody": false
+    },
+    {
+     "dx": -16,
+     "dy": -24,
+     "behindBody": false
+    }
+   ]
+  }
+ },
+ "elfo": {
+  "idle": {
+   "south": [
+    {
+     "dx": -15,
+     "dy": -19,
+     "behindBody": false
+    }
+   ],
+   "south-east": [
+    {
+     "dx": -9,
+     "dy": -16,
+     "behindBody": false
+    }
+   ],
+   "east": [
+    {
+     "dx": 1,
+     "dy": -15,
+     "behindBody": false
+    }
+   ],
+   "north-east": [
+    {
+     "dx": 13,
+     "dy": -17,
+     "behindBody": false
+    }
+   ],
+   "north": [
+    {
+     "dx": 14,
+     "dy": -18,
+     "behindBody": true
+    }
+   ],
+   "north-west": [
+    {
+     "dx": 12,
+     "dy": -18,
+     "behindBody": true
+    }
+   ],
+   "west": [
+    {
+     "dx": -9,
+     "dy": -19,
+     "behindBody": true
+    }
+   ],
+   "south-west": [
+    {
+     "dx": -13,
+     "dy": -18,
+     "behindBody": false
+    }
+   ]
+  },
+  "walk": {
+   "south": [
+    {
+     "dx": -13,
+     "dy": -20,
+     "behindBody": false
+    },
+    {
+     "dx": -12,
+     "dy": -19,
+     "behindBody": false
+    },
+    {
+     "dx": -12,
+     "dy": -19,
+     "behindBody": false
+    },
+    {
+     "dx": -13,
+     "dy": -20,
+     "behindBody": false
+    },
+    {
+     "dx": -13,
+     "dy": -21,
+     "behindBody": false
+    },
+    {
+     "dx": -13,
+     "dy": -20,
+     "behindBody": false
+    }
+   ],
+   "south-east": [
+    {
+     "dx": -6,
+     "dy": -17,
+     "behindBody": false
+    },
+    {
+     "dx": -12,
+     "dy": -20,
+     "behindBody": false
+    },
+    {
+     "dx": -11,
+     "dy": -20,
+     "behindBody": false
+    },
+    {
+     "dx": -6,
+     "dy": -17,
+     "behindBody": false
+    },
+    {
+     "dx": -7,
+     "dy": -17,
+     "behindBody": false
+    },
+    {
+     "dx": -6,
+     "dy": -17,
+     "behindBody": false
+    }
+   ],
+   "east": [
+    {
+     "dx": 2,
+     "dy": -15,
+     "behindBody": false
+    },
+    {
+     "dx": -3,
+     "dy": -16,
+     "behindBody": false
+    },
+    {
+     "dx": -1,
+     "dy": -17,
+     "behindBody": false
+    },
+    {
+     "dx": 5,
+     "dy": -16,
+     "behindBody": false
+    },
+    {
+     "dx": 2,
+     "dy": -23,
+     "behindBody": false
+    },
+    {
+     "dx": 5,
+     "dy": -16,
+     "behindBody": false
+    }
+   ],
+   "north-east": [
+    {
+     "dx": 11,
+     "dy": -17,
+     "behindBody": false
+    },
+    {
+     "dx": 15,
+     "dy": -10,
+     "behindBody": false
+    },
+    {
+     "dx": 12,
+     "dy": -10,
+     "behindBody": false
+    },
+    {
+     "dx": 12,
+     "dy": -17,
+     "behindBody": false
+    },
+    {
+     "dx": 7,
+     "dy": -13,
+     "behindBody": false
+    },
+    {
+     "dx": 15,
+     "dy": -20,
+     "behindBody": false
+    }
+   ],
+   "north": [
+    {
+     "dx": 8,
+     "dy": -18,
+     "behindBody": true
+    },
+    {
+     "dx": 8,
+     "dy": -18,
+     "behindBody": true
+    },
+    {
+     "dx": 12,
+     "dy": -19,
+     "behindBody": true
+    },
+    {
+     "dx": 14,
+     "dy": -19,
+     "behindBody": true
+    },
+    {
+     "dx": 12,
+     "dy": -20,
+     "behindBody": true
+    },
+    {
+     "dx": 10,
+     "dy": -18,
+     "behindBody": true
+    }
+   ],
+   "north-west": [
+    {
+     "dx": 11,
+     "dy": -20,
+     "behindBody": true
+    },
+    {
+     "dx": 13,
+     "dy": -21,
+     "behindBody": true
+    },
+    {
+     "dx": 9,
+     "dy": -20,
+     "behindBody": true
+    },
+    {
+     "dx": 11,
+     "dy": -19,
+     "behindBody": true
+    },
+    {
+     "dx": 9,
+     "dy": -20,
+     "behindBody": true
+    },
+    {
+     "dx": 11,
+     "dy": -19,
+     "behindBody": true
+    }
+   ],
+   "west": [
+    {
+     "dx": -8,
+     "dy": -20,
+     "behindBody": true
+    },
+    {
+     "dx": -8,
+     "dy": -27,
+     "behindBody": true
+    },
+    {
+     "dx": -11,
+     "dy": -19,
+     "behindBody": true
+    },
+    {
+     "dx": -8,
+     "dy": -25,
+     "behindBody": true
+    },
+    {
+     "dx": -8,
+     "dy": -23,
+     "behindBody": true
+    },
+    {
+     "dx": -8,
+     "dy": -26,
+     "behindBody": true
+    }
+   ],
+   "south-west": [
+    {
+     "dx": -7,
+     "dy": -14,
+     "behindBody": false
+    },
+    {
+     "dx": -12,
+     "dy": -23,
+     "behindBody": false
+    },
+    {
+     "dx": -8,
+     "dy": -13,
+     "behindBody": false
+    },
+    {
+     "dx": -12,
+     "dy": -19,
+     "behindBody": false
+    },
+    {
+     "dx": -6,
+     "dy": -21,
+     "behindBody": false
+    },
+    {
+     "dx": -14,
+     "dy": -20,
+     "behindBody": false
+    }
+   ]
+  }
+ },
+ "homem_fera": {
+  "idle": {
+   "south": [
+    {
+     "dx": -17,
+     "dy": -19,
+     "behindBody": false
+    }
+   ],
+   "south-east": [
+    {
+     "dx": -12,
+     "dy": -15,
+     "behindBody": false
+    }
+   ],
+   "east": [
+    {
+     "dx": -4,
+     "dy": -16,
+     "behindBody": false
+    }
+   ],
+   "north-east": [
+    {
+     "dx": 12,
+     "dy": -18,
+     "behindBody": false
+    }
+   ],
+   "north": [
+    {
+     "dx": 14,
+     "dy": -19,
+     "behindBody": true
+    }
+   ],
+   "north-west": [
+    {
+     "dx": 7,
+     "dy": -19,
+     "behindBody": true
+    }
+   ],
+   "west": [
+    {
+     "dx": -8,
+     "dy": -19,
+     "behindBody": true
+    }
+   ],
+   "south-west": [
+    {
+     "dx": -16,
+     "dy": -23,
+     "behindBody": false
+    }
+   ]
+  },
+  "walk": {
+   "south": [
+    {
+     "dx": -14,
+     "dy": -20,
+     "behindBody": false
+    },
+    {
+     "dx": -13,
+     "dy": -18,
+     "behindBody": false
+    },
+    {
+     "dx": -13,
+     "dy": -18,
+     "behindBody": false
+    },
+    {
+     "dx": -14,
+     "dy": -20,
+     "behindBody": false
+    },
+    {
+     "dx": -12,
+     "dy": -22,
+     "behindBody": false
+    },
+    {
+     "dx": -14,
+     "dy": -21,
+     "behindBody": false
+    }
+   ],
+   "south-east": [
+    {
+     "dx": -10,
+     "dy": -15,
+     "behindBody": false
+    },
+    {
+     "dx": -10,
+     "dy": -22,
+     "behindBody": false
+    },
+    {
+     "dx": -9,
+     "dy": -23,
+     "behindBody": false
+    },
+    {
+     "dx": -10,
+     "dy": -15,
+     "behindBody": false
+    },
+    {
+     "dx": -11,
+     "dy": -16,
+     "behindBody": false
+    },
+    {
+     "dx": -11,
+     "dy": -16,
+     "behindBody": false
+    }
+   ],
+   "east": [
+    {
+     "dx": 2,
+     "dy": -16,
+     "behindBody": false
+    },
+    {
+     "dx": 4,
+     "dy": -16,
+     "behindBody": false
+    },
+    {
+     "dx": 2,
+     "dy": -24,
+     "behindBody": false
+    },
+    {
+     "dx": 2,
+     "dy": -17,
+     "behindBody": false
+    },
+    {
+     "dx": -1,
+     "dy": -17,
+     "behindBody": false
+    },
+    {
+     "dx": -2,
+     "dy": -24,
+     "behindBody": false
+    }
+   ],
+   "north-east": [
+    {
+     "dx": 12,
+     "dy": -19,
+     "behindBody": false
+    },
+    {
+     "dx": 8,
+     "dy": -25,
+     "behindBody": false
+    },
+    {
+     "dx": 8,
+     "dy": -17,
+     "behindBody": false
+    },
+    {
+     "dx": 13,
+     "dy": -19,
+     "behindBody": false
+    },
+    {
+     "dx": 17,
+     "dy": -25,
+     "behindBody": false
+    },
+    {
+     "dx": 15,
+     "dy": -21,
+     "behindBody": false
+    }
+   ],
+   "north": [
+    {
+     "dx": 12,
+     "dy": -21,
+     "behindBody": true
+    },
+    {
+     "dx": 13,
+     "dy": -23,
+     "behindBody": true
+    },
+    {
+     "dx": 12,
+     "dy": -24,
+     "behindBody": true
+    },
+    {
+     "dx": 12,
+     "dy": -20,
+     "behindBody": true
+    },
+    {
+     "dx": 12,
+     "dy": -18,
+     "behindBody": true
+    },
+    {
+     "dx": 13,
+     "dy": -20,
+     "behindBody": true
+    }
+   ],
+   "north-west": [
+    {
+     "dx": 7,
+     "dy": -20,
+     "behindBody": true
+    },
+    {
+     "dx": 9,
+     "dy": -21,
+     "behindBody": true
+    },
+    {
+     "dx": 10,
+     "dy": -20,
+     "behindBody": true
+    },
+    {
+     "dx": 7,
+     "dy": -19,
+     "behindBody": true
+    },
+    {
+     "dx": 2,
+     "dy": -21,
+     "behindBody": true
+    },
+    {
+     "dx": 5,
+     "dy": -20,
+     "behindBody": true
+    }
+   ],
+   "west": [
+    {
+     "dx": -10,
+     "dy": -20,
+     "behindBody": true
+    },
+    {
+     "dx": -12,
+     "dy": -21,
+     "behindBody": true
+    },
+    {
+     "dx": -10,
+     "dy": -25,
+     "behindBody": true
+    },
+    {
+     "dx": -9,
+     "dy": -26,
+     "behindBody": true
+    },
+    {
+     "dx": -13,
+     "dy": -14,
+     "behindBody": true
+    },
+    {
+     "dx": -9,
+     "dy": -16,
+     "behindBody": true
+    }
+   ],
+   "south-west": [
+    {
+     "dx": -12,
+     "dy": -26,
+     "behindBody": false
+    },
+    {
+     "dx": -8,
+     "dy": -28,
+     "behindBody": false
+    },
+    {
+     "dx": -8,
+     "dy": -28,
+     "behindBody": false
+    },
+    {
+     "dx": -13,
+     "dy": -25,
+     "behindBody": false
+    },
+    {
+     "dx": -17,
+     "dy": -23,
+     "behindBody": false
+    },
+    {
+     "dx": -15,
+     "dy": -24,
+     "behindBody": false
+    }
+   ]
+  }
+ },
+ "mago": {
+  "idle": {
+   "south": [
+    {
+     "dx": -18,
+     "dy": -21,
+     "behindBody": false
+    }
+   ],
+   "south-east": [
+    {
+     "dx": -12,
+     "dy": -19,
+     "behindBody": false
+    }
+   ],
+   "east": [
+    {
+     "dx": 1,
+     "dy": -18,
+     "behindBody": false
+    }
+   ],
+   "north-east": [
+    {
+     "dx": 13,
+     "dy": -20,
+     "behindBody": false
+    }
+   ],
+   "north": [
+    {
+     "dx": 18,
+     "dy": -22,
+     "behindBody": true
+    }
+   ],
+   "north-west": [
+    {
+     "dx": 8,
+     "dy": -19,
+     "behindBody": true
+    }
+   ],
+   "west": [
+    {
+     "dx": -7,
+     "dy": -19,
+     "behindBody": true
+    }
+   ],
+   "south-west": [
+    {
+     "dx": -16,
+     "dy": -23,
+     "behindBody": false
+    }
+   ]
+  },
+  "walk": {
+   "south": [
+    {
+     "dx": -14,
+     "dy": -18,
+     "behindBody": false
+    },
+    {
+     "dx": -14,
+     "dy": -16,
+     "behindBody": false
+    },
+    {
+     "dx": -13,
+     "dy": -15,
+     "behindBody": false
+    },
+    {
+     "dx": -14,
+     "dy": -19,
+     "behindBody": false
+    },
+    {
+     "dx": -13,
+     "dy": -20,
+     "behindBody": false
+    },
+    {
+     "dx": -13,
+     "dy": -18,
+     "behindBody": false
+    }
+   ],
+   "south-east": [
+    {
+     "dx": -8,
+     "dy": -16,
+     "behindBody": false
+    },
+    {
+     "dx": -6,
+     "dy": -22,
+     "behindBody": false
+    },
+    {
+     "dx": -5,
+     "dy": -22,
+     "behindBody": false
+    },
+    {
+     "dx": -8,
+     "dy": -16,
+     "behindBody": false
+    },
+    {
+     "dx": -8,
+     "dy": -17,
+     "behindBody": false
+    },
+    {
+     "dx": -8,
+     "dy": -17,
+     "behindBody": false
+    }
+   ],
+   "east": [
+    {
+     "dx": 3,
+     "dy": -19,
+     "behindBody": false
+    },
+    {
+     "dx": 3,
+     "dy": -19,
+     "behindBody": false
+    },
+    {
+     "dx": 4,
+     "dy": -19,
+     "behindBody": false
+    },
+    {
+     "dx": 3,
+     "dy": -19,
+     "behindBody": false
+    },
+    {
+     "dx": 1,
+     "dy": -19,
+     "behindBody": false
+    },
+    {
+     "dx": 2,
+     "dy": -19,
+     "behindBody": false
+    }
+   ],
+   "north-east": [
+    {
+     "dx": 11,
+     "dy": -19,
+     "behindBody": false
+    },
+    {
+     "dx": 11,
+     "dy": -20,
+     "behindBody": false
+    },
+    {
+     "dx": 11,
+     "dy": -21,
+     "behindBody": false
+    },
+    {
+     "dx": 10,
+     "dy": -20,
+     "behindBody": false
+    },
+    {
+     "dx": 8,
+     "dy": -19,
+     "behindBody": false
+    },
+    {
+     "dx": 11,
+     "dy": -18,
+     "behindBody": false
+    }
+   ],
+   "north": [
+    {
+     "dx": 15,
+     "dy": -21,
+     "behindBody": true
+    },
+    {
+     "dx": 13,
+     "dy": -24,
+     "behindBody": true
+    },
+    {
+     "dx": 12,
+     "dy": -24,
+     "behindBody": true
+    },
+    {
+     "dx": 14,
+     "dy": -23,
+     "behindBody": true
+    },
+    {
+     "dx": 12,
+     "dy": -19,
+     "behindBody": true
+    },
+    {
+     "dx": 13,
+     "dy": -20,
+     "behindBody": true
+    }
+   ],
+   "north-west": [
+    {
+     "dx": 8,
+     "dy": -23,
+     "behindBody": true
+    },
+    {
+     "dx": 8,
+     "dy": -22,
+     "behindBody": true
+    },
+    {
+     "dx": 8,
+     "dy": -22,
+     "behindBody": true
+    },
+    {
+     "dx": 8,
+     "dy": -23,
+     "behindBody": true
+    },
+    {
+     "dx": 8,
+     "dy": -12,
+     "behindBody": true
+    },
+    {
+     "dx": 7,
+     "dy": -26,
+     "behindBody": true
+    }
+   ],
+   "west": [
+    {
+     "dx": -8,
+     "dy": -20,
+     "behindBody": true
+    },
+    {
+     "dx": -8,
+     "dy": -20,
+     "behindBody": true
+    },
+    {
+     "dx": -9,
+     "dy": -20,
+     "behindBody": true
+    },
+    {
+     "dx": -8,
+     "dy": -20,
+     "behindBody": true
+    },
+    {
+     "dx": -9,
+     "dy": -22,
+     "behindBody": true
+    },
+    {
+     "dx": -7,
+     "dy": -20,
+     "behindBody": true
+    }
+   ],
+   "south-west": [
+    {
+     "dx": -9,
+     "dy": -15,
+     "behindBody": false
+    },
+    {
+     "dx": -12,
+     "dy": -22,
+     "behindBody": false
+    },
+    {
+     "dx": -12,
+     "dy": -31,
+     "behindBody": false
+    },
+    {
+     "dx": -12,
+     "dy": -23,
+     "behindBody": false
+    },
+    {
+     "dx": -14,
+     "dy": -23,
+     "behindBody": false
+    },
+    {
+     "dx": -13,
+     "dy": -23,
+     "behindBody": false
+    }
+   ]
+  }
+ }
+}

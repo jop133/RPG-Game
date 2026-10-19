@@ -241,12 +241,12 @@ function drawClaws(g: Phaser.GameObjects.Graphics, s: Swing, radius: number, fad
 // devagar no fim (cubic ease-out), com um "pop" de escala no meio. O arco de acerto de verdade é o do servidor
 // (PLAYER_ATTACK.arcDegrees); a varrida é só desenho.
 export const WEAPON_SWING_MS = 160;
-const WEAPON_SWEEP = (65 * Math.PI) / 180;
+const WEAPON_SWEEP = (55 * Math.PI) / 180;
 const WEAPON_POP = 0.15;
 // Por quanto tempo o personagem olha para o golpe, mesmo andando para outro lado.
 export const ATTACK_FACING_MS = 180;
 // Impulso do corpo: vai LUNGE_PX para a frente em LUNGE_OUT_MS, com uma compressão elástica, e volta em LUNGE_BACK_MS.
-const LUNGE_PX = 7;
+const LUNGE_PX = 4;
 const LUNGE_OUT_MS = 55;
 const LUNGE_BACK_MS = 125;
 const LUNGE_SQUASH = { x: 0.07, y: -0.06 };

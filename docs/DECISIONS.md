@@ -1104,3 +1104,21 @@ Slot vazio usa a moldura comum.
 
 **Limite:** todo personagem mostra a Espada de Ferro, porque é a arma de todos até a maestria de armas (passo 8).
 
+
+---
+
+## 2026-10 — A espada fica na mão: ponto da mão por quadro (hand sockets)
+
+**Pedido do dono do projeto:** a espada aparecia só no golpe, solta no peito. Ela deve sair da mão de cada personagem e acompanhar a mão quadro a quadro, parado, andando e (no futuro) nas folhas de ataque.
+
+**Muda** a decisão anterior da animação de ataque: a espada agora fica sempre visível na mão (em repouso fora do golpe), o cabo preso ao socket da mão, e a varrida passou de 130° para 110° (- 55° a + 55°). O resto (só desenho, acerto no arco do servidor, curvas em `juice.ts`) continua igual.
+
+**Como:** `hand_sockets.json` gerado pelo pipeline (`process_ui.py`), não calculado no cliente: classe → animação → direção → um `{dx, dy, behindBody}` por quadro, a partir dos pés. Os parados são marcados à mão (`HAND_IDLE`): a detecção automática pegava braçadeira e capa, e o mesmo molde não acha o punho entre direções diferentes. Nos quadros das fitas o punho do parado é rastreado por casamento de molde perto do mesmo lugar (a mão anda poucos px entre quadros). Uma fita `attack-<direção>.png` nova entra sozinha: o script gera os sockets dela e o cliente toca a fita no golpe.
+
+**Qual mão:** sempre a direita do personagem, escolha do dono do projeto. Olhando para south, south-west e south-east ela fica à esquerda da tela; para north, north-east e north-west, à direita; para east é a mão de perto, para west a de longe. Em north, north-west e west ela fica atrás do corpo (`behindBody`). Os pontos foram marcados no punho direito da arte. A tabela de pontos que veio no pedido foi usada como referência, não à risca: em várias direções ela caía na coxa ou no manto (o mago todo de 4 a 7 px abaixo das mãos). Onde a arte esconde a mão (mago e homem-fera em north-west e west), o ponto fica na borda do corpo, do lado dela.
+
+**Guarda:** fora do golpe a lâmina fica levemente para cima e para a frente de onde o personagem olha (`WEAPON_GUARD_DEGREES`), respirando ±3° parado e ±8° andando (uma volta do seno por volta da fita). Em north-west ela sobe quase reta, para não sumir atrás do tronco. Em south e south-east ela cruza a frente do tronco na diagonal (-35°, a pedido do dono do projeto). O mago tem guarda própria: em south a espada sobe ao lado do corpo (-115°); em south-east cruza a cintura, mais deitada (-30°) (`WEAPON_GUARD_BY_CLASS`).
+
+**Mão fechada no cabo:** com a mão na frente do corpo, a espada fica na frente do tronco (a lâmina cruza tronco e pernas) e um recorte de 9x9 px do próprio sprite, só o punho direito (2 px para fora do corpo), é redesenhado por cima dela, no mesmo quadro, lugar, escala e cor do corpo. Assim a mão cobre o cabo sem o tronco cobrir a lâmina. Com a mão atrás (N, NW, W), o recorte some e a espada vai para trás do corpo. O centro do recorte vem da origem do sprite (pés em altura x origem y), que vale para o parado (64x64) e para os quadros de caminhada (96x96), onde os pés não ficam a 3 px da base. Golpe: varrida de ± 55°, braço esticando até 3 px no pico, impulso do corpo de 4 px.
+
+**Não seguido do pedido, com o motivo:** (1) a `espada_ferro.png` é horizontal (punho em x 5-11, y 23-28), não diagonal, então a origem fica em (0,18; 0,5) e o ângulo-base é 0, sem a compensação de -45°; (2) a caminhada continua rastreada quadro a quadro na arte, e a tabela genérica `WALK_HAND_BOB` fica só de reserva para classe sem dado; (3) os dados ficam no cliente (`hand_sockets.json`), não em `shared/`, por serem só desenho (regra 2). Os três por escolha do dono do projeto.

@@ -6,17 +6,21 @@ Saída:   assets/ui/          peças da interface recoloridas para dark fantasy 
                              e tiras de animação (carimbo, revelação do conteúdo)
          assets/characters/<classe>/<direção>.png        sprite parado (idle) de cada direção, 64x64
          assets/characters/<classe>/walk-<direção>.png   caminhada: fita horizontal de quadros 96x96 (dos GIFs de walk/)
+         assets/characters/hand_sockets.json             a mão que segura a arma, em cada quadro (ver hand_sockets)
 
 Licença do pacote Paper UI: pode usar e modificar em jogos; NÃO pode redistribuir o pacote (nem modificado).
 Por isso o repositório com estes arquivos não deve ser público.
 
 Uso (da raiz do projeto):
     tools/assets/.venv/Scripts/python.exe -I tools/assets/process_ui.py
+    tools/assets/.venv/Scripts/python.exe -I tools/assets/process_ui.py --sockets   (só o hand_sockets.json)
 """
 
 from __future__ import annotations
 
+import json
 import shutil
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -141,6 +145,83 @@ def wax(image: Image.Image) -> Image.Image:
     return Image.fromarray(np.concatenate([np.clip(crimson, 0, 255), rgba[:, :, 3:]], axis=2).astype(np.uint8), "RGBA")
 
 
+# ---------------------------------------------------------------- mão da arma (hand sockets)
+
+# Onde fica a mão DIREITA do personagem (a que segura a arma) no sprite parado de cada direção, em px a partir dos pés
+# (centro x 32, pés y 61 no sprite de 64x64), marcada no punho da arte. Olhando para south, south-west e south-east, ela
+# fica à esquerda da tela; para north, north-east e north-west, à direita; para east, é a mão de perto; para west, a
+# de longe. Em north, north-west e west ela fica atrás do corpo (behindBody). Onde a arte esconde a mão (mago e homem-fera
+# em north-west e west), o ponto fica na borda do corpo, do lado dela: o cabo some atrás do tronco e a lâmina aparece.
+HAND_IDLE: dict[str, dict[str, tuple[int, int]]] = {
+    "barbaro": {"south": (-19, -19), "south-west": (-19, -21), "west": (-8, -21), "north-west": (15, -20),
+                "north": (18, -18), "north-east": (15, -16), "east": (-5, -16), "south-east": (-14, -16)},
+    "elfo": {"south": (-15, -19), "south-west": (-13, -18), "west": (-9, -19), "north-west": (12, -18),
+             "north": (14, -18), "north-east": (13, -17), "east": (1, -15), "south-east": (-9, -16)},
+    "homem_fera": {"south": (-17, -19), "south-west": (-16, -23), "west": (-8, -19), "north-west": (7, -19),
+                   "north": (14, -19), "north-east": (12, -18), "east": (-4, -16), "south-east": (-12, -15)},
+    "mago": {"south": (-18, -21), "south-west": (-16, -23), "west": (-7, -19), "north-west": (8, -19),
+             "north": (18, -22), "north-east": (13, -20), "east": (1, -18), "south-east": (-12, -19)},
+}
+HAND_BEHIND = {"north", "north-west", "west"}
+IDLE_FRAME = (64, 32, 61)  # tamanho, centro x e pés y do sprite parado
+STRIP_FRAME = (96, 48, 78)  # o mesmo para cada quadro das fitas (caminhada; ataque, quando houver)
+HAND_PATCH = 4  # meia largura do molde do punho (9x9 px)
+HAND_SEARCH = 8  # quanto a mão pode andar em cada quadro em relação ao parado, em px
+
+
+def patch_score(frame: np.ndarray, template: np.ndarray, x: int, y: int) -> float:
+    """Diferença entre o molde do punho e o pedaço do quadro em (x, y): cor onde os dois têm pixel, mais forma."""
+    r = HAND_PATCH
+    p = frame[y - r : y + r + 1, x - r : x + r + 1]
+    if p.shape != template.shape:
+        return float("inf")
+    wa = (p[:, :, 3:] > 128).astype(float)
+    wt = (template[:, :, 3:] > 128).astype(float)
+    return float((((p[:, :, :3] - template[:, :, :3]) ** 2) * wa * wt).sum() + ((wa - wt) ** 2).sum() * 255**2 * 0.6)
+
+
+def track_hand(template: np.ndarray, frame: np.ndarray, start: tuple[int, int]) -> tuple[int, int]:
+    """O punho do molde no quadro: o lugar mais parecido a até HAND_SEARCH px da posição do parado."""
+    _, cx, feet = STRIP_FRAME
+    ex, ey = cx + start[0], feet + start[1]
+    best = min(((patch_score(frame, template, x, y), x, y) for y in range(ey - HAND_SEARCH, ey + HAND_SEARCH + 1)
+                for x in range(ex - HAND_SEARCH, ex + HAND_SEARCH + 1)))
+    return best[1] - cx, best[2] - feet
+
+
+def hand_sockets() -> dict:
+    """A mão da arma em cada quadro de cada classe, animação e direção: {dx, dy, behindBody}, a partir dos pés.
+    Parado: a tabela HAND_IDLE. Caminhada (e ataque, se a classe tiver attack-<direção>.png): o punho do parado como
+    molde, procurado em cada quadro da fita perto do mesmo lugar."""
+    out: dict = {}
+    r = HAND_PATCH
+    _, icx, ifeet = IDLE_FRAME
+    size = STRIP_FRAME[0]
+    for class_id, hands in HAND_IDLE.items():
+        folder = CHAR_OUT / class_id
+        sockets: dict = {"idle": {}, "walk": {}}
+        for direction in DIRECTIONS:
+            dx, dy = hands[direction]
+            behind = direction in HAND_BEHIND
+            sockets["idle"][direction] = [{"dx": dx, "dy": dy, "behindBody": behind}]
+            idle = np.asarray(Image.open(folder / f"{direction}.png").convert("RGBA")).astype(float)
+            template = idle[ifeet + dy - r : ifeet + dy + r + 1, icx + dx - r : icx + dx + r + 1]
+            for animation in ("walk", "attack"):
+                strip_path = folder / f"{animation}-{direction}.png"
+                if not strip_path.exists():
+                    continue
+                strip = np.asarray(Image.open(strip_path).convert("RGBA")).astype(float)
+                frames_ = [strip[:, i * size : (i + 1) * size] for i in range(strip.shape[1] // size)]
+                tracked = [track_hand(template, f, (dx, dy)) for f in frames_]
+                sockets.setdefault(animation, {})[direction] = [{"dx": x, "dy": y, "behindBody": behind} for x, y in tracked]
+        out[class_id] = sockets
+    path = CHAR_OUT / "hand_sockets.json"
+    path.write_text(json.dumps(out, indent=1) + "\n", encoding="utf-8")
+    counts = {c: {a: sum(len(v) for v in d.values()) for a, d in s_.items()} for c, s_ in out.items()}
+    print(f"{path.relative_to(ROOT)}: {counts}")
+    return out
+
+
 def frames(folder: Path, count: int) -> list[Image.Image]:
     return [Image.open(folder / f"{i}.png").convert("RGBA") for i in range(1, count + 1)]
 
@@ -169,7 +250,11 @@ def main() -> None:
                 print(f"aviso: {class_id} {direction}: {origin}")
         print(f"{class_id}: caminhada em 8 direções, {sheet.width // WALK_FRAME} quadros de {WALK_FRAME}x{WALK_FRAME}")
     print(f"{len(PIECES)} peças em {UI_OUT.relative_to(ROOT)}, {len(CLASS_FOLDERS)} classes em {CHAR_OUT.relative_to(ROOT)}")
+    hand_sockets()
 
 
 if __name__ == "__main__":
-    main()
+    if "--sockets" in sys.argv:
+        hand_sockets()
+    else:
+        main()
