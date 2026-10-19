@@ -68,7 +68,7 @@ import type { CharacterRecord } from "./db";
 import { applyGearAction, isEquippableSlot, type GearAction } from "./gear";
 import { loadLevel } from "./level";
 import { admit, release } from "./presence";
-import { ExitState, GameState, ItemSlotState, LootState, MobState, OWNER_TAG, PlayerState } from "./state";
+import { ExitState, GameState, ItemSlotState, LootState, MobState, OWNER_TAG, PlayerState, mirrorEquipment } from "./state";
 import { store } from "./store";
 import { updateVisibility } from "./views";
 
@@ -93,7 +93,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   private lastHurtMs = new Map<string, number>();
   // A verdade do inventário. PlayerState.inventory só espelha isto para o dono ver.
   private inventories = new Map<string, Inventory>();
-  // O que cada um tem equipado (a arma decide o golpe). PlayerState.weapon espelha a arma, para todos verem na mão.
+  // O que cada um tem equipado (a arma decide o golpe). PlayerState.equipment espelha, para todos verem a arma e a
+  // armadura.
   private equipment = new Map<string, Equipment>();
   // Conteúdo das pilhas no chão, por id. O cliente só recebe a posição (LootState).
   private lootPiles = new Map<string, ItemStack[]>();
@@ -146,7 +147,6 @@ export class GameRoom extends Room<{ state: GameState }> {
     const player = new PlayerState({
       name: record.name,
       classId: record.classId ?? "",
-      weapon: equipment.weapon ?? "",
       ...this.entryPoint(),
       hp: stats.maxHp,
       maxHp: stats.maxHp,
@@ -160,6 +160,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     });
     for (let i = 0; i < INVENTORY_SLOTS; i++) player.inventory.push(new ItemSlotState({ item: "", count: 0 }));
     for (const essence of essences) player.essences.push(essence);
+    mirrorEquipment(player.equipment, equipment);
     // O que o personagem trouxe da cidade (ou o kit inicial, se for novo).
     this.setInventory(client.sessionId, player, store.inventory(record.characterId));
     this.state.players.set(client.sessionId, player);
@@ -245,7 +246,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   }
 
   // Arrastar na mochila, equipar e desequipar, a qualquer momento da run. Nada vai para o banco aqui (só na extração).
-  // Trocar de arma muda o golpe na hora.
+  // Trocar de arma muda o golpe na hora; uma peça com Vida a mais sobe a vida atual junto (tirar, desce até a nova
+  // máxima), como as essências.
   private handleGear(sessionId: string, action: GearAction, message: unknown) {
     const player = this.state.players.get(sessionId);
     const inventory = this.inventories.get(sessionId);
@@ -256,8 +258,12 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (result.kind !== "changed") return;
     this.setInventory(sessionId, player, result.gear.inventory);
     this.equipment.set(sessionId, result.gear.equipment);
-    player.weapon = result.gear.equipment.weapon ?? "";
-    this.stats.set(sessionId, playerStats(this.essences.get(sessionId) ?? [], result.gear.equipment));
+    mirrorEquipment(player.equipment, result.gear.equipment);
+    const before = this.statsOf(sessionId);
+    const after = playerStats(this.essences.get(sessionId) ?? [], result.gear.equipment);
+    this.stats.set(sessionId, after);
+    player.maxHp = after.maxHp;
+    player.hp = Math.max(1, Math.min(after.maxHp, player.hp + (after.maxHp - before.maxHp)));
   }
 
   // O jogador escolhe o slot (tecla do número). O servidor confere o que há nele e aplica o efeito.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { BUY_PRICES, ITEMS, MAX_TRADE_COUNT, SELL_PRICES } from "./balance";
+import { BUY_PRICES, ITEMS, MAX_TRADE_COUNT, SELL_PRICES, FORGE_PRICES } from "./balance";
 import { addItems, countItem, emptyInventory, type Inventory, type ItemStack } from "./inventory";
-import { buyItems, parseTrade, sellItems } from "./shop";
+import { buyFromForge, buyItems, parseTrade, sellItems } from "./shop";
 
 const RACAO = BUY_PRICES.racao ?? 0;
 const PELE = SELL_PRICES.pele_de_lobo ?? 0;
@@ -87,5 +87,23 @@ describe("parseTrade", () => {
     ]) {
       expect(parseTrade(raw)).toBeUndefined();
     }
+  });
+});
+
+describe("buyFromForge", () => {
+  it("vende uma peça do catálogo pelo preço da Forja", () => {
+    const price = FORGE_PRICES.peitoral_ferro ?? 0;
+    const outcome = buyFromForge(bag([]), price + 5, "peitoral_ferro", 1);
+    expect(outcome).toMatchObject({ kind: "done", coins: 5 });
+    if (outcome.kind === "done") expect(outcome.inventory[0]).toEqual({ item: "peitoral_ferro", count: 1 });
+  });
+
+  it("a Forja não vende ração, e a Taverna não vende peitoral", () => {
+    expect(buyFromForge(bag([]), 999, "racao", 1)).toEqual({ kind: "notForSale" });
+    expect(buyItems(bag([]), 999, "peitoral_ferro", 1)).toEqual({ kind: "notForSale" });
+  });
+
+  it("sem moedas para a peça, nada muda", () => {
+    expect(buyFromForge(bag([]), (FORGE_PRICES.elmo_ferro ?? 0) - 1, "elmo_ferro", 1)).toEqual({ kind: "noCoins" });
   });
 });

@@ -1180,3 +1180,20 @@ Slot vazio usa a moldura comum.
 - `client/src/statusScroll.ts`: cada status com o valor, o bônus sobre a base em verde (o que vem de essências e equipamento; a base já inclui o golpe da arma, então a espada não aparece como bônus) e uma linha dizendo o que faz. Tinta escura sobre o papel (rótulo 15 px, valor 16 px, descrição 12 px), barra de rolagem marrom, e uma animação curta de desenrolar ao abrir.
 - A imagem do pergaminho é importada direto em `statusScroll.ts`, não pelo glob de arte de `hudParts.ts`: o Vite resolve um glob só ao subir e não vê arquivo novo em `assets/` (fora da pasta do cliente). Com o glob, num servidor de desenvolvimento que já estava rodando quando a arte foi gerada, o pergaminho ficava invisível (só o texto). Arte nova em glob pede reiniciar o `npm run dev`.
 - O pergaminho fica dentro da janela: ela alarga (996 → 1312 na tela-base) e continua centrada. Valores calculados pelas mesmas regras puras de `shared` (`playerStats`, `statsFrom`, `attackCooldownMs`): só desenho.
+
+---
+
+## 2026-10 — 8 slots de equipamento, conjunto de ferro na Forja e armadura vestida no personagem
+
+**Pedido do dono do projeto:** 8 slots (adicionando Calça e Amuleto), um conjunto inicial de peças compráveis na Forja, todos vendo a armadura uns dos outros, e Elmo, Peitoral, Calça e Bota mudando a aparência do personagem em todas as direções, parado, andando e atacando.
+
+**Escolhas do dono do projeto:** a Forja **vende** (o catálogo deixou de ser vitrine; as receitas continuam vitrine); "+2 Defesa" e "+12 Velocidade" lidos como **%** (o conjunto de ferro inteiro dá 9% de Defesa; a Bota, +12% de velocidade); o visual vem de **recolorir partes do próprio sprite**, não de peças desenhadas por cima.
+
+**Como:**
+- Slots: `helm, chest, pants, boots` (à esquerda na janela) e `weapon, shield, amulet, ring` (à direita). O banco não mudou: o equipamento já era JSON por slot.
+- Itens em `ITEMS` (`elmo_ferro`, `peitoral_ferro`, `calca_ferro`, `bota_ferro`, `amuleto_runico`, `anel_vitalidade`; o id pedido "anel_ Vitalidade" virou `anel_vitalidade`), com `equip.bonus` (StatBonus) e, nas armaduras do corpo, `equip.look` ("iron"). Preços provisórios em `FORGE_PRICES`; a compra é `buyItems` com a tabela da Forja (`buyFromForge`), pedido `forgeBuy` aceito só no balcão do ferreiro (`STATION_FOR.forge`).
+- Estado: o `weapon` público virou o mapa público `equipment` (slot -> item). Peça com Vida a mais muda a vida máxima (e a atual) na hora, como as essências.
+- Visual: `tools/assets/build_armor_layers.py` gera uma camada por peça, por quadro (parado e os 6 da caminhada, nas 8 direções e 4 classes). As faixas do corpo vêm de linhas marcadas por classe (medir pela altura da silhueta falhava: o chapéu do mago e as orelhas do homem-fera mudam o topo). Os pixels do sprite são recoloridos pelo brilho, então a peça segue contorno e movimento exatos; ficam de fora o punho da espada, os braços, o cabelo e a capa (que ficam por cima da armadura). No cliente, cada peça é uma imagem no mesmo quadro, lugar, escala e cor do corpo, logo acima dele (bota, calça, peitoral, elmo), abaixo da espada na frente e do punho por cima do cabo. O retrato da janela de inventário veste as mesmas camadas.
+- Ícones das 6 peças e as silhuetas dos slots novos (a moldura do slot do anel, com a silhueta trocada) em `process_hud.py`.
+
+**Limites conhecidos:** no mago, o "elmo" é o próprio chapéu em ferro e a calça é a barra do manto em malha (as pernas não aparecem); de lado, a faixa em volta do braço da frente deixa um pedaço do tronco sem armadura em alguns quadros; o golpe usa a pose parada (não há folhas de ataque), então a armadura do golpe é a do parado. Escudo, amuleto e anel não aparecem no corpo.

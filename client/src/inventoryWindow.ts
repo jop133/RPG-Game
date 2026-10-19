@@ -1,16 +1,20 @@
 import {
+  BODY_LAYERS,
   INVENTORY_SLOTS,
   ITEMS,
   LEVEL_XP,
   equipSlotOf,
   playerStats,
   statsFrom,
+  type EquipSlot,
   type Equipment,
   type ItemId,
+  type ItemStats,
 } from "shared";
 import type { Send } from "./cityWindows";
 import layout from "../../assets/ui/hud/layout.json";
 import {
+  ARMOR_PREVIEW,
   ART,
   EQUIP_NAMES,
   FRONT_SPRITES,
@@ -20,6 +24,7 @@ import {
   WEAPONS,
   el,
   attackText,
+  bonusText,
   essenceEffectText,
   frameName,
   image,
@@ -38,13 +43,14 @@ import { StatusScroll } from "./statusScroll";
 // o painel da arte alargado sem esticar cantos nem brasão, ver process_hud.py):
 // - esquerda, a mochila: os 12 slots em dois blocos (o cinturão rápido, atalhos 1 a 6, e a carga, 7 a =), as moedas e
 //   um quadro de inspeção do item sob o mouse;
-// - direita, o personagem: sprite grande com os 6 slots de equipamento dos lados, o botão "Status" (abre o pergaminho
-//   dos 12 status ao lado, StatusScroll) e o altar das essências absorvidas.
+// - direita, o personagem: sprite grande (com a armadura equipada por cima) entre os 8 slots de equipamento (armaduras
+//   à esquerda, arma, escudo, amuleto e anel à direita), o botão "Status" (abre o pergaminho dos 12 status ao lado,
+//   StatusScroll) e o altar das essências absorvidas.
 // Só desenho: os números vêm do servidor ou das mesmas regras puras de shared. Medidas em px de tela na tela-base
 // (1366x768), ampliadas com o resto da HUD (--u).
 // Arrastar e soltar (só pede; quem decide e muda é o servidor, regra 1): entre slots da mochila manda "move"; da
-// mochila para o slot de arma, "equip"; da arma para a mochila, "unequip". Clicar num item usa (arma: equipa); clicar
-// na arma equipada guarda na mochila.
+// mochila para o slot de equipamento da peça, "equip"; do slot de equipamento para a mochila, "unequip". Clicar num item
+// usa (peça: equipa); clicar numa peça equipada guarda na mochila.
 
 export interface InventoryView {
   name: string;
@@ -56,12 +62,18 @@ export interface InventoryView {
   essences: readonly string[];
   coins: number;
   inventory: readonly (HudSlot | undefined)[];
-  // A arma equipada (id de item; "" = desarmado). Os outros slots de equipamento ainda não têm item no jogo.
-  weapon: string;
+  // O que está equipado, slot -> id de item (slot ausente = vazio).
+  equipment: Partial<Record<EquipSlot, string>>;
 }
 
-// O que está sendo arrastado: um slot da mochila ou a arma equipada.
-type Dragging = { from: "bag"; slot: number } | { from: "weapon" };
+// O que está sendo arrastado: um slot da mochila ou uma peça equipada.
+type Dragging = { from: "bag"; slot: number } | { from: "equip"; slot: EquipSlot };
+
+// Um slot de equipamento: a silhueta (moldura da arte) e o ícone da peça equipada por cima.
+interface EquipSlotView {
+  frame: HTMLImageElement;
+  icon: HTMLImageElement;
+}
 // Arrasto em andamento: de onde saiu, onde o ponteiro desceu e o ícone que segue o cursor (só depois de andar).
 interface Drag {
   source: Dragging;
@@ -78,31 +90,25 @@ const LEATHER = layout.leather_wide;
 const GAP_BETWEEN = 16;
 // O pergaminho dos status, à direita da ala do personagem: a janela alarga e continua centrada.
 const SCROLL_W = layout.status_scroll.w;
-const STATUS_BUTTON = { w: 140, h: 32 };
+const STATUS_BUTTON = { w: 140, h: 30 };
+const STATUS_AREA = 36; // altura do vão do botão Status, entre o personagem e o altar
 const SLOT = 68;
 const SLOT_GAP = 6;
 const BELT = 6;
 const COLUMNS = 3;
-const EQUIP = 68;
-const EQUIP_GAP = 6;
-const ESSENCE = 60;
+// 4 slots de cada lado do personagem: um pouco menores que os da mochila, para o altar caber embaixo.
+const EQUIP = 58;
+const EQUIP_GAP = 5;
+const EQUIP_ROWS = 4;
+const ESSENCE = 54;
 const ESSENCE_GAP = 8;
 const ESSENCE_COLUMNS = 4;
 const SPRITE = 160; // o sprite parado de frente (64 px) em 2,5x
 // Nível = número de slots de essência; o maior nível é o último limite de LEVEL_XP.
 const MAX_ESSENCE_SLOTS = LEVEL_XP.length + 1;
-const SOON = "Slot de Equipamento (em breve na Cidade)";
-// Colunas do equipamento: esquerda de cima para baixo, depois a direita.
-const EQUIP_LEFT = [
-  ["equip_helm", EQUIP_NAMES.helm],
-  ["equip_chest", EQUIP_NAMES.chest],
-  ["equip_boots", EQUIP_NAMES.boots],
-] as const;
-const EQUIP_RIGHT = [
-  ["equip_weapon", EQUIP_NAMES.weapon],
-  ["equip_shield", EQUIP_NAMES.shield],
-  ["equip_ring", EQUIP_NAMES.ring],
-] as const;
+// Colunas do equipamento, de cima para baixo: armaduras à esquerda; arma, escudo e joias à direita.
+const EQUIP_LEFT: readonly EquipSlot[] = ["helm", "chest", "pants", "boots"];
+const EQUIP_RIGHT: readonly EquipSlot[] = ["weapon", "shield", "amulet", "ring"];
 
 interface EssenceSlot {
   frame: HTMLImageElement;
@@ -129,8 +135,9 @@ export class InventoryWindow {
   private shownEssences = "";
   private drag: Drag | undefined;
   private readonly targets = new Map<HTMLElement, (dragging: Dragging, drop: boolean) => boolean>();
-  private weaponSlot!: HTMLImageElement;
-  private weaponIcon!: HTMLImageElement;
+  private readonly equipViews = new Map<EquipSlot, EquipSlotView>();
+  // A armadura equipada por cima do sprite do personagem (uma camada por peça do corpo).
+  private readonly armorLayers = new Map<EquipSlot, HTMLImageElement>();
 
   constructor(parent: HTMLElement, tooltip: Tooltip, onUse: (slot: number) => void, private readonly send: Send, onClose: () => void) {
     this.listenDrag();
@@ -196,29 +203,38 @@ export class InventoryWindow {
       hint: place(el("div", "hud-abs hud-inv-inspect-hint", card), 72, 50, LEATHER.w - 96),
     };
     place(el("div", "hud-abs hud-inv-footer", left), 0, PANEL.h - 44, PANEL.w).textContent =
-      "Arraste para mover · solte na arma para equipar · [Esc] fecha";
+      "Arraste para mover ou equipar · [Esc] fecha";
 
     // ---- Ala direita: personagem, equipamento, atributos, essências ----
     this.heroTitle = place(el("div", "hud-abs hud-inv-title", right), 0, LEATHER.y - 30, PANEL.w);
     const equipTop = LEATHER.y + 8;
     const equipLeft = LEATHER.x + 12;
     const equipRight = LEATHER.x + LEATHER.w - 12 - EQUIP;
-    EQUIP_LEFT.forEach(([art, name], i) => this.equipSlot(right, tooltip, art, name, equipLeft, equipTop + i * (EQUIP + EQUIP_GAP)));
-    EQUIP_RIGHT.forEach(([art, name], i) => this.equipSlot(right, tooltip, art, name, equipRight, equipTop + i * (EQUIP + EQUIP_GAP)));
-    const column = 3 * EQUIP + 2 * EQUIP_GAP;
+    EQUIP_LEFT.forEach((slot, i) => this.equipSlot(right, tooltip, slot, equipLeft, equipTop + i * (EQUIP + EQUIP_GAP)));
+    EQUIP_RIGHT.forEach((slot, i) => this.equipSlot(right, tooltip, slot, equipRight, equipTop + i * (EQUIP + EQUIP_GAP)));
+    const column = EQUIP_ROWS * EQUIP + (EQUIP_ROWS - 1) * EQUIP_GAP;
     const arenaX = equipLeft + EQUIP + 8;
     const arenaW = equipRight - 8 - arenaX;
     place(el("div", "hud-abs hud-inv-arena", right), arenaX, equipTop, arenaW, column);
     place(el("div", "hud-abs hud-pedestal", right), arenaX + 16, equipTop + column - 40, arenaW - 32, 30);
-    this.sprite = place(el("img", "hud-abs hud-character", right), arenaX + (arenaW - SPRITE) / 2, equipTop + column - SPRITE - 12, SPRITE, SPRITE);
+    const spriteX = arenaX + (arenaW - SPRITE) / 2;
+    const spriteY = equipTop + column - SPRITE - 12;
+    this.sprite = place(el("img", "hud-abs hud-character", right), spriteX, spriteY, SPRITE, SPRITE);
     this.sprite.alt = "";
     this.sprite.draggable = false;
+    for (const piece of BODY_LAYERS) {
+      const layer = place(el("img", "hud-abs hud-character", right), spriteX, spriteY, SPRITE, SPRITE);
+      layer.alt = "";
+      layer.draggable = false;
+      layer.hidden = true;
+      this.armorLayers.set(piece, layer);
+    }
     // Botão do pergaminho dos status, no vão entre o personagem e o altar (onde ficavam as placas de atributo).
     const statusTop = equipTop + column + 6;
     this.statusButton = place(
       el("button", "hud-abs hud-inv-status-btn", right),
       LEATHER.x + (LEATHER.w - STATUS_BUTTON.w) / 2,
-      statusTop + (68 - STATUS_BUTTON.h) / 2,
+      statusTop + (STATUS_AREA - STATUS_BUTTON.h) / 2,
       STATUS_BUTTON.w,
       STATUS_BUTTON.h,
     );
@@ -227,7 +243,7 @@ export class InventoryWindow {
     this.statusButton.addEventListener("click", () => this.setScrollOpen(!this.scroll.open));
     this.scroll = new StatusScroll(this.root, PANEL.w * 2 + GAP_BETWEEN * 2, 0);
     // Altar das essências: os slots que o nível abre e os próximos, trancados.
-    const altarTop = statusTop + 2 * 34 + 2;
+    const altarTop = statusTop + STATUS_AREA;
     this.essenceTitle = place(el("div", "hud-abs hud-section-title hud-inv-section", right), LEATHER.x, altarTop, LEATHER.w);
     for (let i = 0; i < MAX_ESSENCE_SLOTS; i++) {
       const row = Math.floor(i / ESSENCE_COLUMNS);
@@ -280,21 +296,31 @@ export class InventoryWindow {
       const slot = view.inventory[i];
       this.bagSlots[i]?.set(slot && slot.count > 0 ? slot : undefined);
     }
-    this.updateWeapon(view.weapon);
+    this.updateEquipment(view);
     this.renderInspect();
   }
 
   private equipment(): Equipment {
-    const weapon = this.view?.weapon;
-    return weapon ? { weapon: weapon as ItemId } : {};
+    return (this.view?.equipment ?? {}) as Equipment;
   }
 
-  // O slot de arma mostra a arma equipada (a mesma arte que gira no golpe, em diagonal) ou só a silhueta.
-  private updateWeapon(weapon: string) {
-    const src = weapon ? (WEAPONS.get(weapon) ?? "") : "";
-    this.weaponIcon.hidden = !src;
-    if (src && this.weaponIcon.getAttribute("src") !== src) this.weaponIcon.src = src;
-    this.weaponSlot.classList.toggle("hud-equipped", Boolean(src));
+  // Cada slot mostra a peça equipada (a arma: a mesma arte que gira no golpe, em diagonal) ou só a silhueta; o sprite
+  // do personagem veste as armaduras do corpo.
+  private updateEquipment(view: InventoryView) {
+    for (const [slot, { frame, icon }] of this.equipViews) {
+      const item = view.equipment[slot];
+      const src = item ? (slot === "weapon" ? WEAPONS.get(item) : ICONS.get(item)) ?? "" : "";
+      icon.hidden = !src;
+      if (src && icon.getAttribute("src") !== src) icon.src = src;
+      frame.classList.toggle("hud-equipped", Boolean(src));
+    }
+    for (const [piece, layer] of this.armorLayers) {
+      const item = view.equipment[piece];
+      const look = item ? (ITEMS[item as ItemId] as ItemStats | undefined)?.equip?.look : undefined;
+      const src = look ? ARMOR_PREVIEW.get(`${view.classId}/${look}/${piece}`) : undefined;
+      layer.hidden = !src;
+      if (src && layer.getAttribute("src") !== src) layer.src = src;
+    }
   }
 
   // ---- arrastar e soltar ----
@@ -357,28 +383,30 @@ export class InventoryWindow {
   // O ícone que acompanha o cursor: o do item, ou a arma em diagonal.
   private ghost(source: Dragging): HTMLImageElement {
     const ghost = document.createElement("img");
-    ghost.className = `hud-drag-ghost${source.from === "weapon" ? " hud-drag-ghost-weapon" : ""}`;
+    const weapon = source.from === "equip" && source.slot === "weapon";
+    ghost.className = `hud-drag-ghost${weapon ? " hud-drag-ghost-weapon" : ""}`;
     ghost.alt = "";
-    const item = source.from === "bag" ? this.view?.inventory[source.slot]?.item : this.view?.weapon;
-    ghost.src = (source.from === "weapon" ? WEAPONS.get(item ?? "") : ICONS.get(item ?? "")) ?? "";
+    const item = source.from === "bag" ? this.view?.inventory[source.slot]?.item : this.view?.equipment[source.slot];
+    ghost.src = (weapon ? WEAPONS.get(item ?? "") : ICONS.get(item ?? "")) ?? "";
     document.body.append(ghost);
     return ghost;
   }
 
-  // Soltar num slot da mochila: outro slot da mochila move (ou junta, ou troca); a arma volta para a mochila ali.
+  // Soltar num slot da mochila: outro slot da mochila move (ou junta, ou troca); uma peça equipada volta para a
+  // mochila ali.
   private dropOnBag(dragging: Dragging, to: number, drop: boolean): boolean {
     if (dragging.from === "bag" && dragging.slot === to) return false;
     if (!drop) return true;
     if (dragging.from === "bag") this.send("move", { from: dragging.slot, to });
-    else this.send("unequip", { slot: "weapon", to });
+    else this.send("unequip", { slot: dragging.slot, to });
     return true;
   }
 
-  // Soltar no slot de arma: só um item da mochila que se equipe como arma.
-  private dropOnWeapon(dragging: Dragging, drop: boolean): boolean {
+  // Soltar num slot de equipamento: só um item da mochila que se equipe naquele slot.
+  private dropOnEquip(target: EquipSlot, dragging: Dragging, drop: boolean): boolean {
     if (dragging.from !== "bag") return false;
     const item = this.view?.inventory[dragging.slot]?.item;
-    if (!item || equipSlotOf(item as ItemId) !== "weapon") return false;
+    if (!item || equipSlotOf(item as ItemId) !== target) return false;
     if (drop) this.send("equip", { slot: dragging.slot });
     return true;
   }
@@ -434,43 +462,40 @@ export class InventoryWindow {
     });
   }
 
-  private equipSlot(parent: HTMLElement, tooltip: Tooltip, art: string, name: string, x: number, y: number) {
-    const slot = place(image(art, "hud-abs hud-equip", parent), x, y, EQUIP, EQUIP);
-    if (art !== "equip_weapon") {
-      tooltip.attach(slot, () => ({ title: name, lines: [SOON] }));
-      return;
-    }
-    // Arma: a equipada (a mesma arte que gira no golpe), em diagonal no slot. Dano com as essências; alcance e arco da
-    // arma. Clicar guarda na mochila; arrastar leva para um slot escolhido.
-    this.weaponSlot = slot;
-    const icon = place(el("img", "hud-abs hud-weapon-icon", parent), x + (EQUIP - 48) / 2, y + (EQUIP - 48) / 2, 48, 48);
+  // Um slot de equipamento: a silhueta do slot e, por cima, a peça equipada. Clicar guarda a peça na mochila;
+  // arrastar leva para um slot escolhido; soltar uma peça da mochila equipa (se for deste slot).
+  private equipSlot(parent: HTMLElement, tooltip: Tooltip, slot: EquipSlot, x: number, y: number) {
+    const name = EQUIP_NAMES[slot];
+    const frame = place(image(`equip_${slot}`, "hud-abs hud-equip", parent), x, y, EQUIP, EQUIP);
+    const iconSize = 48;
+    const icon = place(el("img", `hud-abs ${slot === "weapon" ? "hud-weapon-icon" : "hud-equip-icon"}`, parent), x + (EQUIP - iconSize) / 2, y + (EQUIP - iconSize) / 2, iconSize, iconSize);
     icon.alt = "";
     icon.hidden = true;
     // Sem o arrastar nativo de imagem: o arrasto é o nosso (dragSource).
     icon.draggable = false;
-    this.weaponIcon = icon;
+    this.equipViews.set(slot, { frame, icon });
     const describe = () => {
-      const weapon = this.view?.weapon;
+      const item = this.view?.equipment[slot];
       const stats = playerStats((this.view?.essences ?? []) as ItemId[], this.equipment());
-      if (!weapon) {
-        return { title: `${name}: vazio`, subtitle: "Desarmado (soco)", lines: [attackText({ ...stats.attack, damage: stats.physicalDamage })], hint: "Arraste uma arma da mochila para cá" };
+      const attack = attackText({ ...stats.attack, damage: stats.physicalDamage });
+      if (!item) {
+        if (slot === "weapon") return { title: `${name}: vazio`, subtitle: "Desarmado (soco)", lines: [attack], hint: "Arraste uma arma da mochila para cá" };
+        return { title: `${name}: vazio`, lines: [], hint: "Arraste uma peça da mochila para cá" };
       }
-      return {
-        title: ITEMS[weapon as ItemId].name,
-        subtitle: `${name} (equipada)`,
-        lines: [attackText({ ...stats.attack, damage: stats.physicalDamage }), "Golpe com o clique, na direção do mouse."],
-        hint: "Clique para guardar na mochila · arraste para um slot",
-      };
+      const itemStats = ITEMS[item as ItemId] as ItemStats;
+      const lines = slot === "weapon" ? [attack, "Golpe com o clique, na direção do mouse."] : [`${bonusText(itemStats.equip?.bonus ?? {})}.`];
+      const rarity = rarityStyle(itemStats.rarity);
+      return { title: itemStats.name, titleColor: rarity.color, subtitle: `${name} (equipado)`, lines, hint: "Clique para guardar na mochila · arraste para um slot" };
     };
-    tooltip.attach(slot, describe);
-    tooltip.attach(icon, describe);
     const unequip = () => {
-      if (this.view?.weapon) this.send("unequip", { slot: "weapon" });
+      if (this.view?.equipment[slot]) this.send("unequip", { slot });
     };
-    slot.addEventListener("click", unequip);
-    icon.addEventListener("click", unequip);
-    for (const node of [slot, icon]) this.dragSource(node, () => (this.view?.weapon ? { from: "weapon" } : undefined));
-    for (const node of [slot, icon]) this.dropTarget(node, (dragging, drop) => this.dropOnWeapon(dragging, drop));
+    for (const node of [frame, icon]) {
+      tooltip.attach(node, describe);
+      node.addEventListener("click", unequip);
+      this.dragSource(node, () => (this.view?.equipment[slot] ? { from: "equip", slot } : undefined));
+      this.dropTarget(node, (dragging, drop) => this.dropOnEquip(slot, dragging, drop));
+    }
   }
 
   private essenceSlot(parent: HTMLElement, tooltip: Tooltip, index: number, x: number, y: number): EssenceSlot {

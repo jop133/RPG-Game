@@ -1,4 +1,4 @@
-import { HUNGER_MAX, INVENTORY_SLOTS, ITEMS, LEVEL_XP, levelProgress, type BuildingId, type ItemId, type StationId } from "shared";
+import { HUNGER_MAX, INVENTORY_SLOTS, ITEMS, LEVEL_XP, levelProgress, type BuildingId, type EquipSlot, type ItemId, type StationId } from "shared";
 import layout from "../../assets/ui/hud/layout.json";
 import { ForgeWindow, GuildWindow, InnWindow, type CityWindow, type Send } from "./cityWindows";
 import "./hud.css";
@@ -28,8 +28,8 @@ export interface HudView {
   // Moedas da linhagem.
   coins: number;
   inventory: readonly (HudSlot | undefined)[];
-  // A arma equipada ("" = desarmado).
-  weapon: string;
+  // O que está equipado, slot -> id de item (slot ausente = vazio).
+  equipment: Partial<Record<EquipSlot, string>>;
   // Só na cidade: baú da linhagem e, para o Bestiário, os tipos mortos pela linhagem e por este personagem.
   stash?: readonly (HudSlot | undefined)[];
   bestiary?: readonly string[];
@@ -259,7 +259,7 @@ export class Hud {
     this.buildings = {
       guild: new GuildWindow(this.root, this.tooltip, send),
       inn: new InnWindow(this.root, this.tooltip, send),
-      blacksmith: new ForgeWindow(this.root, this.tooltip),
+      blacksmith: new ForgeWindow(this.root, this.tooltip, send),
     };
 
     window.addEventListener("resize", () => this.applyScale());

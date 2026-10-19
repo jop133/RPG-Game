@@ -143,6 +143,14 @@
     "w": 40,
     "h": 39
   },
+  "equip_pants": {
+    "w": 40,
+    "h": 39
+  },
+  "equip_amulet": {
+    "w": 40,
+    "h": 39
+  },
   "status_scroll": {
     "w": 300,
     "h": 640,

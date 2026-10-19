@@ -11,17 +11,21 @@ export interface WeaponStats {
   arcDegrees: number;
 }
 
-// O que um item equipável faz: em que slot vai, o golpe (se for arma) e o que soma aos status enquanto equipado.
+// O que um item equipável faz: em que slot vai, o golpe (se for arma), o que soma aos status enquanto equipado e, nas
+// armaduras do corpo, o visual que veste o personagem (camadas em assets/characters/<classe>/armor/<look>/).
 export interface EquipStats {
   slot: EquipSlot;
   weapon?: WeaponStats;
   bonus?: StatBonus;
+  look?: string;
 }
 
 // O que o personagem tem equipado: um item por slot. Slot ausente = vazio.
 export type Equipment = Partial<Record<EquipSlot, ItemId>>;
 
-export const EQUIP_SLOTS: readonly EquipSlot[] = ["helm", "chest", "boots", "weapon", "shield", "ring"];
+export const EQUIP_SLOTS: readonly EquipSlot[] = ["helm", "chest", "pants", "boots", "weapon", "shield", "amulet", "ring"];
+// As peças que aparecem no corpo, na ordem em que se vestem (de baixo para cima na pilha de camadas).
+export const BODY_LAYERS = ["boots", "pants", "chest", "helm"] as const satisfies readonly EquipSlot[];
 
 export function equipSlotOf(item: ItemId): EquipSlot | undefined {
   return (ITEMS[item] as ItemStats).equip?.slot;

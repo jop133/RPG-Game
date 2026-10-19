@@ -1,4 +1,4 @@
-import { BUY_PRICES, ITEMS, MAX_TRADE_COUNT, SELL_PRICES, type ItemId } from "./balance";
+import { BUY_PRICES, FORGE_PRICES, ITEMS, MAX_TRADE_COUNT, SELL_PRICES, type ItemId } from "./balance";
 import { addItems, removeItems, type Inventory } from "./inventory";
 
 // Compra e venda na cidade, com as moedas da linhagem. Tudo ou nada: nunca vende ou compra só uma parte.
@@ -22,14 +22,26 @@ export function sellItems(inventory: Inventory, coins: number, item: ItemId, cou
   return { kind: "done", inventory: rest, coins: coins + price * count };
 }
 
-// Taverna da Estalagem: cobra BUY_PRICES por unidade e põe `count` do item na mochila.
-export function buyItems(inventory: Inventory, coins: number, item: ItemId, count: number): TradeOutcome {
-  const price = BUY_PRICES[item];
+// Comprar: cobra o preço por unidade da tabela da loja (a Taverna, BUY_PRICES, ou a Forja, FORGE_PRICES) e põe
+// `count` do item na mochila.
+export function buyItems(
+  inventory: Inventory,
+  coins: number,
+  item: ItemId,
+  count: number,
+  prices: Partial<Record<ItemId, number>> = BUY_PRICES,
+): TradeOutcome {
+  const price = prices[item];
   if (price === undefined) return { kind: "notForSale" };
   if (coins < price * count) return { kind: "noCoins" };
   const added = addItems(inventory, item, count);
   if (added.leftover > 0) return { kind: "noSpace" };
   return { kind: "done", inventory: added.inventory, coins: coins - price * count };
+}
+
+// Forja do Ferreiro: o catálogo.
+export function buyFromForge(inventory: Inventory, coins: number, item: ItemId, count: number): TradeOutcome {
+  return buyItems(inventory, coins, item, count, FORGE_PRICES);
 }
 
 // Vem do cliente: só aceita { item: id de ITEMS, count: inteiro de 1 a MAX_TRADE_COUNT }.

@@ -30,6 +30,10 @@ import {
   playerStats,
   viewportSize,
   weaponStats,
+  BODY_LAYERS,
+  type EquipSlot,
+  type Equipment,
+  type ItemStats,
   xpForNextLevel,
   type InteractionId,
   type InteractionPoint,
@@ -75,8 +79,8 @@ import labyrinthMapUrl from "../../assets/maps/dungeon_floor1.json?url";
 interface PlayerView extends Vec2 {
   name?: string;
   classId?: string;
-  // A arma na mão (id de item; "" = desarmado). Pública: todos veem.
-  weapon?: string;
+  // O que está equipado (slot -> id de item; slot ausente = vazio): a arma na mão e a armadura no corpo. Público.
+  equipment?: { get(slot: string): string | undefined; forEach(callback: (item: string, slot: string) => void): void };
   // Só no labirinto: a cidade não tem vida nem combate.
   hp?: number;
   maxHp?: number;
@@ -141,6 +145,16 @@ const IDLE_URLS = CHARACTER_URLS.filter(({ key }) => !key.includes("/walk-") && 
 // Golpe desenhado (futuro): "characters/<classe>/attack-<direção>", fita de quadros 96x96 como a caminhada. Se a classe
 // tiver, toca no golpe e a espada segue a mão de cada quadro (hand_sockets.json); se não, fica a pose parada.
 const ATTACK_URLS = CHARACTER_URLS.filter(({ key }) => key.includes("/attack-"));
+// Armadura vestida (tools/assets/build_armor_layers.py): uma camada por peça, quadro a quadro, com o mesmo nome do
+// sprite do corpo: "armor/<classe>/<visual>/<peça>/<direção>" (64x64) e ".../walk-<direção>" (fita 96x96).
+const ARMOR_URLS = Object.entries(
+  import.meta.glob<string>("../../assets/characters/*/armor/*/*/*.png", { eager: true, query: "?url", import: "default" }),
+).map(([path, url]) => {
+  const [classId, , look, piece, name] = path.slice(path.indexOf("characters/") + "characters/".length, -".png".length).split("/");
+  return { key: `armor/${classId}/${look}/${piece}/${name}`, url };
+});
+const ARMOR_IDLE_URLS = ARMOR_URLS.filter(({ key }) => !key.includes("/walk-"));
+const ARMOR_WALK_URLS = ARMOR_URLS.filter(({ key }) => key.includes("/walk-"));
 // Sprites dos inimigos (tools/assets/process_mobs.py): parado "mobs/<tipo>/<direção>" (64x64, 8 direções) e
 // caminhada "mobs/<tipo>/walk-<direção>" (fita de quadros 96x96), só nas direções que têm arte: o lobo e o goblin
 // andam nas 8, o gnomo só nas 4 cardeais, o slime não tem caminhada. Só se carrega o que existe (nada de 404).
@@ -266,6 +280,8 @@ interface Avatar {
   weapon: Phaser.GameObjects.Image;
   // O punho do sprite recortado, por cima do cabo da espada (só quando a mão está na frente do corpo).
   grip: Phaser.GameObjects.Image;
+  // A armadura do corpo, uma camada por peça (bota, calça, peitoral, elmo), no mesmo quadro do sprite.
+  armor: Map<EquipSlot, Phaser.GameObjects.Image>;
   swingAt: number;
   swingAngle: number;
 }
@@ -498,10 +514,10 @@ class WorldScene extends Phaser.Scene {
   // Mapas e folhas de tiles ficam no cache do jogo: só a primeira visita baixa os arquivos.
   preload() {
     if (!this.cache.tilemap.exists(this.place)) this.load.tilemapTiledJSON(this.place, MAP_URLS[this.place]);
-    for (const { key, url } of [...TILESET_URLS, ...IDLE_URLS, ...MOB_IDLE_URLS, ...WEAPON_URLS]) {
+    for (const { key, url } of [...TILESET_URLS, ...IDLE_URLS, ...MOB_IDLE_URLS, ...WEAPON_URLS, ...ARMOR_IDLE_URLS]) {
       if (!this.textures.exists(key)) this.load.image(key, url);
     }
-    for (const { key, url } of [...WALK_URLS, ...MOB_WALK_URLS, ...ATTACK_URLS]) {
+    for (const { key, url } of [...WALK_URLS, ...MOB_WALK_URLS, ...ATTACK_URLS, ...ARMOR_WALK_URLS]) {
       if (!this.textures.exists(key)) this.load.spritesheet(key, url, { frameWidth: WALK_FRAME, frameHeight: WALK_FRAME });
     }
   }
@@ -761,12 +777,13 @@ Subiu para o nível ${info.level}!` : "";
     const kills: string[] = [];
     self.kills?.forEach((kind) => kills.push(kind));
     const level = self.level ?? 1;
-    const maxHp = self.maxHp ?? playerStats(essences).maxHp;
+    // Na cidade não há vida no estado: a máxima vem das mesmas regras (essências e equipamento).
+    const maxHp = self.maxHp ?? playerStats(essences, equipmentOf(self) as Equipment).maxHp;
     hud.update(
       {
         name: self.name ?? "",
         classId: self.classId ?? "",
-        weapon: self.weapon ?? "",
+        equipment: equipmentOf(self),
         level,
         xp: self.xp ?? 0,
         nextLevelXp: xpForNextLevel(level),
@@ -835,7 +852,7 @@ Subiu para o nível ${info.level}!` : "";
       }
       const classId = player.classId ?? "";
       const seed = Math.floor(Math.random() * 1e9);
-      const shape = swingShape(player.weapon);
+      const shape = swingShape(player.equipment?.get("weapon"));
       this.swings.push({ x: player.x, y: player.y, angle: player.attackAngle ?? 0, classId, startMs: time, seed, ...shape });
     });
     this.swings = this.swings.filter((swing) => time - swing.startMs < swingDuration(swing.classId));
@@ -978,7 +995,8 @@ Subiu para o nível ${info.level}!` : "";
       const bodyY = feet + recoil.y + lunge.y;
       avatar.body.setPosition(bodyX, bodyY).setDepth(sortDepth(feet)).setScale(lunge.sx, lunge.sy);
       applyFlash(avatar.body, avatar.reaction, time, isSelf ? SELF_FLASH_COLOR : HIT_FLASH_COLOR);
-      this.poseWeapon(avatar, player.classId, player.weapon, sortDepth(feet), time);
+      this.poseWeapon(avatar, player.classId, player.equipment?.get("weapon"), sortDepth(feet), time);
+      this.poseArmor(avatar, player, sortDepth(feet));
       avatar.shadow.setPosition(player.x, feet - 1).setScale(stepSquash(avatar.body));
       avatar.label.setPosition(player.x, feet - AVATAR_HEIGHT - HP_BAR_GAP - HP_BAR_HEIGHT - 2);
     });
@@ -989,6 +1007,7 @@ Subiu para o nível ${info.level}!` : "";
       avatar.label.destroy();
       avatar.weapon.destroy();
       avatar.grip.destroy();
+      for (const layer of avatar.armor.values()) layer.destroy();
       this.avatars.delete(sessionId);
     }
   }
@@ -1032,6 +1051,35 @@ Subiu para o nível ${info.level}!` : "";
 
   // O punho por cima do cabo: cópia do sprite no mesmo quadro, lugar, escala e cor, recortada num quadrado em volta
   // da mão (coordenadas do quadro: pés em largura/2 e altura * origem y).
+  // A armadura equipada veste o sprite: cada peça do corpo é uma camada no mesmo quadro, lugar, escala e cor do corpo,
+  // logo acima dele (bota, calça, peitoral, elmo) e abaixo da espada na frente e do punho. Sem a peça, ou sem a arte
+  // dela para este quadro (golpe desenhado, no futuro), a camada some.
+  private poseArmor(avatar: Avatar, player: PlayerView, bodyDepth: number) {
+    const body = avatar.body;
+    const name = body.texture.key.slice(body.texture.key.lastIndexOf("/") + 1);
+    BODY_LAYERS.forEach((piece, i) => {
+      const item = player.equipment?.get(piece);
+      const look = item ? (ITEMS[item as ItemId] as ItemStats | undefined)?.equip?.look : undefined;
+      const key = look ? `armor/${player.classId}/${look}/${piece}/${name}` : "";
+      let layer = avatar.armor.get(piece);
+      if (!look || !this.textures.exists(key)) {
+        layer?.setVisible(false);
+        return;
+      }
+      layer ??= this.add.image(body.x, body.y, key);
+      avatar.armor.set(piece, layer);
+      layer
+        .setTexture(key, body.frame.name)
+        .setVisible(true)
+        .setOrigin(body.originX, body.originY)
+        .setPosition(body.x, body.y)
+        .setScale(body.scaleX, body.scaleY)
+        .setDepth(bodyDepth + 0.01 * (i + 1));
+      if (body.isTinted) layer.setTintFill(body.tintTopLeft);
+      else if (layer.isTinted) layer.clearTint();
+    });
+  }
+
   private poseGrip(avatar: Avatar, socket: HandSocket, bodyDepth: number) {
     const { body, grip } = avatar;
     grip.setVisible(!socket.behindBody);
@@ -1136,6 +1184,7 @@ Subiu para o nível ${info.level}!` : "";
       reaction,
       weapon,
       grip,
+      armor: new Map(),
       swingAt: -Infinity,
       swingAngle: 0,
     };
@@ -1535,3 +1584,10 @@ async function start() {
 }
 
 void start();
+
+// O equipamento de um jogador como o HUD e a janela de inventário usam: slot -> id de item.
+function equipmentOf(player: PlayerView): Partial<Record<EquipSlot, string>> {
+  const equipment: Partial<Record<EquipSlot, string>> = {};
+  player.equipment?.forEach((item, slot) => (equipment[slot as EquipSlot] = item));
+  return equipment;
+}

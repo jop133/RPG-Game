@@ -98,8 +98,8 @@ describe("doorDestination (entrar e sair dos prédios)", () => {
 });
 
 describe("STATION_FOR (onde cada pedido vale)", () => {
-  it("vender no balcão da Guilda, comprar no balcão de comida, mexer no baú no Baú da Linhagem", () => {
-    expect(STATION_FOR).toEqual({ sell: "guild-counter", buy: "inn-counter", stash: "inn-chest" });
+  it("vender no balcão da Guilda, comprar no balcão de comida, mexer no baú no Baú da Linhagem, comprar peças no balcão do ferreiro", () => {
+    expect(STATION_FOR).toEqual({ sell: "guild-counter", buy: "inn-counter", stash: "inn-chest", forge: "blacksmith-counter" });
   });
 
   it("todo id de ponto conhecido é aceito; nome errado no mapa, não", () => {

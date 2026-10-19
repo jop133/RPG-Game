@@ -9,6 +9,7 @@ import {
   STASH_SLOTS,
   TICK_RATE,
   STATION_FOR,
+  buyFromForge,
   buyItems,
   deposit,
   doorDestination,
@@ -37,7 +38,7 @@ import type { CharacterRecord } from "./db";
 import { applyGearAction, isEquippableSlot, type GearAction } from "./gear";
 import { loadCity } from "./level";
 import { admit, release } from "./presence";
-import { CityPlayerState, CityState, ItemSlotState, OWNER_TAG } from "./state";
+import { CityPlayerState, CityState, ItemSlotState, OWNER_TAG, mirrorEquipment } from "./state";
 import { store } from "./store";
 import { updateVisibility } from "./views";
 
@@ -83,7 +84,7 @@ export class CityRoom extends Room<{ state: CityState }> {
   private essences = new Map<string, ItemId[]>();
   // A verdade do inventário. CityPlayerState.inventory só espelha isto para o dono ver.
   private inventories = new Map<string, Inventory>();
-  // O que cada um tem equipado. CityPlayerState.weapon espelha a arma, para todos verem na mão.
+  // O que cada um tem equipado. CityPlayerState.equipment espelha, para todos verem a arma e a armadura.
   private equipment = new Map<string, Equipment>();
   private lineages = new Map<string, Lineage>();
 
@@ -101,6 +102,7 @@ export class CityRoom extends Room<{ state: CityState }> {
     this.onMessage("withdraw", (client, message) => this.handleStash(client.sessionId, message, "withdraw"));
     this.onMessage("sell", (client, message) => this.handleTrade(client.sessionId, message, "sell"));
     this.onMessage("buy", (client, message) => this.handleTrade(client.sessionId, message, "buy"));
+    this.onMessage("forgeBuy", (client, message) => this.handleTrade(client.sessionId, message, "forge"));
     this.setSimulationInterval((dtMs) => this.tick(dtMs), 1000 / TICK_RATE);
   }
 
@@ -120,7 +122,6 @@ export class CityRoom extends Room<{ state: CityState }> {
     const player = new CityPlayerState({
       name: record.name,
       classId: record.classId ?? "",
-      weapon: "", // setEquipment, logo abaixo
       ...pickSpawnPoint(city.spawnPoints, Math.random()),
       xp,
       level: levelForXp(xp),
@@ -164,7 +165,7 @@ export class CityRoom extends Room<{ state: CityState }> {
 
   private setEquipment(sessionId: string, player: CityPlayerState, equipment: Equipment) {
     this.equipment.set(sessionId, equipment);
-    player.weapon = equipment.weapon ?? "";
+    mirrorEquipment(player.equipment, equipment);
     this.refreshSpeed(sessionId);
   }
 
@@ -234,13 +235,14 @@ export class CityRoom extends Room<{ state: CityState }> {
     this.apply(sessionId, customer, moved);
   }
 
-  // Guilda vende (o Mercador compra o loot do jogador); Estalagem compra (a Taverna vende comida).
-  private handleTrade(sessionId: string, message: unknown, side: "sell" | "buy") {
-    const customer = this.customerAt(sessionId, side === "sell" ? STATION_FOR.sell : STATION_FOR.buy);
+  // Guilda vende (o Mercador compra o loot do jogador); Estalagem compra (a Taverna vende comida); Forja compra (o
+  // ferreiro vende o catálogo de armas e armaduras).
+  private handleTrade(sessionId: string, message: unknown, side: "sell" | "buy" | "forge") {
+    const customer = this.customerAt(sessionId, STATION_FOR[side]);
     const trade = parseTrade(message);
     if (!customer || !trade) return;
     const { inventory, lineage } = customer;
-    const trader = side === "sell" ? sellItems : buyItems;
+    const trader = side === "sell" ? sellItems : side === "forge" ? buyFromForge : buyItems;
     const outcome = trader(inventory, lineage.coins, trade.item, trade.count);
     if (outcome.kind !== "done") {
       this.notify(sessionId, REFUSALS[outcome.kind]);

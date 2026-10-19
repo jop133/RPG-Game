@@ -1,4 +1,4 @@
-import { ITEMS, type EquipSlot, type EssenceEffect, type ItemId, type ItemStats, type Rarity, type WeaponStats } from "shared";
+import { ITEMS, type EquipSlot, type EssenceEffect, type ItemId, type ItemStats, type Rarity, type StatBonus, type WeaponStats } from "shared";
 
 // Peças comuns do HUD (hud.ts e inventoryWindow.ts): arte, montagem de elementos, slot clicável e dica (tooltip).
 
@@ -24,11 +24,19 @@ export const MOB_SPRITES = new Map(
 export const EQUIP_NAMES: Record<EquipSlot, string> = {
   helm: "Elmo",
   chest: "Peitoral",
+  pants: "Calça",
   boots: "Botas",
   weapon: "Arma principal",
   shield: "Escudo / Secundária",
+  amulet: "Amuleto / Colar",
   ring: "Relíquia / Anel",
 };
+// A armadura vestida no sprite parado de frente (retrato da janela de inventário): "<classe>/<visual>/<peça>".
+export const ARMOR_PREVIEW = new Map(
+  Object.entries(
+    import.meta.glob<string>("../../assets/characters/*/armor/*/*/south.png", { eager: true, query: "?url", import: "default" }),
+  ).map(([path, url]) => [path.split("/").slice(-5, -1).filter((_, i) => i !== 1).join("/"), url]),
+);
 
 function urls(files: Record<string, string>): Map<string, string> {
   return new Map(Object.entries(files).map(([path, url]) => [path.slice(path.lastIndexOf("/") + 1, -".png".length), url]));
@@ -138,12 +146,28 @@ export class Tooltip {
 
 // ---------------------------------------------------------------- textos dos itens (saem dos dados de ITEMS)
 
+// O que um bônus de status soma (essência ou peça de equipamento), numa linha: "+15 Vida, +2% Defesa".
+const BONUS_LABELS: readonly [keyof StatBonus, string, string][] = [
+  ["maxHp", "", "Vida"],
+  ["maxMana", "", "Mana"],
+  ["physicalDamage", "", "Dano Físico"],
+  ["magicDamage", "", "Dano Mágico"],
+  ["defensePercent", "%", "Defesa"],
+  ["magicResistPercent", "%", "Resistência Mágica"],
+  ["attackSpeedPercent", "%", "Velocidade de Ataque"],
+  ["speedPercent", "%", "Velocidade"],
+  ["perception", "", "Percepção"],
+  ["stealthPercent", "%", "Furtividade"],
+  ["vigorPercent", "%", "Vigor"],
+  ["regenPerSecond", "/s", "Regeneração"],
+];
+
+export function bonusText(bonus: StatBonus): string {
+  return BONUS_LABELS.filter(([key]) => bonus[key]).map(([key, unit, label]) => `+${bonus[key]}${unit} ${label}`).join(", ");
+}
+
 export function essenceEffectText(effect: EssenceEffect): string {
-  const parts: string[] = [];
-  if (effect.speedPercent) parts.push(`+${effect.speedPercent}% Velocidade`);
-  if (effect.physicalDamage) parts.push(`+${effect.physicalDamage} Dano Físico`);
-  if (effect.maxHp) parts.push(`+${effect.maxHp} Vida Máxima`);
-  return parts.join(", ");
+  return bonusText(effect);
 }
 
 export function rarityStyle(rarity: Rarity): { name: string; color: string } {
@@ -161,15 +185,17 @@ export function itemTooltip(itemId: string, count: number, key?: string, hint?: 
   if (!stats) return undefined;
   const food = "food" in stats ? stats.food : undefined;
   const essence = "essence" in stats ? stats.essence : undefined;
-  const weapon = (stats as ItemStats).equip?.weapon;
+  const equip = (stats as ItemStats).equip;
+  const weapon = equip?.weapon;
   const lines: string[] = [];
   if (weapon) lines.push(`Arma: ${attackText(weapon)}.`);
+  if (equip?.bonus) lines.push(`Equipado: ${bonusText(equip.bonus)}.`);
   if (food) lines.push(`Restaura ${food} de fome.`);
   if (essence) {
     lines.push(`Consuma para absorver ${essenceEffectText(essence)} num slot de essência.`);
     lines.push("Absorvida, só sai por purificação na igreja.");
   }
-  if (!food && !essence && !weapon) lines.push("Material de monstro — extraia vivo do labirinto.");
+  if (!food && !essence && !equip) lines.push("Material de monstro — extraia vivo do labirinto.");
   if (count > 1) lines.push(`Quantidade: ${count} (até ${stats.maxStack} por slot)`);
   const usable = food !== undefined || essence !== undefined;
   const rarity = rarityStyle(stats.rarity);
@@ -178,7 +204,7 @@ export function itemTooltip(itemId: string, count: number, key?: string, hint?: 
     titleColor: rarity.color,
     subtitle: rarity.name,
     lines,
-    hint: hint ?? (weapon && key ? `Clique ou pressione [${key}] para equipar` : usable && key ? `Clique ou pressione [${key}] para usar` : undefined),
+    hint: hint ?? (equip && key ? `Clique ou pressione [${key}] para equipar` : usable && key ? `Clique ou pressione [${key}] para usar` : undefined),
   };
 }
 

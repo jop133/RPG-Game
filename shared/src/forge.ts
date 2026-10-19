@@ -1,10 +1,11 @@
 import type { ItemId } from "./balance";
 
-// Slots de equipamento do personagem (os da janela de inventário). Ainda vazios: equipamento vem no passo 8.
-export type EquipSlot = "helm" | "chest" | "boots" | "weapon" | "shield" | "ring";
+// Os 8 slots de equipamento do personagem: armaduras (elmo, peitoral, calça, bota), à esquerda na janela de inventário,
+// e arma, escudo, amuleto e anel, à direita.
+export type EquipSlot = "helm" | "chest" | "pants" | "boots" | "weapon" | "shield" | "amulet" | "ring";
 
-// Peça da Forja do Ferreiro. Por enquanto só vitrine (FORGE_CATALOG e FORGE_RECIPES em balance.ts): não há regra que
-// compre ou forje. `materials` só nas receitas.
+// Receita da Forja do Ferreiro: por enquanto só vitrine (FORGE_RECIPES em balance.ts), nada se forja. O catálogo
+// (FORGE_PRICES) já vende.
 export interface ForgeItem {
   name: string;
   slot: EquipSlot;

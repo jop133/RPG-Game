@@ -183,6 +183,21 @@ quadros 96x96) e grava em `assets/mobs/<tipo>/` (tipo em minúsculas): o parado 
 cada GIF que existir, sem reamostrar. Direção sem GIF fica sem fita (o cliente usa a cardeal do lado, ou o sprite parado).
 Mob novo: pasta em `Inimigos/` com o nome do tipo de `MOB_KINDS`, rodar o script e medir os pés em `MOB_ART` (`client/src/main.ts`).
 
+## Armaduras vestidas (camadas por quadro)
+
+```bash
+tools/assets/.venv/Scripts/python.exe -I tools/assets/build_armor_layers.py
+```
+
+Gera as camadas que vestem o personagem com Elmo, Peitoral, Calça e Bota: `assets/characters/<classe>/armor/<visual>/<peça>/`
+(`<direção>.png` 64x64 do parado e `walk-<direção>.png` com os 6 quadros 96x96), um arquivo por quadro do sprite do corpo, e a
+folha de conferência `tools/assets/build/armor_<visual>.png`. Para cada quadro, separa as faixas do corpo pelas linhas
+marcadas de cada classe (`BODY`: tornozelo, quadril, pescoço e testa, em px acima dos pés; pescoço e testa seguem o
+balanço da caminhada) e recolore os pixels do próprio sprite com a paleta do metal pelo brilho: a peça herda contorno,
+sombreado e movimento. Ficam de fora o punho da espada (o quadrado que o cliente redesenha por cima do cabo), a outra mão,
+os braços (pela largura do tronco) e, no peitoral e na calça, o cabelo e a capa (`keeps_over_armor`). Rodar de novo quando
+mudar a arte das classes ou os pontos de mão (`hand_sockets.json`). O visual de cada peça é `ITEMS[...].equip.look`.
+
 ## Armas
 
 ```bash

@@ -1,4 +1,5 @@
-import { schema, t, type SchemaType } from "@colyseus/schema";
+import { type MapSchema, schema, t, type SchemaType } from "@colyseus/schema";
+import { EQUIP_SLOTS, type Equipment } from "shared";
 
 // Tag de visão do dono: campos marcados com ela só vão para o próprio jogador. Tags precisam ser potência de 2.
 export const OWNER_TAG = 1;
@@ -11,10 +12,11 @@ export type ItemSlotState = SchemaType<typeof ItemSlotState>;
 // hunger e inventory são privados: os outros veem a sua vida, não a sua fome nem o que você carrega.
 export const PlayerState = schema(
   {
-    // Públicos: os outros veem nome e classe (o desenho do personagem) e a arma na mão ("" = desarmado).
+    // Públicos: os outros veem nome e classe (o desenho do personagem) e o que ele tem equipado (slot -> item; slot
+    // ausente = vazio): a arma na mão e a armadura no corpo.
     name: t.string(),
     classId: t.string(),
-    weapon: t.string(),
+    equipment: t.map("string"),
     x: t.number(),
     y: t.number(),
     hp: t.number(),
@@ -72,8 +74,8 @@ export const CityPlayerState = schema(
   {
     name: t.string(),
     classId: t.string(),
-    // Pública, como no labirinto: a arma na mão ("" = desarmado).
-    weapon: t.string(),
+    // Público, como no labirinto: o que está equipado (a arma na mão e a armadura no corpo).
+    equipment: t.map("string"),
     x: t.number(),
     y: t.number(),
     xp: t.number().view(OWNER_TAG),
@@ -95,3 +97,12 @@ export type CityPlayerState = SchemaType<typeof CityPlayerState>;
 // Mesmo na cidade, cada cliente só recebe quem está no raio de visão dele (regra 5).
 export const CityState = schema({ players: t.map(CityPlayerState).view() }, "CityState");
 export type CityState = SchemaType<typeof CityState>;
+
+// Copia o equipamento (verdade do servidor) para o mapa público do jogador: só os slots ocupados.
+export function mirrorEquipment(view: MapSchema<string>, equipment: Equipment) {
+  for (const slot of EQUIP_SLOTS) {
+    const item = equipment[slot];
+    if (item && view.get(slot) !== item) view.set(slot, item);
+    if (!item && view.has(slot)) view.delete(slot);
+  }
+}

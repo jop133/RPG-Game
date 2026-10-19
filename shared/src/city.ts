@@ -27,7 +27,7 @@ export type InteractionId = BuildingId | ExitId | StationId;
 export const INTERACTIONS: readonly InteractionId[] = [...BUILDINGS, ...EXITS, ...STATIONS];
 
 // Onde cada pedido da cidade tem de ser feito: o servidor só aceita com o jogador neste móvel (regra 1).
-export const STATION_FOR = { sell: "guild-counter", buy: "inn-counter", stash: "inn-chest" } as const satisfies Record<
+export const STATION_FOR = { sell: "guild-counter", buy: "inn-counter", stash: "inn-chest", forge: "blacksmith-counter" } as const satisfies Record<
   string,
   StationId
 >;

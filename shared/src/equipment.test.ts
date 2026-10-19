@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { INVENTORY_SLOTS, ITEMS, STARTING_EQUIPMENT, UNARMED_ATTACK } from "./balance";
+import { BASE_STATS, INVENTORY_SLOTS, ITEMS, STARTING_EQUIPMENT, UNARMED_ATTACK } from "./balance";
+import { playerStats } from "./stats";
 import {
   equipFromSlot,
   equipmentToPile,
@@ -140,5 +141,27 @@ describe("parsers", () => {
     expect(parseUnequip({ slot: "weapon", to: 3 }, 12)).toEqual({ from: "weapon", to: 3 });
     expect(parseUnequip({ slot: "weapon", to: 12 }, 12)).toBeUndefined();
     expect(parseUnequip({ slot: "cabeca" }, 12)).toBeUndefined();
+  });
+});
+
+describe("os 8 slots", () => {
+  it("cada peça do conjunto vai para o slot dela", () => {
+    const pieces = { elmo_ferro: "helm", peitoral_ferro: "chest", calca_ferro: "pants", bota_ferro: "boots", amuleto_runico: "amulet", anel_vitalidade: "ring" } as const;
+    for (const [item, slot] of Object.entries(pieces)) {
+      const outcome = equipFromSlot(bag({ 0: { item: item as keyof typeof pieces, count: 1 } }), {}, 0);
+      expect(outcome).toMatchObject({ kind: "done", equipment: { [slot]: item } });
+    }
+  });
+
+  it("armadura equipada soma aos status: vida, Defesa em %, Velocidade em %", () => {
+    const stats = playerStats([], { chest: "peitoral_ferro", boots: "bota_ferro" });
+    expect(stats.maxHp).toBe(BASE_STATS.maxHp + 30 + 10);
+    expect(stats.defensePercent).toBe(4);
+    expect(stats.speed).toBeCloseTo(BASE_STATS.speed * 1.12);
+  });
+
+  it("o conjunto inteiro de ferro dá 9% de Defesa", () => {
+    const stats = playerStats([], { helm: "elmo_ferro", chest: "peitoral_ferro", pants: "calca_ferro", boots: "bota_ferro" });
+    expect(stats.defensePercent).toBe(9);
   });
 });

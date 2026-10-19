@@ -1,11 +1,12 @@
 import {
   BUY_PRICES,
-  FORGE_CATALOG,
+  FORGE_PRICES,
   FORGE_RECIPES,
   INVENTORY_SLOTS,
   ITEMS,
   SELL_PRICES,
   STASH_SLOTS,
+  equipSlotOf,
   type ForgeItem,
   type ItemId,
 } from "shared";
@@ -418,29 +419,36 @@ function forgeRow(parent: HTMLElement, tooltip: Tooltip, item: ForgeItem, y: num
   }));
 }
 
-// Vitrine até o passo 8 (armas e maestria): mostra o que vem, nada se compra nem se forja.
+// O catálogo da Forja vende (pedido "forgeBuy", no balcão do ferreiro; o servidor confere moedas e espaço); as receitas
+// ainda são vitrine: mostram o que vem, nada se forja.
+const FORGE_GOODS = Object.keys(FORGE_PRICES) as ItemId[];
+
 export class ForgeWindow implements CityWindow {
   readonly root: HTMLDivElement;
   private readonly coins: HTMLSpanElement[] = [];
   private readonly tabs: Tabs<ForgeTab>;
 
-  constructor(parent: HTMLElement, tooltip: Tooltip) {
+  constructor(parent: HTMLElement, tooltip: Tooltip, send: Send) {
     const { root, body } = singlePanelWindow(parent);
     this.root = root;
     const tabs = new Tabs<ForgeTab>(body, FORGE_TABS);
     this.tabs = tabs;
     caption(body, KEYS_HINT, LEATHER.y - 11);
-    const sections: [ForgeTab, string, readonly ForgeItem[]][] = [
-      ["catalog", "Armas e equipamento do ferreiro:", FORGE_CATALOG],
-      ["recipes", "Receitas com materiais da caverna:", FORGE_RECIPES],
-    ];
-    for (const [tab, intro, items] of sections) {
-      const layer = tabs.layer(tab);
-      caption(layer, intro, LEATHER.y + 5, "hud-window-text");
-      items.forEach((item, i) => forgeRow(layer, tooltip, item, LEATHER.y + 18 + i * FORGE_ROW));
-      caption(layer, "A forja abre junto com a maestria de armas.", LEATHER.y + 26 + items.length * FORGE_ROW, "hud-window-text");
-      this.coins.push(purse(layer));
-    }
+    const catalog = tabs.layer("catalog");
+    caption(catalog, "Armas e armaduras do ferreiro:", LEATHER.y + 5, "hud-window-text");
+    FORGE_GOODS.forEach((item, i) => {
+      const buy = () => send("forgeBuy", { item, count: 1 });
+      const row = new TradeRow(catalog, tooltip, LEATHER.y + 18 + i * ROW, "Comprar", buy, buy);
+      row.many.hidden = true;
+      const slot = equipSlotOf(item);
+      row.set(item, 1, slot ? EQUIP_NAMES[slot] : "", FORGE_PRICES[item] ?? 0);
+    });
+    this.coins.push(purse(catalog));
+    const recipes = tabs.layer("recipes");
+    caption(recipes, "Receitas com materiais da caverna:", LEATHER.y + 5, "hud-window-text");
+    FORGE_RECIPES.forEach((item, i) => forgeRow(recipes, tooltip, item, LEATHER.y + 18 + i * FORGE_ROW));
+    caption(recipes, "A forja abre junto com a maestria de armas.", LEATHER.y + 26 + FORGE_RECIPES.length * FORGE_ROW, "hud-window-text");
+    this.coins.push(purse(recipes));
     tabs.select("catalog");
   }
 

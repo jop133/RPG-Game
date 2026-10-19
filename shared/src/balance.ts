@@ -48,6 +48,18 @@ export const ITEMS = {
     maxStack: 1,
     equip: { slot: "weapon", weapon: { damage: 10, range: 40, arcDegrees: 100 } },
   },
+  // Conjunto de ferro (Forja): números provisórios, para ajustar jogando. Defesa e Velocidade em %.
+  elmo_ferro: { name: "Elmo de Ferro", rarity: "common", maxStack: 1, equip: { slot: "helm", look: "iron", bonus: { maxHp: 15, defensePercent: 2 } } },
+  peitoral_ferro: {
+    name: "Peitoral de Ferro",
+    rarity: "common",
+    maxStack: 1,
+    equip: { slot: "chest", look: "iron", bonus: { maxHp: 30, defensePercent: 4 } },
+  },
+  calca_ferro: { name: "Calça de Ferro", rarity: "common", maxStack: 1, equip: { slot: "pants", look: "iron", bonus: { maxHp: 20, defensePercent: 3 } } },
+  bota_ferro: { name: "Bota de Ferro", rarity: "common", maxStack: 1, equip: { slot: "boots", look: "iron", bonus: { maxHp: 10, speedPercent: 12 } } },
+  amuleto_runico: { name: "Amuleto Rúnico", rarity: "rare", maxStack: 1, equip: { slot: "amulet", bonus: { maxMana: 20, physicalDamage: 3 } } },
+  anel_vitalidade: { name: "Anel de Vitalidade", rarity: "rare", maxStack: 1, equip: { slot: "ring", bonus: { maxHp: 15 } } },
 } satisfies Record<string, ItemStats>;
 
 export type ItemId = keyof typeof ITEMS;
@@ -76,6 +88,16 @@ export const SELL_PRICES: Partial<Record<ItemId, number>> = {
   essencia_goblin_rara: 40,
 };
 export const BUY_PRICES: Partial<Record<ItemId, number>> = { racao: 10 };
+// O catálogo da Forja (balcão do ferreiro): o que se compra, por unidade. Valores provisórios.
+export const FORGE_PRICES: Partial<Record<ItemId, number>> = {
+  espada_ferro: 120,
+  elmo_ferro: 60,
+  peitoral_ferro: 140,
+  calca_ferro: 90,
+  bota_ferro: 70,
+  amuleto_runico: 150,
+  anel_vitalidade: 110,
+};
 // Maior quantidade aceita numa compra ou venda (só para recusar números absurdos vindos do cliente).
 export const MAX_TRADE_COUNT = 999;
 
@@ -117,14 +139,8 @@ export const ADVENTURER_RANKS: readonly AdventurerRank[] = [
   { rank: "D", title: "Caçador Veterano", bestiary: 4 },
 ];
 
-// Forja do Ferreiro: VITRINE até o passo 8 (armas e maestria). Nada disto se compra nem se forja ainda; nomes, preços
-// e receitas são provisórios, só para mostrar o que vem. `slot` é o slot de equipamento da janela de inventário.
-// Catálogo: comprado com moedas. Receitas: materiais da caverna mais moedas pelo trabalho do ferreiro.
-export const FORGE_CATALOG: readonly ForgeItem[] = [
-  { name: "Espada de Ferro", slot: "weapon", coins: 120 },
-  { name: "Elmo de Couro", slot: "helm", coins: 60 },
-  { name: "Escudo de Madeira", slot: "shield", coins: 80 },
-];
+// Receitas da Forja: VITRINE (nada se forja ainda; nomes, materiais e preços provisórios). Materiais da caverna mais
+// moedas pelo trabalho do ferreiro. `slot` é o slot de equipamento da janela de inventário.
 export const FORGE_RECIPES: readonly ForgeItem[] = [
   { name: "Peitoral de Pele de Lobo", slot: "chest", coins: 20, materials: { pele_de_lobo: 6, dente_de_goblin: 2 } },
   { name: "Botas de Couro Selado", slot: "boots", coins: 15, materials: { pele_de_lobo: 4, gosma_de_slime: 3 } },
