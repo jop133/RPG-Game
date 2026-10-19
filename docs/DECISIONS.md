@@ -1082,3 +1082,15 @@ Slot vazio usa a moldura comum.
 
 **Calhas em CSS:** a calha da arte tem 7 px de altura e não estica até 24 sem deformar o desenho; as novas são ferro com ponta (clip-path), fundo escuro, o preenchimento com a textura das barras e um brilho no topo. O anel do retrato continua sendo a arte (as 86 colunas da esquerda do `status_frame`).
 
+---
+
+## 2026-10 — Janela de inventário em duas alas, com o painel alargado
+
+**Pedido do dono do projeto:** a janela de inventário estava espremida num painel estreito: mochila, equipamento e essências pequenos e escuros, e a barra rápida aparecendo junto. Duas alas lado a lado (mochila | personagem), slots grandes, quadro de inspeção, atributos em placas e o altar de essências.
+
+**Como:**
+- **Painel alargado sem deformar:** `inv_panel_wide.png` (490x640) sai do painel da arte (360x517) repetindo colunas lisas (entre as pontas do brasão e o centro dele) e uma linha lisa (no meio dos pilares), em `process_hud.py`. Exibido em 1x na tela-base: cantos, brasão e arabescos ficam nítidos
+- **Escala como o status** (`--u`), não a escala inteira das outras janelas: a janela foi medida em px de tela na tela-base
+- **Barra rápida some com a janela aberta:** os mesmos 6 slots estão no cinturão. Todo fechamento passa por `Hud.closeWindow`
+- **Quadro de inspeção no lugar da dica flutuante** nos slots da mochila (`SlotView` ganhou `display` e `noTooltip`)
+

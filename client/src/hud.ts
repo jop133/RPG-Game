@@ -185,6 +185,8 @@ export class Hud {
   private readonly notices: HTMLDivElement;
   private readonly hintText: HTMLDivElement;
   private readonly dockSlots: SlotView[] = [];
+  // A barra rápida some com a mochila aberta: os mesmos slots estão no cinturão da janela.
+  private readonly dockbar: HTMLDivElement;
   private readonly shownWidths = new Map<string, string>();
   private ghostFraction = 1;
   private lastHpFraction = 1;
@@ -234,7 +236,7 @@ export class Hud {
 
     // Embaixo, no centro: barra rápida com os slots 1 a 6 (o dock da arte em 1,5x) e o botão da mochila ao lado.
     const d = layout.hotbar_dock;
-    const dockbar = size(el("div", "hud-dockbar", this.root), d.w * DOCK_SCALE + BAG_GAP + BAG_BUTTON, d.h * DOCK_SCALE);
+    const dockbar = (this.dockbar = size(el("div", "hud-dockbar", this.root), d.w * DOCK_SCALE + BAG_GAP + BAG_BUTTON, d.h * DOCK_SCALE));
     const dock = size(el("div", "hud-abs hud-dock", dockbar), d.w, d.h);
     image("hotbar_dock", "hud-abs", dock);
     layout.dock_slots.slice(0, DOCK_SLOTS).forEach((rect, i) => {
@@ -251,7 +253,7 @@ export class Hud {
     bag.addEventListener("click", () => this.toggleWindow());
     this.tooltip.attach(bag, () => ({ title: "Mochila", lines: ["Inventário, essências e equipamento."], hint: "Clique ou pressione [I]" }));
 
-    this.window = new InventoryWindow(this.root, this.tooltip, onUse);
+    this.window = new InventoryWindow(this.root, this.tooltip, onUse, () => this.closeWindow());
     this.buildings = {
       guild: new GuildWindow(this.root, this.tooltip, send),
       inn: new InnWindow(this.root, this.tooltip, send),
@@ -323,7 +325,7 @@ export class Hud {
   // Some nas telas que cobrem o jogo (ficha, morte, extração). A janela fecha junto.
   hide() {
     this.root.hidden = true;
-    this.window.close();
+    this.closeWindow();
     this.closeBuilding();
     this.tooltip.hide();
     this.hint("");
@@ -390,6 +392,13 @@ export class Hud {
   toggleWindow() {
     this.closeBuilding();
     this.window.toggle();
+    this.dockbar.hidden = this.window.open;
+    this.tooltip.hide();
+  }
+
+  closeWindow() {
+    this.window.close();
+    this.dockbar.hidden = false;
     this.tooltip.hide();
   }
 
@@ -402,7 +411,7 @@ export class Hud {
   toggleStation(id: StationId) {
     if (this.openStation === id) return this.closeBuilding();
     this.closeBuilding();
-    this.window.close();
+    this.closeWindow();
     const [building, tab] = STATION_WINDOWS[id];
     this.buildings[building].show(tab);
     this.buildings[building].root.hidden = false;
@@ -424,7 +433,7 @@ export class Hud {
       event.preventDefault();
       this.toggleWindow();
     } else if (event.code === "Escape") {
-      this.window.close();
+      this.closeWindow();
       this.closeBuilding();
       this.tooltip.hide();
     }

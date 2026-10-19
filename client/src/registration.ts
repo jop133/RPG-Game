@@ -55,6 +55,11 @@ const CLASS_INFO: Record<ClassId, ClassInfo> = {
     stats: [4, 4, 4, 3],
   },
 };
+// Nome da classe para mostrar (janela de inventário).
+export function classLabel(id: string): string {
+  return (CLASS_INFO as Record<string, ClassInfo | undefined>)[id]?.label ?? id;
+}
+
 const STAT_LABELS = ["Vida", "Ataque / Poder", "Velocidade", "Dificuldade"];
 const STAT_COLORS = ["red", "gold", "gold", "red"];
 

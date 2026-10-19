@@ -177,7 +177,11 @@ export function itemTooltip(itemId: string, count: number, key?: string, hint?: 
 
 export interface SlotOptions {
   frameSize: 48 | 34 | 28;
-  iconScale: 1 | 2;
+  iconScale: 1 | 2 | 3;
+  // Tamanho na tela, se diferente da arte (a janela de inventário mostra a moldura de 48 em 68 px).
+  display?: number;
+  // Sem a dica flutuante (a janela de inventário mostra o item no quadro de inspeção).
+  noTooltip?: boolean;
   // Mostrar a moldura comum mesmo vazio (na mochila sim; na barra rápida o vão do dock já é o slot).
   emptyFrame: boolean;
   // Slot das janelas dos prédios: o clique não usa o item, faz outra coisa (guardar, retirar). Sem tecla no canto;
@@ -206,24 +210,27 @@ export class SlotView {
   ) {
     this.root = el("button", "hud-slot", parent);
     this.root.type = "button";
-    size(this.root, options.frameSize, options.frameSize);
+    const box = options.display ?? options.frameSize;
+    size(this.root, box, box);
     this.frame = image(frameName("common", options.frameSize), "hud-slot-frame", this.root);
-    size(this.frame, options.frameSize, options.frameSize);
+    size(this.frame, box, box);
     this.icon = el("img", "hud-slot-icon", this.root);
     this.icon.alt = "";
     this.icon.draggable = false;
     const iconSize = 16 * options.iconScale;
-    const offset = (options.frameSize - iconSize) / 2;
+    const offset = (box - iconSize) / 2;
     place(this.icon, offset, offset, iconSize, iconSize);
     this.label = el("span", "hud-slot-sigla", this.root);
     if (!options.clickHint) el("span", "hud-slot-key", this.root).textContent = KEY_LABELS[index] ?? "";
     this.count = el("span", "hud-slot-count", this.root);
     this.root.addEventListener("click", () => onUse(index));
-    tooltip.attach(this.root, () => {
-      if (!this.slot) return { title: "Slot vazio", lines: [] };
-      if (options.clickHint) return itemTooltip(this.slot.item, this.slot.count, undefined, options.clickHint());
-      return itemTooltip(this.slot.item, this.slot.count, KEY_LABELS[this.index]);
-    });
+    if (!options.noTooltip) {
+      tooltip.attach(this.root, () => {
+        if (!this.slot) return { title: "Slot vazio", lines: [] };
+        if (options.clickHint) return itemTooltip(this.slot.item, this.slot.count, undefined, options.clickHint());
+        return itemTooltip(this.slot.item, this.slot.count, KEY_LABELS[this.index]);
+      });
+    }
     this.set(undefined);
   }
 

@@ -322,6 +322,26 @@ ICONS = {
 # ---------------------------------------------------------------- montagem
 
 
+# Janela de inventário em duas alas: o painel alargado sem esticar cantos, brasão e arabescos. Cresce repetindo
+# colunas e uma linha lisas (só viga, costura e couro): as colunas entre as pontas do brasão e o centro dele, a linha
+# no meio dos pilares. Exibido em 1x na tela-base, fica nítido.
+WIDE_PANEL = (490, 640)
+WIDE_COLUMNS = (118, 242)
+WIDE_ROW = 250
+
+
+def widen_panel(panel: np.ndarray, width: int, height: int) -> np.ndarray:
+    h, w = panel.shape[:2]
+    extra = width - w
+    left, right = WIDE_COLUMNS
+    grow = [extra // 2, extra - extra // 2]
+    parts = [panel[:, :left], np.repeat(panel[:, left : left + 1], grow[0], axis=1), panel[:, left:right],
+             np.repeat(panel[:, right : right + 1], grow[1], axis=1), panel[:, right:]]
+    wide = np.concatenate(parts, axis=1)
+    rows = height - h
+    return np.concatenate([wide[:WIDE_ROW], np.repeat(wide[WIDE_ROW : WIDE_ROW + 1], rows, axis=0), wide[WIDE_ROW:]], axis=0)
+
+
 def main() -> None:
     (OUT / "items").mkdir(parents=True, exist_ok=True)
     layout: dict = {}
@@ -374,6 +394,14 @@ def main() -> None:
         layout[name] = {"w": width, "h": round(art.shape[0] * width / art.shape[1])}
         if name == "inv_panel":
             layout["leather"] = scaled_rect(dark_region(inventory, LEATHER_SEED, tolerance=14), box[:2], width / art.shape[1])
+            panel = np.asarray(Image.open(OUT / "inv_panel.png").convert("RGBA"))
+            wide = Image.fromarray(widen_panel(panel, *WIDE_PANEL))
+            wide.save(OUT / "inv_panel_wide.png")
+            sheet.append(("inv_panel_wide", wide))
+            leather = layout["leather"]
+            layout["inv_panel_wide"] = {"w": WIDE_PANEL[0], "h": WIDE_PANEL[1]}
+            layout["leather_wide"] = {"x": leather["x"], "y": leather["y"], "w": leather["w"] + WIDE_PANEL[0] - width,
+                                      "h": leather["h"] + WIDE_PANEL[1] - layout["inv_panel"]["h"]}
 
     p = layout["portrait"]
     for class_id in CLASSES:

@@ -729,7 +729,7 @@
 
 .hud-tooltip {
   position: fixed;
-  z-index: 3;
+  z-index: 4;
   max-width: calc(190px * var(--s));
   padding: calc(4px * var(--s)) calc(6px * var(--s));
   font-size: calc(8px * var(--s));
@@ -755,4 +755,283 @@
 .hud-tooltip-hint {
   margin-top: calc(3px * var(--s));
   color: #ffd98a;
+}
+
+/* ---- janela de inventário em duas alas (inventoryWindow.ts) ---- */
+
+/* Medida em px de tela na tela-base, ampliada como o status (--u), e não pela escala inteira das outras janelas. */
+.hud-window.hud-inv {
+  z-index: 3;
+  transform: translate(-50%, -50%) scale(var(--u));
+}
+
+.hud-inv img {
+  image-rendering: pixelated;
+}
+
+/* Fundo escurecido atrás da janela; clicar nele fecha. */
+.hud-inv-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: rgba(8, 6, 5, 0.55);
+  pointer-events: auto;
+}
+
+.hud-inv-title {
+  font-size: 18px;
+  font-weight: bold;
+  text-align: center;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #f0d68a;
+  text-shadow: 0 1px 3px #000, 0 0 2px #000;
+}
+
+.hud-inv-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.hud-inv-slots {
+  font-size: 14px;
+  font-weight: bold;
+  color: #e8d8b4;
+  text-shadow: 0 1px 2px #000;
+}
+
+.hud-inv-purse {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px 2px 6px;
+  font-size: 16px;
+  font-weight: bold;
+  color: #ffd166;
+  text-shadow: 0 1px 3px #000, 0 0 2px #000;
+  background: linear-gradient(#2c2420, #17110d);
+  border: 2px solid #5d5458;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px #0c0806;
+  pointer-events: auto;
+}
+
+.hud-inv-purse .hud-coin {
+  width: 22px;
+  height: 22px;
+}
+
+.hud-inv-section {
+  font-size: 12px;
+  letter-spacing: 1.5px;
+  color: #d9b878;
+}
+
+/* Bloco de slots: a carga num fundo discreto; o cinturão com moldura de bronze (são os atalhos de combate). */
+.hud-inv-block {
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(160, 130, 90, 0.35);
+  border-radius: 4px;
+}
+
+.hud-inv-block.hud-inv-belt {
+  background: rgba(70, 40, 12, 0.3);
+  border: 2px solid #a8743a;
+  box-shadow: 0 0 0 1px #2a1606, inset 0 0 10px rgba(255, 170, 70, 0.18), 0 0 8px rgba(255, 170, 70, 0.15);
+}
+
+/* Slots grandes e claros: o vazio com a moldura comum bem visível, o ocupado mais brilhante. */
+.hud-inv .hud-inv-slot .hud-slot-frame {
+  filter: brightness(1.3) contrast(1.1);
+}
+
+.hud-inv .hud-inv-slot.hud-empty .hud-slot-frame {
+  opacity: 1;
+  filter: brightness(1.15) contrast(1.05);
+}
+
+.hud-inv .hud-inv-slot:hover .hud-slot-frame {
+  filter: brightness(1.6) contrast(1.1);
+}
+
+.hud-inv .hud-inv-slot .hud-slot-key {
+  left: 4px;
+  top: 4px;
+  min-width: 8px;
+  padding: 1px 3px;
+  font-size: 14px;
+  text-align: center;
+  color: #f0dca8;
+  background: linear-gradient(#2e2a30, #121014);
+  border: 1px solid #8a8288;
+  border-radius: 2px;
+  text-shadow: 0 1px 1px #000;
+}
+
+.hud-inv .hud-inv-slot .hud-slot-count {
+  right: 6px;
+  bottom: 5px;
+  font-size: 15px;
+  color: #fff5e6;
+  text-shadow: 0 1px 2px #000, 0 0 1px #000, 0 0 1px #000;
+}
+
+/* Quadro de inspeção do item sob o mouse. */
+.hud-inv-inspect {
+  box-sizing: border-box;
+  background: linear-gradient(rgba(36, 22, 14, 0.92), rgba(20, 12, 8, 0.92));
+  border: 2px solid #5d5458;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px #0c0806, inset 0 1px 0 rgba(255, 230, 180, 0.08);
+}
+
+.hud-inv-inspect-name {
+  font-size: 15px;
+  font-weight: bold;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-right: 70px;
+  box-sizing: border-box;
+  color: #f0dca8;
+  text-shadow: 0 1px 2px #000;
+}
+
+.hud-inv-inspect-rarity,
+.hud-inv-inspect-text,
+.hud-inv-inspect-hint {
+  font-size: 12px;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 2px #000;
+}
+
+/* Raridade na linha do nome, à direita; a descrição quebra em até 2 linhas. */
+.hud-inv-inspect-rarity {
+  text-align: right;
+  font-weight: bold;
+}
+
+.hud-inv-inspect.hud-abs .hud-inv-inspect-text {
+  white-space: normal;
+  line-height: 13px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  color: #d8c8a8;
+}
+
+.hud-inv-inspect-hint {
+  color: #9fd8ff;
+  font-weight: bold;
+}
+
+.hud-inv-footer {
+  font-size: 12px;
+  text-align: center;
+  color: #b8a582;
+  text-shadow: 0 1px 2px #000;
+}
+
+.hud-inv-close {
+  padding: 0;
+  font: inherit;
+  font-size: 18px;
+  font-weight: bold;
+  line-height: 1;
+  color: #f0dca8;
+  cursor: pointer;
+  pointer-events: auto;
+  background: linear-gradient(#3a3438, #17141a);
+  border: 2px solid #8a8288;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px #0c0806;
+  text-shadow: 0 1px 2px #000;
+}
+
+.hud-inv-close:hover {
+  color: #ffd166;
+  border-color: #c9a227;
+}
+
+/* Arena do personagem: fundo gótico escuro entre as colunas de equipamento. */
+.hud-inv-arena {
+  border-radius: 6px;
+  background: radial-gradient(ellipse at 50% 60%, rgba(90, 70, 110, 0.35), rgba(10, 8, 12, 0.75) 70%);
+  box-shadow: inset 0 0 0 1px rgba(160, 130, 90, 0.35), inset 0 0 18px rgba(0, 0, 0, 0.8);
+}
+
+/* Silhuetas dos slots de equipamento mais claras, para aparecerem mesmo vazias. */
+.hud-inv .hud-equip,
+.hud-inv .hud-equip:not(.hud-equipped) {
+  opacity: 1;
+  filter: brightness(1.45) contrast(1.15);
+}
+
+.hud-inv .hud-equip:hover {
+  filter: brightness(1.75) contrast(1.15);
+}
+
+/* Placas de atributo. */
+.hud-inv-plate {
+  box-sizing: border-box;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 10px 0;
+  white-space: nowrap;
+  background: linear-gradient(#2a2428, #141116);
+  border: 2px solid #5d5458;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px #0c0806, inset 0 1px 0 rgba(255, 230, 180, 0.08);
+  pointer-events: auto;
+}
+
+.hud-inv-plate-label {
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #b8a582;
+}
+
+.hud-inv-plate-value {
+  font-size: 16px;
+  font-weight: bold;
+  color: #fff5e6;
+  text-shadow: 0 1px 2px #000;
+}
+
+.hud-inv-plate-bonus {
+  font-size: 13px;
+  font-weight: bold;
+  color: #6dff7a;
+  text-shadow: 0 1px 2px #000;
+}
+
+.hud-inv-plate-bonus.hud-inv-plate-xp {
+  font-size: 12px;
+  color: #ffd166;
+}
+
+/* Altar das essências: engaste livre claro, trancado escurecido com o cadeado dourado por cima. */
+.hud-inv .hud-essence img {
+  image-rendering: pixelated;
+}
+
+.hud-inv .hud-inv-socket-free {
+  filter: brightness(1.35) drop-shadow(0 0 4px rgba(120, 220, 255, 0.35));
+}
+
+.hud-inv .hud-inv-locked {
+  filter: brightness(0.7);
+}
+
+.hud-inv .hud-lock {
+  opacity: 1;
+  filter: drop-shadow(0 1px 2px #000);
 }
