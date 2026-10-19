@@ -195,12 +195,18 @@ tools/assets/.venv/Scripts/python.exe -I tools/assets/build_armor_layers.py
 
 Gera as camadas que vestem o personagem com Elmo, Peitoral, Calça e Bota: `assets/characters/<classe>/armor/<visual>/<peça>/`
 (`<direção>.png` 64x64 do parado e `walk-<direção>.png` com os 6 quadros 96x96), um arquivo por quadro do sprite do corpo, e a
-folha de conferência `tools/assets/build/armor_<visual>.png`. Para cada quadro, separa as faixas do corpo pelas linhas
-marcadas de cada classe (`BODY`: tornozelo, quadril, pescoço e testa, em px acima dos pés; pescoço e testa seguem o
-balanço da caminhada) e recolore os pixels do próprio sprite com a paleta do metal pelo brilho: a peça herda contorno,
-sombreado e movimento. Ficam de fora o punho da espada (o quadrado que o cliente redesenha por cima do cabo), a outra mão,
-os braços (pela largura do tronco) e, no peitoral e na calça, o cabelo e a capa (`keeps_over_armor`). Rodar de novo quando
-mudar a arte das classes ou os pontos de mão (`hand_sockets.json`). O visual de cada peça é `ITEMS[...].equip.look`.
+folha de conferência `tools/assets/build/armor_<visual>.png`. Tudo é medido a partir do pivô dos pés (`dx` do centro,
+`up` acima dos pés), nos quadros de 64 e de 96, com as linhas do corpo de cada classe marcadas na arte (`BODY`: canela,
+quadril, cinto, ombros, queixo, nuca, sobrancelha, topo da calota e as larguras de cabeça, ombreira, couraça e pernas; o
+que fica acima do quadril segue o balanço da caminhada). Peitoral em T de frente, de costas e nas diagonais (ombreiras
+largas de pontas arredondadas e a couraça só no tronco, braços de fora), couraça e ombreira de lado (só o antebraço e a mão
+de fora), cinto escuro, calça e bota nas 8 direções: os pixels do próprio sprite recoloridos com a paleta do metal pelo
+brilho. O elmo é desenhado (calota com sombreamento, contorno de 1 px e aro com rebites acima da sobrancelha), deixando o
+rosto e o cabelo abaixo dele com as cores de verdade. Nunca são pintados (`protected`): o punho da espada (o quadrado que
+o cliente redesenha por cima do cabo) e a outra mão, cabelo e capa do elfo, cabelo e barba do mago, rabo do homem-fera
+(pela cor do pelo e da ponta) e a cabeça. Para o homem-fera e o mago sai também o corpo sob o elmo
+(`assets/characters/<classe>/helmed/`, sem as orelhas ou o chapéu), que o cliente usa com o elmo equipado. Rodar de novo
+quando mudar a arte das classes ou os pontos de mão (`hand_sockets.json`). O visual de cada peça é `ITEMS[...].equip.look`.
 
 ## Armas
 

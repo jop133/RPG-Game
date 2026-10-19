@@ -153,8 +153,17 @@ const ARMOR_URLS = Object.entries(
   const [classId, , look, piece, name] = path.slice(path.indexOf("characters/") + "characters/".length, -".png".length).split("/");
   return { key: `armor/${classId}/${look}/${piece}/${name}`, url };
 });
-const ARMOR_IDLE_URLS = ARMOR_URLS.filter(({ key }) => !key.includes("/walk-"));
+// O corpo sob o elmo (homem-fera sem as orelhas, mago sem o chapéu), também de build_armor_layers.py:
+// "characters/<classe>/helmed/<direção>" e ".../helmed/walk-<direção>". Classe sem a pasta usa o corpo de sempre.
+const HELMED_URLS = Object.entries(
+  import.meta.glob<string>("../../assets/characters/*/helmed/*.png", { eager: true, query: "?url", import: "default" }),
+).map(([path, url]) => ({ key: path.slice(path.indexOf("characters/"), -".png".length), url }));
+const ARMOR_IDLE_URLS = [
+  ...ARMOR_URLS.filter(({ key }) => !key.includes("/walk-")),
+  ...HELMED_URLS.filter(({ key }) => !key.includes("/walk-")),
+];
 const ARMOR_WALK_URLS = ARMOR_URLS.filter(({ key }) => key.includes("/walk-"));
+const HELMED_WALK_URLS = HELMED_URLS.filter(({ key }) => key.includes("/walk-"));
 // Sprites dos inimigos (tools/assets/process_mobs.py): parado "mobs/<tipo>/<direção>" (64x64, 8 direções) e
 // caminhada "mobs/<tipo>/walk-<direção>" (fita de quadros 96x96), só nas direções que têm arte: o lobo e o goblin
 // andam nas 8, o gnomo só nas 4 cardeais, o slime não tem caminhada. Só se carrega o que existe (nada de 404).
@@ -259,9 +268,10 @@ function mobKey(kind: string, facing: string): string {
   return `mobs/${kind}/${facing}`;
 }
 
-function characterKey(classId: string | undefined, facing: string, walking = false): string {
+// `helmed`: o corpo sob o elmo (sem orelhas ou chapéu), nas classes que têm essa versão.
+function characterKey(classId: string | undefined, facing: string, walking = false, helmed = false): string {
   const known = CLASS_IDS.find((id) => id === classId) ?? CLASS_IDS[0];
-  return `characters/${known}/${walking ? "walk-" : ""}${facing}`;
+  return `characters/${known}/${helmed ? "helmed/" : ""}${walking ? "walk-" : ""}${facing}`;
 }
 
 // Personagem de um jogador: sprite da classe, virado para onde andou, parado ou andando, com o nome em cima.
@@ -517,7 +527,7 @@ class WorldScene extends Phaser.Scene {
     for (const { key, url } of [...TILESET_URLS, ...IDLE_URLS, ...MOB_IDLE_URLS, ...WEAPON_URLS, ...ARMOR_IDLE_URLS]) {
       if (!this.textures.exists(key)) this.load.image(key, url);
     }
-    for (const { key, url } of [...WALK_URLS, ...MOB_WALK_URLS, ...ATTACK_URLS, ...ARMOR_WALK_URLS]) {
+    for (const { key, url } of [...WALK_URLS, ...MOB_WALK_URLS, ...ATTACK_URLS, ...ARMOR_WALK_URLS, ...HELMED_WALK_URLS]) {
       if (!this.textures.exists(key)) this.load.spritesheet(key, url, { frameWidth: WALK_FRAME, frameHeight: WALK_FRAME });
     }
   }
@@ -947,7 +957,7 @@ Subiu para o nível ${info.level}!` : "";
 
   // Uma animação por fita de caminhada, com a mesma chave da textura. As animações são do jogo todo: cria uma vez.
   private createWalkAnimations() {
-    for (const { key } of [...WALK_URLS, ...MOB_WALK_URLS]) {
+    for (const { key } of [...WALK_URLS, ...MOB_WALK_URLS, ...HELMED_WALK_URLS]) {
       if (this.anims.exists(key)) continue;
       this.anims.create({ key, frames: this.anims.generateFrameNumbers(key, {}), frameRate: WALK_FPS, repeat: -1 });
     }
@@ -988,7 +998,8 @@ Subiu para o nível ${info.level}!` : "";
         }
         avatar.lastHp = player.hp;
       }
-      this.animateAvatar(avatar, player.classId, time - avatar.lastMoveAt < WALK_LINGER_MS, time - avatar.swingAt < ATTACK_FACING_MS);
+      const helm = Boolean(player.equipment?.get("helm"));
+      this.animateAvatar(avatar, player.classId, time - avatar.lastMoveAt < WALK_LINGER_MS, time - avatar.swingAt < ATTACK_FACING_MS, helm);
       const recoil = recoilOffset(avatar.reaction, time);
       const lunge = lungeOffset(avatar.swingAt, avatar.swingAngle, time);
       const bodyX = player.x + recoil.x + lunge.x;
@@ -1134,22 +1145,24 @@ Subiu para o nível ${info.level}!` : "";
   // Golpe (se a classe tiver a fita attack-<direção>): toca o golpe uma vez.
   // Andando: toca a caminhada da direção (trocar de direção no meio do passo continua do mesmo quadro).
   // Parado: sprite parado da última direção.
-  private animateAvatar(avatar: Avatar, classId: string | undefined, walking: boolean, attacking: boolean) {
+  private animateAvatar(avatar: Avatar, classId: string | undefined, walking: boolean, attacking: boolean, helm: boolean) {
     const body = avatar.body;
+    // Com elmo, o corpo sem o que o elmo esconde, se a classe tiver essa versão.
+    const helmed = helm && this.textures.exists(characterKey(classId, avatar.facing, false, true));
     const attack = characterKey(classId, `attack-${avatar.facing}`);
     if (attacking && this.anims.exists(attack)) {
       if (body.anims.currentAnim?.key !== attack) body.setOrigin(0.5, WALK_FEET).play(attack);
       return;
     }
     if (walking) {
-      const key = characterKey(classId, avatar.facing, true);
+      const key = characterKey(classId, avatar.facing, true, helmed);
       if (body.anims.currentAnim?.key === key && body.anims.isPlaying) return;
       const frame = body.anims.isPlaying ? (body.anims.currentFrame?.index ?? 1) - 1 : 0;
       body.setOrigin(0.5, WALK_FEET).play({ key, startFrame: frame });
       return;
     }
     if (body.anims.isPlaying) body.stop();
-    const idle = characterKey(classId, avatar.facing);
+    const idle = characterKey(classId, avatar.facing, false, helmed);
     if (body.texture.key !== idle) body.setTexture(idle).setOrigin(0.5, AVATAR_FEET);
   }
 

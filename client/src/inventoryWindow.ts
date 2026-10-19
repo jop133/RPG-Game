@@ -18,6 +18,7 @@ import {
   ART,
   EQUIP_NAMES,
   FRONT_SPRITES,
+  HELMED_FRONT_SPRITES,
   ICONS,
   KEY_LABELS,
   SlotView,
@@ -281,7 +282,9 @@ export class InventoryWindow {
 
   update(view: InventoryView) {
     this.view = view;
-    const sprite = FRONT_SPRITES.get(view.classId) ?? FRONT_SPRITES.get("mago") ?? "";
+    // Com elmo, o corpo sem o que o elmo esconde (orelhas, chapéu), nas classes que têm essa versão.
+    const helmed = view.equipment.helm ? HELMED_FRONT_SPRITES.get(view.classId) : undefined;
+    const sprite = helmed ?? FRONT_SPRITES.get(view.classId) ?? FRONT_SPRITES.get("mago") ?? "";
     if (this.sprite.getAttribute("src") !== sprite) this.sprite.src = sprite;
     setText(this.heroTitle, `${view.name} — ${classLabel(view.classId)}`);
     // Bônus no pergaminho = o que vem de essências e equipamento, sobre a base com o golpe da arma.
