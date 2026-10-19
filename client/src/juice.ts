@@ -234,3 +234,72 @@ function drawClaws(g: Phaser.GameObjects.Graphics, s: Swing, radius: number, fad
     g.lineBetween(x0, y0, x1, y1);
   }
 }
+
+// ---------------------------------------------------------------- arma girando no golpe e o corpo indo junto
+
+// A espada varre de (ângulo do golpe - WEAPON_SWEEP) até (+ WEAPON_SWEEP) em WEAPON_SWING_MS, rápido no começo e
+// devagar no fim (cubic ease-out), com um "pop" de escala no meio. O arco de acerto de verdade é o do servidor
+// (PLAYER_ATTACK.arcDegrees); a varrida é só desenho.
+export const WEAPON_SWING_MS = 160;
+const WEAPON_SWEEP = (65 * Math.PI) / 180;
+const WEAPON_POP = 0.15;
+// Por quanto tempo o personagem olha para o golpe, mesmo andando para outro lado.
+export const ATTACK_FACING_MS = 180;
+// Impulso do corpo: vai LUNGE_PX para a frente em LUNGE_OUT_MS, com uma compressão elástica, e volta em LUNGE_BACK_MS.
+const LUNGE_PX = 7;
+const LUNGE_OUT_MS = 55;
+const LUNGE_BACK_MS = 125;
+const LUNGE_SQUASH = { x: 0.07, y: -0.06 };
+// Bote dos mobs quando o golpe sai (fim do windup): vai e volta MOB_LUNGE_PX em MOB_LUNGE_MS.
+const MOB_LUNGE_PX = 8;
+const MOB_LUNGE_MS = 150;
+
+export function easeOutCubic(t: number): number {
+  return 1 - (1 - t) ** 3;
+}
+
+// Pose da arma neste instante: ângulo, escala e se ainda aparece. p vai de 0 (golpe saiu) a 1.
+export function weaponPose(startMs: number, angle: number, time: number): { visible: boolean; angle: number; scale: number; p: number } {
+  const p = (time - startMs) / WEAPON_SWING_MS;
+  if (p < 0 || p >= 1) return { visible: false, angle, scale: 1, p: 1 };
+  const e = easeOutCubic(p);
+  return { visible: true, angle: angle - WEAPON_SWEEP + 2 * WEAPON_SWEEP * e, scale: 1 + WEAPON_POP * Math.sin(Math.PI * p), p };
+}
+
+// Impulso do corpo no golpe: deslocamento e escala do sprite (a posição de verdade continua a do servidor).
+export function lungeOffset(startMs: number, angle: number, time: number): { x: number; y: number; sx: number; sy: number } {
+  const t = time - startMs;
+  if (t < 0 || t >= LUNGE_OUT_MS + LUNGE_BACK_MS) return { x: 0, y: 0, sx: 1, sy: 1 };
+  // Sai depressa (ease-out) e volta suave (ease-in-out).
+  const k = t < LUNGE_OUT_MS ? easeOutCubic(t / LUNGE_OUT_MS) : 0.5 + 0.5 * Math.cos(Math.PI * ((t - LUNGE_OUT_MS) / LUNGE_BACK_MS));
+  return {
+    x: Math.cos(angle) * LUNGE_PX * k,
+    y: Math.sin(angle) * LUNGE_PX * k,
+    sx: 1 + LUNGE_SQUASH.x * k,
+    sy: 1 + LUNGE_SQUASH.y * k,
+  };
+}
+
+// Bote do mob quando o golpe sai: vai e volta numa meia senoide.
+export function mobLungeOffset(startMs: number, angle: number, time: number): { x: number; y: number } {
+  const t = (time - startMs) / MOB_LUNGE_MS;
+  if (t < 0 || t >= 1) return { x: 0, y: 0 };
+  const k = Math.sin(Math.PI * t);
+  return { x: Math.cos(angle) * MOB_LUNGE_PX * k, y: Math.sin(angle) * MOB_LUNGE_PX * k };
+}
+
+// Rastro da lâmina, preso à espada: um arco claro que vai do começo da varrida até onde a espada está agora, na
+// altura da ponta, sumindo no fim. (cx, cy) é o pivô da espada; reach, a distância do pivô até a ponta.
+export function drawBladeTrail(g: Phaser.GameObjects.Graphics, cx: number, cy: number, startAngle: number, pose: { angle: number; p: number }, reach: number) {
+  if (pose.p >= 1) return;
+  const from = startAngle - WEAPON_SWEEP;
+  const fade = 1 - pose.p;
+  g.lineStyle(5, 0x9fb4c8, 0.35 * fade);
+  g.beginPath();
+  g.arc(cx, cy, reach - 2, from, pose.angle);
+  g.strokePath();
+  g.lineStyle(2, 0xf2f6ff, 0.85 * fade);
+  g.beginPath();
+  g.arc(cx, cy, reach, Math.max(from, pose.angle - 0.9), pose.angle);
+  g.strokePath();
+}

@@ -3,6 +3,8 @@ import { ITEMS, type EquipSlot, type EssenceEffect, type ItemId, type Rarity } f
 // Peças comuns do HUD (hud.ts e inventoryWindow.ts): arte, montagem de elementos, slot clicável e dica (tooltip).
 
 export const ART = urls(import.meta.glob<string>("../../assets/ui/hud/*.png", { eager: true, query: "?url", import: "default" }));
+// Armas (tools/assets/weapons.py), as mesmas que o jogo gira no golpe.
+export const WEAPONS = urls(import.meta.glob<string>("../../assets/weapons/*.png", { eager: true, query: "?url", import: "default" }));
 export const ICONS = urls(import.meta.glob<string>("../../assets/ui/hud/items/*.png", { eager: true, query: "?url", import: "default" }));
 // Sprite parado de frente de cada classe (prévia do personagem na janela de inventário), pela pasta da classe.
 export const FRONT_SPRITES = new Map(

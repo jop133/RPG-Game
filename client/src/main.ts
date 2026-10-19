@@ -45,14 +45,19 @@ import {
   type Vec2,
 } from "shared";
 import {
+  ATTACK_FACING_MS,
   FloatingNumbers,
   ScreenShake,
   applyFlash,
+  drawBladeTrail,
   drawSwing,
+  lungeOffset,
+  mobLungeOffset,
   newReaction,
   recoilOffset,
   startReaction,
   swingDuration,
+  weaponPose,
   type HitReaction,
   type NumberKind,
   type Swing,
@@ -137,6 +142,19 @@ const MOB_URLS = Object.entries(
   import.meta.glob<string>("../../assets/mobs/*/*.png", { eager: true, query: "?url", import: "default" }),
 ).map(([path, url]) => ({ key: path.slice(path.indexOf("mobs/"), -".png".length), url }));
 const MOB_IDLE_URLS = MOB_URLS.filter(({ key }) => !key.includes("/walk-"));
+// Armas (tools/assets/weapons.py): 48x48, na horizontal apontando para a direita; chave "weapons/<arma>".
+const WEAPON_URLS = Object.entries(
+  import.meta.glob<string>("../../assets/weapons/*.png", { eager: true, query: "?url", import: "default" }),
+).map(([path, url]) => ({ key: path.slice(path.indexOf("weapons/"), -".png".length), url }));
+// A arma de todo mundo até a maestria de armas (passo 8).
+const WEAPON_KEY = "weapons/espada_ferro";
+// A espada gira em volta do cabo (origem perto da esquerda da imagem), na altura do peito, um pouco à frente.
+const WEAPON_ORIGIN = { x: 0.15, y: 0.5 };
+const WEAPON_CHEST_Y = 22; // px acima do centro da caixa do jogador
+const WEAPON_FORWARD = 8; // px na direção do golpe
+const WEAPON_REACH = 38; // do cabo até a ponta, em px (para o rastro)
+// Golpe para o norte: a espada fica atrás do corpo.
+const WEAPON_BEHIND_SIN = -0.25;
 const MOB_WALK_URLS = MOB_URLS.filter(({ key }) => key.includes("/walk-"));
 const MOB_FRAME = 64;
 // Linha dos pés parado (de 64) e andando (de 96, mediana dos quadros), altura do bicho e largura da sombra, medidas
@@ -196,6 +214,10 @@ interface Avatar {
   reaction: HitReaction;
   // Última vida vista: a diferença é o dano (ou a cura) que aparece em número. Undefined na cidade.
   lastHp?: number;
+  // Espada do golpe (escondida fora dele) e o golpe mais recente: quando saiu e para onde.
+  weapon: Phaser.GameObjects.Image;
+  swingAt: number;
+  swingAngle: number;
 }
 
 // Inimigo: sprite do tipo, virado para onde andou (ou, preparando o golpe, para onde vai bater).
@@ -208,6 +230,10 @@ interface MobSprite {
   lastMoveAt: number;
   reaction: HitReaction;
   lastHp: number;
+  // windup do quadro anterior: quando vira false, o golpe saiu e o mob dá um bote (lungeAt, lungeAngle).
+  lastWindup: boolean;
+  lungeAt: number;
+  lungeAngle: number;
 }
 
 // "../../assets/tilesets/city/props/poste.png" ou "../tilesets/city/props/poste.png" -> "city/props/poste".
@@ -419,7 +445,9 @@ class WorldScene extends Phaser.Scene {
   // Mapas e folhas de tiles ficam no cache do jogo: só a primeira visita baixa os arquivos.
   preload() {
     if (!this.cache.tilemap.exists(this.place)) this.load.tilemapTiledJSON(this.place, MAP_URLS[this.place]);
-    for (const { key, url } of [...TILESET_URLS, ...IDLE_URLS, ...MOB_IDLE_URLS]) if (!this.textures.exists(key)) this.load.image(key, url);
+    for (const { key, url } of [...TILESET_URLS, ...IDLE_URLS, ...MOB_IDLE_URLS, ...WEAPON_URLS]) {
+      if (!this.textures.exists(key)) this.load.image(key, url);
+    }
     for (const { key, url } of [...WALK_URLS, ...MOB_WALK_URLS]) {
       if (!this.textures.exists(key)) this.load.spritesheet(key, url, { frameWidth: WALK_FRAME, frameHeight: WALK_FRAME });
     }
@@ -746,6 +774,11 @@ Subiu para o nível ${info.level}!` : "";
       this.lastAttackSeq.set(sessionId, seq);
       if (previous === undefined || seq === previous) return;
       if (sessionId === room.sessionId) this.lastOwnSwingAt = time;
+      const avatar = this.avatars.get(sessionId);
+      if (avatar) {
+        avatar.swingAt = time;
+        avatar.swingAngle = player.attackAngle ?? 0;
+      }
       const classId = player.classId ?? "";
       const seed = Math.floor(Math.random() * 1e9);
       this.swings.push({ x: player.x, y: player.y, angle: player.attackAngle ?? 0, classId, startMs: time, seed });
@@ -756,6 +789,10 @@ Subiu para o nível ${info.level}!` : "";
   private drawOverlay(room: Room<unknown, ServerState>, g: Phaser.GameObjects.Graphics, time: number) {
     g.clear();
     for (const swing of this.swings) drawSwing(g, swing, time, SWING_RADIUS, SWING_HALF_ARC);
+    for (const avatar of this.avatars.values()) {
+      const pose = weaponPose(avatar.swingAt, avatar.swingAngle, time);
+      if (pose.visible) drawBladeTrail(g, avatar.weapon.x, avatar.weapon.y, avatar.swingAngle, pose, WEAPON_REACH * pose.scale);
+    }
     // Barra de vida do jogador acima da cabeça do sprite.
     room.state.players.forEach((player) => {
       const top = player.y + PLAYER_SIZE / 2 - AVATAR_HEIGHT - HP_BAR_GAP - HP_BAR_HEIGHT;
@@ -863,6 +900,8 @@ Subiu para o nível ${info.level}!` : "";
       }
       avatar.lastX = player.x;
       avatar.lastY = player.y;
+      // Logo depois do golpe, olha para onde bateu (mesmo andando para outro lado).
+      if (time - avatar.swingAt < ATTACK_FACING_MS) avatar.facing = facingFor(Math.cos(avatar.swingAngle), Math.sin(avatar.swingAngle));
       const feet = player.y + PLAYER_SIZE / 2;
       const isSelf = sessionId === room.sessionId;
       if (player.hp !== undefined) {
@@ -873,8 +912,12 @@ Subiu para o nível ${info.level}!` : "";
       }
       this.animateAvatar(avatar, player.classId, time - avatar.lastMoveAt < WALK_LINGER_MS);
       const recoil = recoilOffset(avatar.reaction, time);
-      avatar.body.setPosition(player.x + recoil.x, feet + recoil.y).setDepth(sortDepth(feet));
+      const lunge = lungeOffset(avatar.swingAt, avatar.swingAngle, time);
+      const bodyX = player.x + recoil.x + lunge.x;
+      const bodyY = feet + recoil.y + lunge.y;
+      avatar.body.setPosition(bodyX, bodyY).setDepth(sortDepth(feet)).setScale(lunge.sx, lunge.sy);
       applyFlash(avatar.body, avatar.reaction, time, isSelf ? SELF_FLASH_COLOR : HIT_FLASH_COLOR);
+      this.poseWeapon(avatar, bodyX, bodyY - PLAYER_SIZE / 2, sortDepth(feet), time);
       avatar.shadow.setPosition(player.x, feet - 1).setScale(stepSquash(avatar.body));
       avatar.label.setPosition(player.x, feet - AVATAR_HEIGHT - HP_BAR_GAP - HP_BAR_HEIGHT - 2);
     });
@@ -883,8 +926,24 @@ Subiu para o nível ${info.level}!` : "";
       avatar.body.destroy();
       avatar.shadow.destroy();
       avatar.label.destroy();
+      avatar.weapon.destroy();
       this.avatars.delete(sessionId);
     }
+  }
+
+  // Espada no golpe: no peito, um pouco à frente, girando do começo ao fim da varrida (weaponPose). Golpe para o
+  // norte fica atrás do corpo; os outros, na frente. (x, y) é o centro da caixa do jogador, já com o impulso.
+  private poseWeapon(avatar: Avatar, x: number, y: number, bodyDepth: number, time: number) {
+    const pose = weaponPose(avatar.swingAt, avatar.swingAngle, time);
+    avatar.weapon.setVisible(pose.visible);
+    if (!pose.visible) return;
+    const forward = { x: Math.cos(avatar.swingAngle), y: Math.sin(avatar.swingAngle) };
+    const behind = forward.y < WEAPON_BEHIND_SIN;
+    avatar.weapon
+      .setPosition(x + forward.x * WEAPON_FORWARD, y - WEAPON_CHEST_Y + forward.y * WEAPON_FORWARD)
+      .setRotation(pose.angle)
+      .setScale(pose.scale)
+      .setDepth(bodyDepth + (behind ? -0.1 : 0.1));
   }
 
   // Andando: toca a caminhada da direção (trocar de direção no meio do passo continua do mesmo quadro).
@@ -921,7 +980,20 @@ Subiu para o nível ${info.level}!` : "";
       .setDepth(OVERLAY_DEPTH);
     if (isSelf) this.cameras.main.startFollow(body, true);
     const reaction = newReaction();
-    return { body, shadow, label, facing: "south", lastX: player.x, lastY: player.y, lastMoveAt: -Infinity, reaction };
+    const weapon = this.add.image(player.x, feet, WEAPON_KEY).setOrigin(WEAPON_ORIGIN.x, WEAPON_ORIGIN.y).setVisible(false);
+    return {
+      body,
+      shadow,
+      label,
+      facing: "south",
+      lastX: player.x,
+      lastY: player.y,
+      lastMoveAt: -Infinity,
+      reaction,
+      weapon,
+      swingAt: -Infinity,
+      swingAngle: 0,
+    };
   }
 
   // Como syncAvatars, para os inimigos. A direção é só visual: preparando o golpe, olha para onde vai bater
@@ -941,7 +1013,19 @@ Subiu para o nível ${info.level}!` : "";
         const body = this.add.sprite(mob.x, mob.y, mobKey(kind, "south")).setOrigin(0.5, art.feet / MOB_FRAME);
         const shadow = this.add.ellipse(mob.x, mob.y, art.shadow, art.shadow * 0.32, 0x000000, SHADOW_ALPHA).setDepth(SHADOW_DEPTH);
         const reaction = newReaction();
-        sprite = { body, shadow, facing: "south", lastX: mob.x, lastY: mob.y, lastMoveAt: -Infinity, reaction, lastHp: mob.hp };
+        sprite = {
+          body,
+          shadow,
+          facing: "south",
+          lastX: mob.x,
+          lastY: mob.y,
+          lastMoveAt: -Infinity,
+          reaction,
+          lastHp: mob.hp,
+          lastWindup: mob.windup,
+          lungeAt: -Infinity,
+          lungeAngle: 0,
+        };
         this.mobSprites.set(id, sprite);
       }
       const dx = mob.x - sprite.lastX;
@@ -957,8 +1041,15 @@ Subiu para o nível ${info.level}!` : "";
       // Andando = mudou de lugar nos últimos WALK_LINGER_MS e não está parado preparando o golpe.
       const walking = time - sprite.lastMoveAt < WALK_LINGER_MS && !mob.windup;
       this.animateMob(sprite, kind, walking);
+      // O golpe saiu (windup acabou): bote na direção do golpe.
+      if (sprite.lastWindup && !mob.windup) {
+        sprite.lungeAt = time;
+        sprite.lungeAngle = mob.attackAngle;
+      }
+      sprite.lastWindup = mob.windup;
       const recoil = recoilOffset(sprite.reaction, time);
-      sprite.body.setPosition(mob.x + recoil.x, feet + recoil.y).setDepth(sortDepth(feet));
+      const lunge = mobLungeOffset(sprite.lungeAt, sprite.lungeAngle, time);
+      sprite.body.setPosition(mob.x + recoil.x + lunge.x, feet + recoil.y + lunge.y).setDepth(sortDepth(feet));
       applyFlash(sprite.body, sprite.reaction, time, HIT_FLASH_COLOR);
       // A sombra pulsa com o passo da caminhada; quem não tem caminhada (slime) pulsa no ritmo do relógio.
       const squash = sprite.body.anims.isPlaying ? stepSquash(sprite.body) : 1 - 0.1 * Math.abs(Math.sin(time / 90));

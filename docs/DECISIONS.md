@@ -1094,3 +1094,13 @@ Slot vazio usa a moldura comum.
 - **Barra rápida some com a janela aberta:** os mesmos 6 slots estão no cinturão. Todo fechamento passa por `Hud.closeWindow`
 - **Quadro de inspeção no lugar da dica flutuante** nos slots da mochila (`SlotView` ganhou `display` e `noTooltip`)
 
+---
+
+## 2026-10 — Animação de ataque por código: a arma é um sprite à parte que gira
+
+**Pedido do dono do projeto:** animar o golpe sem folhas novas de personagem, começando pela Espada de Ferro: a arma girando em arco, o corpo indo junto (olhar e impulso) e um bote nos mobs.
+
+**Como:** a arma é uma imagem separada do personagem (48x48, apontando para a direita), girada em volta do cabo pelo cliente a partir do `attackAngle` que o servidor já manda. Uma arte por arma serve para todas as classes e as 8 direções. Tudo é só desenho (regra 1): o acerto continua sendo o arco do servidor (`PLAYER_ATTACK.arcDegrees`, 100°); a varrida de 130° e o impulso não mexem na posição de verdade. Os tempos e distâncias da animação ficam em `juice.ts` (não são números de jogo, não vão para o `balance.ts`).
+
+**Limite:** todo personagem mostra a Espada de Ferro, porque é a arma de todos até a maestria de armas (passo 8).
+

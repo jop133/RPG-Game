@@ -1035,3 +1035,9 @@
   opacity: 1;
   filter: drop-shadow(0 1px 2px #000);
 }
+
+/* A espada de ferro no slot de arma: a arte aponta para a direita; em diagonal, como num slot de RPG. */
+.hud-inv .hud-weapon-icon {
+  transform: rotate(-45deg);
+  filter: drop-shadow(0 1px 2px #000);
+}

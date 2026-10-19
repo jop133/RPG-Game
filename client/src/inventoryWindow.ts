@@ -17,6 +17,7 @@ import {
   ICONS,
   KEY_LABELS,
   SlotView,
+  WEAPONS,
   el,
   essenceEffectText,
   frameName,
@@ -197,7 +198,7 @@ export class InventoryWindow {
     };
     this.plates = { hp: plate("Vida Máx.", 0), damage: plate("Dano", 1), speed: plate("Velocidade", 2), level: plate("Nível", 3) };
     tooltip.attach(this.plates.damage.value.parentElement as HTMLElement, () => ({
-      title: "Arma inicial",
+      title: "Espada de Ferro (arma inicial)",
       lines: [`Alcance ${PLAYER_ATTACK.range} px  ·  Arco ${PLAYER_ATTACK.arcDegrees}°`, "Golpe com o clique, na direção do mouse."],
     }));
     // Altar das essências: os slots que o nível abre e os próximos, trancados.
@@ -322,12 +323,16 @@ export class InventoryWindow {
     }
     // Arma inicial: a única até a maestria de armas (passo 8). Dano com as essências; alcance e arco da arma.
     slot.classList.add("hud-equipped");
-    const icon = place(image("icon_weapon", "hud-abs hud-weapon-icon", parent), x + (EQUIP - 48) / 2, y + (EQUIP - 48) / 2, 48, 48);
+    // A espada de ferro (a mesma que gira no golpe), em diagonal no slot.
+    const icon = place(el("img", "hud-abs hud-weapon-icon", parent), x + (EQUIP - 48) / 2, y + (EQUIP - 48) / 2, 48, 48);
+    icon.src = WEAPONS.get("espada_ferro") ?? "";
+    icon.alt = "";
+    icon.draggable = false;
     const describe = () => {
       const damage = playerStats((this.view?.essences ?? []) as ItemId[]).damage;
       return {
-        title: "Arma inicial",
-        subtitle: name,
+        title: "Espada de Ferro",
+        subtitle: `${name} (arma inicial)`,
         lines: [`Dano ${damage}  ·  Alcance ${PLAYER_ATTACK.range} px  ·  Arco ${PLAYER_ATTACK.arcDegrees}°`, "Golpe com o clique, na direção do mouse."],
       };
     };

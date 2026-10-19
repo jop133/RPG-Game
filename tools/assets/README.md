@@ -171,3 +171,12 @@ quadros 96x96) e grava em `assets/mobs/<tipo>/` (tipo em minúsculas): o parado 
 cada GIF que existir, sem reamostrar. Direção sem GIF fica sem fita (o cliente usa a cardeal do lado, ou o sprite parado).
 Mob novo: pasta em `Inimigos/` com o nome do tipo de `MOB_KINDS`, rodar o script e medir os pés em `MOB_ART` (`client/src/main.ts`).
 
+## Armas
+
+```bash
+tools/assets/.venv/Scripts/python.exe -I tools/assets/weapons.py
+```
+
+Desenha as armas em pixel art em `assets/weapons/<arma>.png` (48x48, fundo transparente, na horizontal apontando para
+a direita, cabo em x 6-14 e ponta em x 44, y 24). O cliente gira a arma no golpe em volta do cabo (origem 0,15 x 0,5).
+
