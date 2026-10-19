@@ -4,6 +4,7 @@ Entrada: assets/tilesets/interface/hud_status_kit.png e hud_inventario_kit.png (
 Saída:   assets/ui/hud/*.png          peças sem fundo, reduzidas por média de área para o tamanho do HUD
          assets/ui/hud/portrait-<classe>.png   rosto de cada classe (do sprite parado de frente)
          assets/ui/hud/items/<item>.png        ícone 16x16 de cada item, desenhado aqui
+         assets/ui/hud/status_scroll.png       pergaminho dos status (ao lado da janela de inventário), desenhado aqui
          assets/ui/hud/layout.json    onde ficam os vãos (retrato, calhas, slots da barra, couro da mochila),
                                       medidos na própria arte: o cliente não tem coordenada escrita à mão
          tools/assets/build/contato-hud.png    folha de conferência
@@ -320,6 +321,75 @@ ICONS = {
 }
 
 
+# ---------------------------------------------------------------- pergaminho de status
+
+# Pergaminho aberto ao lado da janela de inventário (status do personagem): papel envelhecido da cor do Paper UI
+# (o mesmo da ficha de registro), com manchas e bordas escurecidas, entre dois rolos de papel com pontas de madeira.
+# Desenhado aqui, em pixel art, no tamanho exibido (1x na tela-base, como o painel da mochila).
+SCROLL = (300, 640)
+SCROLL_ROLL = 30  # altura de cada rolo
+SCROLL_KNOB = 14  # largura da ponta de madeira de cada lado
+SCROLL_MARGIN = 22  # recuo do papel em relação às pontas dos rolos
+PAPER = np.array((212, 176, 119))
+PAPER_DARK = np.array((150, 108, 62))
+INK = (60, 36, 20)
+WOOD = ((44, 26, 16), (92, 58, 32), (128, 84, 46), (164, 112, 62))  # contorno, sombra, base, brilho
+ROLL_PAPER = ((60, 40, 24), (150, 112, 70), (196, 160, 106), (226, 198, 148))
+
+
+def status_scroll() -> tuple[Image.Image, dict]:
+    w, h = SCROLL
+    rng = np.random.default_rng(7)
+    px = np.zeros((h, w, 4), np.uint8)
+    half = SCROLL_ROLL // 2
+    x0, x1 = SCROLL_MARGIN, w - SCROLL_MARGIN  # papel em [x0, x1)
+    y0, y1 = half, h - half
+    # Papel: cor base com ruído em blocos de 2x2 (textura de fibra), escurecendo nas bordas e sob os rolos.
+    noise = np.kron(rng.normal(0, 5, ((y1 - y0 + 1) // 2, (x1 - x0 + 1) // 2)), np.ones((2, 2)))[: y1 - y0, : x1 - x0]
+    ys, xs = np.mgrid[y0:y1, x0:x1]
+    edge = np.minimum(xs - x0, x1 - 1 - xs)
+    near_roll = np.minimum(ys - y0, y1 - 1 - ys)
+    shade = np.clip(1 - edge / 14, 0, 1) * 0.45 + np.clip(1 - near_roll / 22, 0, 1) * 0.5
+    color = PAPER[None, None, :] * (1 - shade[..., None]) + PAPER_DARK[None, None, :] * shade[..., None] + noise[..., None]
+    # Manchas de idade: elipses levemente mais escuras.
+    for _ in range(9):
+        cx, cy = rng.uniform(x0 + 20, x1 - 20), rng.uniform(y0 + 40, y1 - 40)
+        rx, ry = rng.uniform(10, 34), rng.uniform(8, 26)
+        spot = ((xs - cx) / rx) ** 2 + ((ys - cy) / ry) ** 2 <= 1
+        color[spot] -= rng.uniform(5, 11)
+    px[y0:y1, x0:x1, :3] = np.clip(color, 0, 255).astype(np.uint8)
+    px[y0:y1, x0:x1, 3] = 255
+    # Bordas do papel um pouco irregulares, com contorno escuro.
+    for y in range(y0, y1):
+        for side in (x0, x1 - 1):
+            bite = int(rng.integers(0, 3) == 0)
+            inner = side + bite if side == x0 else side - bite
+            if bite:
+                px[y, side, 3] = 0
+            px[y, inner, :3] = INK
+    # Rolos (em cima e embaixo): papel enrolado com sombreado horizontal e pontas de madeira.
+    for top in (0, h - SCROLL_ROLL):
+        for i in range(SCROLL_ROLL):
+            t = i / (SCROLL_ROLL - 1)
+            # Cilindro: brilho um pouco acima do meio, sombra embaixo, contorno nas pontas.
+            level = 0 if i in (0, SCROLL_ROLL - 1) else 3 if 0.2 < t < 0.42 else 2 if t < 0.7 else 1
+            px[top + i, SCROLL_KNOB : w - SCROLL_KNOB, :3] = ROLL_PAPER[level]
+            px[top + i, SCROLL_KNOB : w - SCROLL_KNOB, 3] = 255
+            knob_level = 0 if i in (0, SCROLL_ROLL - 1) else 3 if 0.2 < t < 0.4 else 2 if t < 0.7 else 1
+            # Pontas arredondadas: encolhem perto do topo e da base do rolo.
+            inset = 3 if i in (0, SCROLL_ROLL - 1) else 1 if i in (1, SCROLL_ROLL - 2) else 0
+            for x in list(range(inset, SCROLL_KNOB + 2)) + list(range(w - SCROLL_KNOB - 2, w - inset)):
+                px[top + i, x, :3] = WOOD[knob_level]
+                px[top + i, x, 3] = 255
+        # Contorno das pontas e a linha da borda do papel enrolado.
+        for x in (SCROLL_KNOB + 2, w - SCROLL_KNOB - 3):
+            px[top + 1 : top + SCROLL_ROLL - 1, x, :3] = WOOD[0]
+        edge_row = top + (SCROLL_ROLL - 4 if top == 0 else 3)
+        px[edge_row, SCROLL_KNOB + 3 : w - SCROLL_KNOB - 3, :3] = ROLL_PAPER[0]
+    # Onde vai o texto: o papel entre os rolos, com folga.
+    content = {"x": x0 + 14, "y": SCROLL_ROLL + 6, "w": (x1 - x0) - 28, "h": h - 2 * SCROLL_ROLL - 12}
+    return Image.fromarray(px), content
+
 # ---------------------------------------------------------------- montagem
 
 
@@ -403,6 +473,11 @@ def main() -> None:
             layout["inv_panel_wide"] = {"w": WIDE_PANEL[0], "h": WIDE_PANEL[1]}
             layout["leather_wide"] = {"x": leather["x"], "y": leather["y"], "w": leather["w"] + WIDE_PANEL[0] - width,
                                       "h": leather["h"] + WIDE_PANEL[1] - layout["inv_panel"]["h"]}
+
+    scroll, content = status_scroll()
+    scroll.save(OUT / "status_scroll.png")
+    sheet.append(("status_scroll", scroll))
+    layout["status_scroll"] = {"w": SCROLL[0], "h": SCROLL[1], "content": content}
 
     p = layout["portrait"]
     for class_id in CLASSES:

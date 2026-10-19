@@ -2,11 +2,9 @@ import {
   INVENTORY_SLOTS,
   ITEMS,
   LEVEL_XP,
-  PLAYER_MAX_HP,
-  PLAYER_SPEED,
   equipSlotOf,
-  levelProgress,
   playerStats,
+  statsFrom,
   type Equipment,
   type ItemId,
 } from "shared";
@@ -34,13 +32,14 @@ import {
   type Tooltip,
 } from "./hudParts";
 import { classLabel } from "./registration";
+import { StatusScroll } from "./statusScroll";
 
 // Janela de inventário (I, Tab ou B), em duas alas lado a lado, cada uma num painel de ferro e couro (inv_panel_wide:
 // o painel da arte alargado sem esticar cantos nem brasão, ver process_hud.py):
 // - esquerda, a mochila: os 12 slots em dois blocos (o cinturão rápido, atalhos 1 a 6, e a carga, 7 a =), as moedas e
 //   um quadro de inspeção do item sob o mouse;
-// - direita, o personagem: sprite grande com os 6 slots de equipamento dos lados, 4 placas de atributo e o altar das
-//   essências absorvidas.
+// - direita, o personagem: sprite grande com os 6 slots de equipamento dos lados, o botão "Status" (abre o pergaminho
+//   dos 12 status ao lado, StatusScroll) e o altar das essências absorvidas.
 // Só desenho: os números vêm do servidor ou das mesmas regras puras de shared. Medidas em px de tela na tela-base
 // (1366x768), ampliadas com o resto da HUD (--u).
 // Arrastar e soltar (só pede; quem decide e muda é o servidor, regra 1): entre slots da mochila manda "move"; da
@@ -77,6 +76,9 @@ const GHOST = 48;
 const PANEL = layout.inv_panel_wide;
 const LEATHER = layout.leather_wide;
 const GAP_BETWEEN = 16;
+// O pergaminho dos status, à direita da ala do personagem: a janela alarga e continua centrada.
+const SCROLL_W = layout.status_scroll.w;
+const STATUS_BUTTON = { w: 140, h: 32 };
 const SLOT = 68;
 const SLOT_GAP = 6;
 const BELT = 6;
@@ -108,18 +110,14 @@ interface EssenceSlot {
   lock: HTMLImageElement;
 }
 
-interface StatPlate {
-  value: HTMLSpanElement;
-  bonus: HTMLSpanElement;
-}
-
 export class InventoryWindow {
   readonly root: HTMLDivElement;
   // Fundo escurecido atrás da janela (fica no HUD, fora da janela ampliada).
   private readonly backdrop: HTMLDivElement;
   private readonly sprite: HTMLImageElement;
   private readonly heroTitle: HTMLDivElement;
-  private readonly plates: Record<"hp" | "damage" | "speed" | "level", StatPlate>;
+  private readonly statusButton: HTMLButtonElement;
+  private readonly scroll: StatusScroll;
   private readonly essenceTitle: HTMLDivElement;
   private readonly essenceSlots: EssenceSlot[] = [];
   private readonly bagSlots: SlotView[] = [];
@@ -215,27 +213,21 @@ export class InventoryWindow {
     this.sprite = place(el("img", "hud-abs hud-character", right), arenaX + (arenaW - SPRITE) / 2, equipTop + column - SPRITE - 12, SPRITE, SPRITE);
     this.sprite.alt = "";
     this.sprite.draggable = false;
-    // 4 placas de atributo, em 2x2.
-    const platesTop = equipTop + column + 6;
-    const plateW = (LEATHER.w - 24 - 8) / 2;
-    const plate = (label: string, i: number): StatPlate => {
-      const box = place(el("div", "hud-abs hud-inv-plate", right), LEATHER.x + 12 + (i % 2) * (plateW + 8), platesTop + Math.floor(i / 2) * 34, plateW, 30);
-      el("span", "hud-inv-plate-label", box).textContent = label;
-      const value = el("span", "hud-inv-plate-value", box);
-      const bonus = el("span", "hud-inv-plate-bonus", box);
-      return { value, bonus };
-    };
-    this.plates = { hp: plate("Vida Máx.", 0), damage: plate("Dano", 1), speed: plate("Velocidade", 2), level: plate("Nível", 3) };
-    tooltip.attach(this.plates.damage.value.parentElement as HTMLElement, () => {
-      const weapon = this.view?.weapon;
-      const stats = playerStats([], this.equipment());
-      return {
-        title: weapon ? ITEMS[weapon as ItemId].name : "Desarmado (soco)",
-        lines: [attackText(stats.attack), "Golpe com o clique, na direção do mouse."],
-      };
-    });
+    // Botão do pergaminho dos status, no vão entre o personagem e o altar (onde ficavam as placas de atributo).
+    const statusTop = equipTop + column + 6;
+    this.statusButton = place(
+      el("button", "hud-abs hud-inv-status-btn", right),
+      LEATHER.x + (LEATHER.w - STATUS_BUTTON.w) / 2,
+      statusTop + (68 - STATUS_BUTTON.h) / 2,
+      STATUS_BUTTON.w,
+      STATUS_BUTTON.h,
+    );
+    this.statusButton.type = "button";
+    this.statusButton.textContent = "Status";
+    this.statusButton.addEventListener("click", () => this.setScrollOpen(!this.scroll.open));
+    this.scroll = new StatusScroll(this.root, PANEL.w * 2 + GAP_BETWEEN * 2, 0);
     // Altar das essências: os slots que o nível abre e os próximos, trancados.
-    const altarTop = platesTop + 2 * 34 + 2;
+    const altarTop = statusTop + 2 * 34 + 2;
     this.essenceTitle = place(el("div", "hud-abs hud-section-title hud-inv-section", right), LEATHER.x, altarTop, LEATHER.w);
     for (let i = 0; i < MAX_ESSENCE_SLOTS; i++) {
       const row = Math.floor(i / ESSENCE_COLUMNS);
@@ -258,6 +250,13 @@ export class InventoryWindow {
     this.setOpen(false);
   }
 
+  // O pergaminho abre ao lado da ala do personagem: a janela alarga (e continua centrada, pelo translate(-50%)).
+  private setScrollOpen(open: boolean) {
+    this.scroll.setOpen(open);
+    this.statusButton.classList.toggle("hud-inv-status-open", open);
+    size(this.root, PANEL.w * 2 + GAP_BETWEEN + (open ? GAP_BETWEEN + SCROLL_W : 0), PANEL.h);
+  }
+
   private setOpen(open: boolean) {
     this.root.hidden = !open;
     this.backdrop.hidden = !open;
@@ -269,17 +268,9 @@ export class InventoryWindow {
     const sprite = FRONT_SPRITES.get(view.classId) ?? FRONT_SPRITES.get("mago") ?? "";
     if (this.sprite.getAttribute("src") !== sprite) this.sprite.src = sprite;
     setText(this.heroTitle, `${view.name} — ${classLabel(view.classId)}`);
+    // Bônus no pergaminho = o que vem de essências e equipamento, sobre a base com o golpe da arma.
     const stats = playerStats(view.essences as ItemId[], this.equipment());
-    const base = playerStats([], this.equipment());
-    this.setPlate(this.plates.hp, String(view.maxHp), view.maxHp - PLAYER_MAX_HP, "");
-    this.setPlate(this.plates.damage, String(stats.physicalDamage), stats.physicalDamage - base.physicalDamage, "");
-    const speedBonus = Math.round((stats.speed / PLAYER_SPEED - 1) * 100);
-    this.setPlate(this.plates.speed, String(Math.round(stats.speed)), speedBonus, "%");
-    const progress = levelProgress(view.level, view.xp);
-    const xp = progress.xpNext === undefined ? `XP ${view.xp} (máx.)` : `XP ${view.xp} / ${progress.xpNext}`;
-    this.setPlate(this.plates.level, String(view.level), 0, "");
-    setText(this.plates.level.bonus, xp);
-    this.plates.level.bonus.classList.add("hud-inv-plate-xp");
+    this.scroll.update(stats, statsFrom([], stats.attack));
     setText(this.essenceTitle, `Essências absorvidas (${view.essences.length} / ${view.level})`);
     const used = view.inventory.filter((slot) => slot && slot.count > 0).length;
     setText(this.slotsText, `Slots: ${used} / ${INVENTORY_SLOTS}`);
@@ -390,11 +381,6 @@ export class InventoryWindow {
     if (!item || equipSlotOf(item as ItemId) !== "weapon") return false;
     if (drop) this.send("equip", { slot: dragging.slot });
     return true;
-  }
-
-  private setPlate(plate: StatPlate, value: string, bonus: number, unit: string) {
-    setText(plate.value, value);
-    setText(plate.bonus, bonus > 0 ? `(+${bonus}${unit})` : "");
   }
 
   private setInspected(index: number | undefined) {

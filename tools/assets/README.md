@@ -167,7 +167,9 @@ Lê `assets/tilesets/interface/hud_status_kit.png` e `hud_inventario_kit.png` (f
 as peças sem fundo e reduzidas por área (tamanhos em "pixels de HUD" no topo do script; as molduras de raridade saem em
 48, 34 e 28, uma para a barra, outra para a mochila e outra para o altar de essências; o painel da janela em 360 de largura), as tiras das 3 barras com 100% do vão
 das calhas, o rosto de cada classe (recortado do sprite parado, centrado pela testa) os ícones de espada (arma inicial) e cadeado (slot de essência trancado) e um ícone 16x16 para cada item
-(`ICONS`, desenhados no código: item novo sem ícone aparece com a sigla). Os vãos medidos na arte vão para `layout.json`,
+(`ICONS`, desenhados no código: item novo sem ícone aparece com a sigla). Desenha também o pergaminho dos status
+(`status_scroll.png`, 300x640: papel envelhecido da cor do Paper UI entre dois rolos com pontas de madeira; a área do
+texto vai em `layout.json` como `status_scroll.content`). Os vãos medidos na arte vão para `layout.json`,
 que o cliente (`client/src/hud.ts`) usa para posicionar retrato, barras e slots.
 
 ## Inimigos (parado e caminhada)

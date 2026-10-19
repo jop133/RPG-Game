@@ -976,48 +976,6 @@
   filter: brightness(1.75) contrast(1.15);
 }
 
-/* Placas de atributo. */
-.hud-inv-plate {
-  box-sizing: border-box;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 6px 10px 0;
-  white-space: nowrap;
-  background: linear-gradient(#2a2428, #141116);
-  border: 2px solid #5d5458;
-  border-radius: 3px;
-  box-shadow: 0 0 0 1px #0c0806, inset 0 1px 0 rgba(255, 230, 180, 0.08);
-  pointer-events: auto;
-}
-
-.hud-inv-plate-label {
-  font-size: 11px;
-  font-weight: bold;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  color: #b8a582;
-}
-
-.hud-inv-plate-value {
-  font-size: 16px;
-  font-weight: bold;
-  color: #fff5e6;
-  text-shadow: 0 1px 2px #000;
-}
-
-.hud-inv-plate-bonus {
-  font-size: 13px;
-  font-weight: bold;
-  color: #6dff7a;
-  text-shadow: 0 1px 2px #000;
-}
-
-.hud-inv-plate-bonus.hud-inv-plate-xp {
-  font-size: 12px;
-  color: #ffd166;
-}
-
 /* Altar das essências: engaste livre claro, trancado escurecido com o cadeado dourado por cima. */
 .hud-inv .hud-essence img {
   image-rendering: pixelated;
@@ -1070,4 +1028,148 @@
 
 .hud-drag-ghost-weapon {
   transform: rotate(-45deg);
+}
+
+/* ---- botão "Status" e o pergaminho dos status (statusScroll.ts) ---- */
+
+.hud-inv-status-btn {
+  box-sizing: border-box;
+  pointer-events: auto;
+  cursor: pointer;
+  font: inherit;
+  font-size: 15px;
+  font-weight: bold;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #f0d68a;
+  text-shadow: 0 1px 2px #000;
+  background: linear-gradient(#3a2a1e, #1f150e);
+  border: 2px solid #6b5a48;
+  box-shadow: 0 0 0 1px #0c0806, inset 0 1px 0 rgba(255, 220, 160, 0.15);
+}
+
+.hud-inv-status-btn:hover,
+.hud-inv-status-btn.hud-inv-status-open {
+  color: #ffe9a8;
+  border-color: #c9a227;
+}
+
+.hud-inv-status-btn.hud-inv-status-open {
+  background: linear-gradient(#4a3420, #2a1b10);
+}
+
+.hud-scroll {
+  pointer-events: auto;
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.7));
+  animation: hud-unroll 220ms ease-out;
+}
+
+.hud-scroll > img {
+  image-rendering: pixelated;
+}
+
+/* Abre de cima para baixo, como um pergaminho desenrolando. */
+@keyframes hud-unroll {
+  from {
+    clip-path: inset(0 0 92% 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+/* Texto em tinta escura sobre o papel; rola quando não cabe. */
+.hud-scroll-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 6px;
+  box-sizing: border-box;
+  color: #3c2414;
+  scrollbar-width: thin;
+  scrollbar-color: #8a5a32 rgba(90, 60, 30, 0.15);
+}
+
+.hud-scroll-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.hud-scroll-body::-webkit-scrollbar-track {
+  background: rgba(90, 60, 30, 0.15);
+  border-radius: 4px;
+}
+
+.hud-scroll-body::-webkit-scrollbar-thumb {
+  background: #8a5a32;
+  border-radius: 4px;
+}
+
+.hud-scroll-title {
+  margin: 2px 0 4px;
+  font-size: 22px;
+  font-weight: bold;
+  letter-spacing: 3px;
+  text-align: center;
+  text-transform: uppercase;
+  color: #5a1a0e;
+}
+
+.hud-scroll-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 4px;
+  font-size: 14px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #7a2a14;
+}
+
+.hud-scroll-section::before,
+.hud-scroll-section::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #7a4a26, transparent);
+}
+
+.hud-scroll-row {
+  padding: 5px 2px 6px;
+  border-bottom: 1px dashed rgba(90, 56, 30, 0.35);
+}
+
+.hud-scroll-row-top {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.hud-scroll-label {
+  flex: 1;
+  font-size: 15px;
+  font-weight: bold;
+}
+
+.hud-scroll-value {
+  font-size: 16px;
+  font-weight: bold;
+  color: #24140a;
+}
+
+.hud-scroll-bonus {
+  font-size: 13px;
+  font-weight: bold;
+  color: #1f6b2a;
+}
+
+.hud-scroll-bonus.hud-scroll-bonus-down {
+  color: #8a1a10;
+}
+
+.hud-scroll-hint {
+  margin-top: 1px;
+  font-size: 12px;
+  font-style: italic;
+  line-height: 1.25;
+  color: #6a4a30;
 }

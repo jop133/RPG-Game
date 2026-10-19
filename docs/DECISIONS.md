@@ -1166,3 +1166,17 @@ Slot vazio usa a moldura comum.
 **Pendente para quando houver bônus de verdade (nada na tela por enquanto, pedido do dono do projeto):**
 - O cliente desenha a luz do jogador com `PLAYER_LIGHT_RADIUS`. Com Percepção diferente da base, o raio precisa ir no estado para o desenho bater com o que o servidor manda (regra 4).
 - Com Defesa, o dano recebido deixa de ser inteiro: os números flutuantes e a barra precisam arredondar.
+
+---
+
+## 2026-10 — Status num pergaminho ao lado do personagem
+
+**Pedido do dono do projeto:** tirar as 4 placas de atributo (Vida Máx., Dano, Velocidade, Nível) de baixo do personagem na janela de inventário e pôr um botão "Status" que abre, à direita do personagem, um pergaminho com os 12 status em Combate, Exploração e Sobrevivência, legíveis e com rolagem.
+
+**Muda** a decisão da janela de inventário em duas alas (as placas de atributo saíram). O nível continua no medalhão do HUD (com o anel de XP) e no título do altar ("Essências absorvidas (x / nível)").
+
+**Como:**
+- Arte própria: `status_scroll.png` (300x640) desenhado em `process_hud.py`, papel com a cor do Paper UI, fibra, manchas e bordas escurecidas, entre dois rolos com pontas de madeira. O Paper UI só tem folhas soltas, sem pergaminho enrolado.
+- `client/src/statusScroll.ts`: cada status com o valor, o bônus sobre a base em verde (o que vem de essências e equipamento; a base já inclui o golpe da arma, então a espada não aparece como bônus) e uma linha dizendo o que faz. Tinta escura sobre o papel (rótulo 15 px, valor 16 px, descrição 12 px), barra de rolagem marrom, e uma animação curta de desenrolar ao abrir.
+- A imagem do pergaminho é importada direto em `statusScroll.ts`, não pelo glob de arte de `hudParts.ts`: o Vite resolve um glob só ao subir e não vê arquivo novo em `assets/` (fora da pasta do cliente). Com o glob, num servidor de desenvolvimento que já estava rodando quando a arte foi gerada, o pergaminho ficava invisível (só o texto). Arte nova em glob pede reiniciar o `npm run dev`.
+- O pergaminho fica dentro da janela: ela alarga (996 → 1312 na tela-base) e continua centrada. Valores calculados pelas mesmas regras puras de `shared` (`playerStats`, `statsFrom`, `attackCooldownMs`): só desenho.
