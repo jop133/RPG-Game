@@ -26,6 +26,10 @@ export type Equipment = Partial<Record<EquipSlot, ItemId>>;
 export const EQUIP_SLOTS: readonly EquipSlot[] = ["helm", "chest", "pants", "boots", "weapon", "shield", "amulet", "ring"];
 // As peças que aparecem no corpo, na ordem em que se vestem (de baixo para cima na pilha de camadas).
 export const BODY_LAYERS = ["boots", "pants", "chest", "helm"] as const satisfies readonly EquipSlot[];
+// As que o cliente desenha hoje (no mapa e no boneco do inventário). O elmo está desligado por enquanto, a pedido do
+// dono do projeto: continua equipável e somando status, como amuleto e anel, mas sem camada na cabeça (a arte dele
+// continua gerada em assets/characters/<classe>/armor/<look>/helm/). Para religar, voltar a usar BODY_LAYERS.
+export const DRAWN_BODY_LAYERS = BODY_LAYERS.filter((piece) => piece !== "helm");
 
 export function equipSlotOf(item: ItemId): EquipSlot | undefined {
   return (ITEMS[item] as ItemStats).equip?.slot;

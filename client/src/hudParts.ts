@@ -31,12 +31,6 @@ export const EQUIP_NAMES: Record<EquipSlot, string> = {
   amulet: "Amuleto / Colar",
   ring: "Relíquia / Anel",
 };
-// O corpo sob o elmo, parado de frente (retrato com elmo), por classe: só as que têm essa versão.
-export const HELMED_FRONT_SPRITES = new Map(
-  Object.entries(
-    import.meta.glob<string>("../../assets/characters/*/helmed/south.png", { eager: true, query: "?url", import: "default" }),
-  ).map(([path, url]) => [path.split("/").at(-3) ?? "", url]),
-);
 // A armadura vestida no sprite parado de frente (retrato da janela de inventário): "<classe>/<visual>/<peça>".
 export const ARMOR_PREVIEW = new Map(
   Object.entries(
