@@ -148,6 +148,16 @@ export class Store {
     this.db.prepare("UPDATE characters SET class = ? WHERE id = ? AND class IS NULL").run(classId, characterId);
   }
 
+  // Ferramentas de dev (set_class): troca a classe mesmo já escolhida.
+  changeClass(characterId: number, classId: ClassId) {
+    this.db.prepare("UPDATE characters SET class = ? WHERE id = ?").run(classId, characterId);
+  }
+
+  // Ferramentas de dev (add_gold): grava a bolsa da linhagem.
+  setCoins(lineageId: number, coins: number) {
+    this.db.prepare("UPDATE lineages SET coins = ? WHERE id = ?").run(coins, lineageId);
+  }
+
   xp(characterId: number): number {
     return (this.db.prepare("SELECT xp FROM characters WHERE id = ?").get(characterId) as { xp: number }).xp;
   }

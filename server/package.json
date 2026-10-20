@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch --include ../assets/maps/*.json src/index.ts",
+    "dev:sandbox": "tsx watch --include ../assets/maps/*.json src/index.ts --dev-tools",
     "test": "vitest run"
   },
   "dependencies": {

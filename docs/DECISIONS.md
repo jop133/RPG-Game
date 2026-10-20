@@ -1183,6 +1183,29 @@ Slot vazio usa a moldura comum.
 
 ---
 
+## 2026-10 — Sala de Testes, painel F2 e window.__DEV__ (ferramentas de dev)
+
+**Pedido do dono do projeto:** testar qualquer classe, item, magia, mob, zona ou janela em segundos e sem morrer, sem caminhar pelo labirinto: sala de testes, comandos de dev no servidor, painel F2 e uma API no console.
+
+**Decisões (perguntadas ao dono do projeto):**
+- **Desligado por padrão:** o servidor só aceita os comandos com `DEV_TOOLS=1` (ou `--dev-tools`; `npm run dev:sandbox`). No servidor normal, o handler `"dev_command"` e a sala `sandbox` nem existem. Os comandos são trapaça pura; a regra 1 continua valendo para todo o resto.
+- **Mapa e sala separados:** o labirinto não tem 24x24 tiles livres e regenerar o mapa grande é arriscado. A Sala de Testes é `SandboxRoom` (herda de `GameRoom`: as mesmas regras) com `assets/maps/test_arena.json`. O mapa passou a ser por sala (`this.level`, com as `configs` das áreas: `AREAS` ou `ARENA_AREAS`).
+- **Trocar de classe grava no banco** (`store.changeClass`): habilidades iniciais da classe e o que ela não usa vai para a mochila.
+- **Na Sala de Testes ninguém morre** (a vida para em 1). O God Mode vale em qualquer sala do labirinto: vida para em 1, Mana cheia, fome travada.
+
+**Como ficou:**
+- `shared/src/dev.ts`: `parseDevCommand` (tudo o que chega do cliente é conferido), `spawnSpots` (3 tiles à frente, recua se cair em parede), `devGive` e `dropForeignGear` (regras de equipamento de sempre), `mobStats` (inclui o boneco), destinos e lojas. Números em `balance.ts` (`DEV`, `TRAINING_DUMMY`, `ARENA_AREAS`).
+- Boneco de Treino: tipo `"dummy"`, fora de `MOB_KINDS` (não entra no bestiário, no rank nem no loot); não anda nem ataca, e zerado volta inteiro. Desenhado no código pelo cliente.
+- Mob de dev com a IA desligada fica parado (`MobBrain.ai`); `set_mob_ai` congela a sala inteira.
+- Efeito de zona forçado (`forcedZones`): a zona do jogador passa a ser a pedida, onde ele estiver; slime ganha uma poça ácida perto, gnomo quatro estilhaços e um cristal de descarga.
+- Teleporte: na mesma sala, o servidor move; em outra, o cliente sai da sala e entra na do destino com `devTarget` (o servidor confere e leva). No labirinto, sair assim é a saída intencional de sempre (volta como antes da run).
+- `tools/assets/build_test_arena.py`: 24x24 de chão com 9 tochas, trecho de parede, pilar, saída e chegada; cada tile copiado do labirinto pelo desenho das 8 vizinhas (sem arte nova). Rodar de novo depois de regenerar o labirinto.
+- Cliente: `devPanel.ts` (painel e `window.__DEV__`); os avisos `dev_tools`/`dev_goto` são ouvidos logo depois de entrar na sala; recarregando a página, a aba pede de novo (`dev_hello`).
+
+**Achados no teste e corrigidos:** com `?testRoom=1`, a troca para a sala de testes acontecia antes de a cena da cidade existir e não saía da cidade ("já está no jogo"); agora a página guarda a sala atual. A Sala de Testes com 4 tochas nos cantos ficava escura no meio: virou uma grade de 9.
+
+---
+
 ## 2026-10 — Breu absoluto com linha de visão, mais dificuldade e portais com canalização
 
 **Pedido do dono do projeto:** a escuridão mostrava o contorno das paredes e corredores atrás de muros; o jogo estava fácil e chegava-se ao portal sem tomar dano.

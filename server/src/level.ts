@@ -27,6 +27,7 @@ import {
   validateAreas,
   zoneAt,
   type Area,
+  type AreaConfig,
   type BuildingId,
   type InteractionPoint,
   type CollisionGrid,
@@ -38,6 +39,8 @@ import {
 export interface Level {
   grid: CollisionGrid;
   areas: Area[];
+  // A configuração de cada área do mapa (AREAS no labirinto; ARENA_AREAS na Sala de Testes).
+  configs: Record<string, AreaConfig>;
   playerEntryPoints: Vec2[];
   // Tiles de chão de cada área, por nome: de onde os mobs são sorteados.
   floorCells: Map<string, Vec2[]>;
@@ -73,7 +76,7 @@ function readMap(file: URL): TiledMap {
 }
 
 // Qualquer erro de mapa aparece ao subir o servidor, não no meio de uma run.
-export function loadLevel(file: URL): Level {
+export function loadLevel(file: URL, configs: Record<string, AreaConfig> = AREAS): Level {
   const map = readMap(file);
   const grid = parseCollisionGrid(map);
   const areas = parseAreas(map);
@@ -83,19 +86,19 @@ export function loadLevel(file: URL): Level {
   const floorCells = new Map(areas.map((area) => [area.name, areaFloorCells(area, grid)]));
 
   const errors = [
-    ...validateAreas(areas, AREAS, spawnPoints),
+    ...validateAreas(areas, configs, spawnPoints),
     ...spawnErrors(grid, spawnPoints),
-    ...mobErrors(grid, floorCells),
+    ...mobErrors(grid, floorCells, configs),
     ...exitErrors(grid, exitCandidates),
     ...lightErrors(mapLights),
   ];
-  const playerEntryPoints = entrySpawnPoints(spawnPoints, areas, AREAS);
+  const playerEntryPoints = entrySpawnPoints(spawnPoints, areas, configs);
   if (spawnPoints.length > 0 && playerEntryPoints.length === 0) {
     errors.push("Nenhum ponto de spawn está numa área com playerEntry: true. Ninguém conseguiria entrar.");
   }
   if (errors.length > 0) throw new Error(`Mapa inválido (${file.pathname}):\n- ${errors.join("\n- ")}`);
 
-  const zoneOf = (p: Vec2) => zoneAt(areas, AREAS, p);
+  const zoneOf = (p: Vec2) => zoneAt(areas, configs, p);
   const isTorch = (light: { kind: string } & Vec2) => (light.kind === "tocha" || light.kind === "braseiro") && zoneOf(light) === "goblin";
   const point = ({ x, y }: Vec2) => ({ x, y });
   const lights = mapLights.filter((l) => !isTorch(l)).map(({ kind, x, y }) => ({ x, y, radius: lightRadius(kind) ?? 0 }));
@@ -103,7 +106,7 @@ export function loadLevel(file: URL): Level {
   const crystals = mapLights.filter((l) => l.kind.startsWith("cristal")).map(point);
   const pulseCrystals = mapLights.filter((l) => (l.kind === "cristal-medio" || l.kind === "cristal-grande") && zoneOf(l) === "gnomo").map(point);
   const acidPools = objectCenters(map, "poca-acida");
-  return { grid, areas, playerEntryPoints, floorCells, exitCandidates, lights, torches, crystals, pulseCrystals, acidPools };
+  return { grid, areas, configs, playerEntryPoints, floorCells, exitCandidates, lights, torches, crystals, pulseCrystals, acidPools };
 }
 
 // Centro dos objetos de imagem com este nome (no Tiled, x e y são o canto de baixo à esquerda da imagem).
@@ -197,11 +200,11 @@ function spawnErrors(grid: CollisionGrid, points: Vec2[]): string[] {
     .map((p) => `O ponto de spawn (${p.x}, ${p.y}) encosta em parede. O jogador nasceria preso.`);
 }
 
-function mobErrors(grid: CollisionGrid, floorCells: Map<string, Vec2[]>): string[] {
+function mobErrors(grid: CollisionGrid, floorCells: Map<string, Vec2[]>, configs: Record<string, AreaConfig>): string[] {
   const errors = Object.entries(MOB_KINDS)
     .filter(([, stats]) => stats.size > grid.tileSize)
     .map(([kind, stats]) => `O mob "${kind}" tem ${stats.size} px, maior que o tile (${grid.tileSize} px).`);
-  for (const [name, config] of Object.entries(AREAS)) {
+  for (const [name, config] of Object.entries(configs)) {
     const wanted = Object.values(config.mobs).reduce((sum, n) => sum + (n ?? 0), 0);
     const available = floorCells.get(name)?.length ?? 0;
     if (wanted > available) errors.push(`A área "${name}" pede ${wanted} mobs, mas só tem ${available} tiles de chão.`);

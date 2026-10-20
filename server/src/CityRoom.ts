@@ -1,6 +1,19 @@
 import { StateView, type ArraySchema } from "@colyseus/schema";
 import { CloseCode, Room, type Client } from "colyseus";
 import {
+  CLASS_NAMES,
+  DEV_SHOPS,
+  DEV_TELEPORTS,
+  IRON_GEAR,
+  devGive,
+  dropForeignGear,
+  emptyInventory,
+  parseDevCommand,
+  startingSkills,
+  teleportRoom,
+  type ClassId,
+  type DevGear,
+  type DevTeleport,
   equipSkill,
   parseSkillEquip,
   HUNGER_MAX,
@@ -37,6 +50,7 @@ import {
   type TradeOutcome,
 } from "shared";
 import type { CharacterRecord } from "./db";
+import { DEV_TOOLS } from "./devTools";
 import { applyGearAction, isEquippableSlot, type GearAction } from "./gear";
 import { loadCity } from "./level";
 import { admit, release } from "./presence";
@@ -106,6 +120,7 @@ export class CityRoom extends Room<{ state: CityState }> {
     this.onMessage("sell", (client, message) => this.handleTrade(client.sessionId, message, "sell"));
     this.onMessage("buy", (client, message) => this.handleTrade(client.sessionId, message, "buy"));
     this.onMessage("forgeBuy", (client, message) => this.handleTrade(client.sessionId, message, "forge"));
+    if (DEV_TOOLS) this.onMessage("dev_command", (client, message) => this.handleDev(client.sessionId, message));
     this.setSimulationInterval((dtMs) => this.tick(dtMs), 1000 / TICK_RATE);
   }
 
@@ -113,7 +128,7 @@ export class CityRoom extends Room<{ state: CityState }> {
     return admit(options);
   }
 
-  onJoin(client: Client) {
+  onJoin(client: Client, options?: unknown) {
     const record = client.auth as CharacterRecord;
     const xp = store.xp(record.characterId);
     const essences = store.essences(record.characterId);
@@ -142,6 +157,90 @@ export class CityRoom extends Room<{ state: CityState }> {
     this.state.players.set(client.sessionId, player);
     client.view = new StateView();
     client.view.add(player, OWNER_TAG);
+    // Ferramentas de dev: avisa o cliente (o painel F2 só abre com elas) e leva ao destino pedido na entrada.
+    if (!DEV_TOOLS) return;
+    client.send("dev_tools", { room: "city" });
+    const raw = typeof options === "object" && options !== null ? (options as { devTarget?: unknown }).devTarget : undefined;
+    if (typeof raw === "string" && (DEV_TELEPORTS as readonly string[]).includes(raw)) this.devTeleport(client.sessionId, raw as DevTeleport);
+  }
+
+  // ---------------------------------------------------------------- ferramentas de dev (DEV_TOOLS=1)
+
+  // Na cidade valem os comandos de personagem (classe, itens, ouro) e os teleportes; o resto é do labirinto e da Sala
+  // de Testes. Tudo vai para o banco na hora, como as trocas da cidade.
+  private handleDev(sessionId: string, message: unknown) {
+    const command = parseDevCommand(message);
+    const player = this.state.players.get(sessionId);
+    if (!command || !player) return;
+    switch (command.command) {
+      case "enter_test_room":
+        return this.devTeleport(sessionId, "test_room");
+      case "teleport_to":
+        return this.devTeleport(sessionId, command.target);
+      case "set_class":
+        return this.devSetClass(sessionId, player, command.characterClass);
+      case "give_item":
+        return this.devGear(sessionId, player, (gear, classId) => devGive(gear, command.item, command.count, command.equip, classId));
+      case "give_all_gear":
+        return this.devGear(sessionId, player, (gear, classId) => {
+          let out: { gear: DevGear; notice?: string } = { gear };
+          for (const item of IRON_GEAR) out = devGive(out.gear, item, 1, true, classId);
+          return out;
+        });
+      case "clear_bag":
+        return this.devGear(sessionId, player, (gear) => ({ gear: { inventory: emptyInventory(), equipment: gear.equipment } }));
+      case "add_gold": {
+        const record = this.characters.get(sessionId);
+        const lineage = this.lineages.get(sessionId);
+        if (!record || !lineage) return;
+        lineage.coins += command.amount;
+        store.setCoins(record.lineageId, lineage.coins);
+        player.coins = lineage.coins;
+        return this.notify(sessionId, `+${command.amount} moedas (agora ${lineage.coins}).`);
+      }
+      default:
+        return this.notify(sessionId, "Esse comando vale no labirinto e na Sala de Testes.");
+    }
+  }
+
+  // Praça (um ponto de chegada) ou o móvel de uma loja; destino fora da cidade: o cliente troca de sala (dev_goto).
+  private devTeleport(sessionId: string, target: DevTeleport) {
+    const player = this.state.players.get(sessionId);
+    if (!player) return;
+    if (teleportRoom(target) !== "city") {
+      this.clients.getById(sessionId)?.send("dev_goto", { target });
+      return;
+    }
+    const station = (DEV_SHOPS as Record<string, string>)[target];
+    const spot = station ? city.interactions.find((i) => i.id === station) : pickSpawnPoint(city.spawnPoints, Math.random());
+    if (!spot) return;
+    player.x = spot.x;
+    player.y = spot.y;
+  }
+
+  private devSetClass(sessionId: string, player: CityPlayerState, classId: ClassId) {
+    const record = this.characters.get(sessionId);
+    if (!record) return;
+    store.changeClass(record.characterId, classId);
+    record.classId = classId;
+    player.classId = classId;
+    const skills = startingSkills(classId);
+    store.setSkills(record.characterId, skills);
+    mirrorSkills(player.skills, skills);
+    this.devGear(sessionId, player, (gear) => ({ gear: dropForeignGear(gear, classId) }));
+    this.notify(sessionId, `Classe trocada: ${CLASS_NAMES[classId]}.`);
+  }
+
+  private devGear(sessionId: string, player: CityPlayerState, change: (gear: DevGear, classId: ClassId | undefined) => { gear: DevGear; notice?: string }) {
+    const record = this.characters.get(sessionId);
+    const inventory = this.inventories.get(sessionId);
+    const equipment = this.equipment.get(sessionId);
+    if (!record || !inventory || !equipment) return;
+    const out = change({ inventory, equipment }, record.classId);
+    store.saveGear(record.characterId, out.gear.inventory, out.gear.equipment);
+    this.setInventory(sessionId, player, out.gear.inventory);
+    this.setEquipment(sessionId, player, out.gear.equipment);
+    if (out.notice) this.notify(sessionId, out.notice);
   }
 
   // Sem onDrop: a cidade é segura, então quem cai simplesmente sai (e volta pelo nome).

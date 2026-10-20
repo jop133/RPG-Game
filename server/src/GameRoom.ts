@@ -1,7 +1,27 @@
 import { StateView } from "@colyseus/schema";
 import { CloseCode, Room, type Client } from "colyseus";
 import {
-  AREAS,
+  ARENA_AREAS,
+  CLASS_NAMES,
+  DEV,
+  DEV_ZONES,
+  IRON_GEAR,
+  TRAINING_DUMMY,
+  areaAt,
+  boxFits,
+  devGive,
+  dropForeignGear,
+  emptyInventory,
+  mobStats,
+  parseDevCommand,
+  spawnSpots,
+  startingSkills,
+  teleportRoom,
+  DEV_TELEPORTS,
+  type ClassId,
+  type DevGear,
+  type DevTeleport,
+  type SpawnKind,
   EXIT_CHANNEL,
   EXIT_IDLE_LIGHT_RADIUS,
   EXIT_LIGHT_RADIUS,
@@ -132,7 +152,8 @@ import {
 } from "shared";
 import type { CharacterRecord } from "./db";
 import { applyGearAction, isEquippableSlot, type GearAction } from "./gear";
-import { loadLevel } from "./level";
+import { DEV_TOOLS } from "./devTools";
+import { loadLevel, type Level } from "./level";
 import { admit, release } from "./presence";
 import {
   ExitState,
@@ -155,12 +176,26 @@ import { updateVisibility } from "./views";
 // Ticks que um projétil parado continua no estado (ver spentBolts): 3 ticks = 150 ms, três patches.
 const SPENT_BOLT_TICKS = 3;
 
-const level = loadLevel(new URL("../../assets/maps/dungeon_floor1.json", import.meta.url));
+const LABYRINTH = loadLevel(new URL("../../assets/maps/dungeon_floor1.json", import.meta.url));
+// A Sala de Testes (DEV_TOOLS=1) só é lida quando a primeira sala dela abre.
+let arena: Level | undefined;
+export function arenaLevel(): Level {
+  return (arena ??= loadLevel(new URL("../../assets/maps/test_arena.json", import.meta.url), ARENA_AREAS));
+}
+
+// Ferramentas de dev: o destino pedido ao entrar na sala (options.devTarget), se for um destino válido.
+function devTargetOf(options: unknown): DevTeleport | undefined {
+  const raw = typeof options === "object" && options !== null ? (options as { devTarget?: unknown }).devTarget : undefined;
+  return typeof raw === "string" && (DEV_TELEPORTS as readonly string[]).includes(raw) ? (raw as DevTeleport) : undefined;
+}
 
 // O que o servidor precisa saber de um mob para movê-lo, e que o cliente não precisa ver. post e pack: só os mobs de
 // grupo (spawns táticos das zonas): o posto e de qual grupo é.
+// ai: false = parado (spawn de dev com a IA desligada, e o Boneco de Treino); dummy: o Boneco de Treino (não morre).
 interface MobBrain {
-  kind: MobKind;
+  kind: SpawnKind;
+  ai?: boolean;
+  dummy?: boolean;
   area: Area;
   homeCells: Vec2[];
   mind: MobMind;
@@ -260,6 +295,16 @@ export class GameRoom extends Room<{ state: GameState }> {
   private skills = new Map<string, EquippedSkills>();
   // Mortes do tick (ou do golpe) atual. Resolvidas depois dos laços, para não remover jogador no meio de um forEach.
   private deaths = new Map<string, DeathCause>();
+  // O mapa desta sala: o labirinto (na SandboxRoom, a Sala de Testes) e se ela é a Sala de Testes (ninguém morre).
+  protected level: Level = LABYRINTH;
+  protected sandbox = false;
+  // Ferramentas de dev (DEV_TOOLS=1): quem está imortal (God Mode), a zona forçada de cada um, se a IA dos mobs da sala
+  // está ligada, os perigos que o dev pôs no chão (saem com force_zone_effect "none") e o meio de cada zona (teleporte).
+  private godMode = new Set<string>();
+  private forcedZones = new Map<string, ZoneId>();
+  private mobAiOn = true;
+  private devHazards = new Set<string>();
+  private zoneCenters = new Map<ZoneId, Vec2>();
   // Jogadores com a conexão caída: o personagem continua no mundo esperando eles voltarem.
   private reconnections = new Map<string, ReturnType<Room["allowReconnection"]>>();
 
@@ -277,9 +322,12 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.onMessage("pickup", (client) => this.handlePickup(client.sessionId));
     this.onMessage("lightTorch", (client) => this.handleLightTorch(client.sessionId));
     this.onMessage("channelExit", (client) => this.handleChannel(client.sessionId));
+    if (DEV_TOOLS) this.onMessage("dev_command", (client, message) => this.handleDev(client.sessionId, message));
+    if (DEV_TOOLS) this.onMessage("dev_hello", (client) => client.send("dev_tools", { room: this.roomKind() }));
     this.spawnMobs();
     this.openExits();
     this.placeHazards();
+    if (this.sandbox) this.spawnTrainingDummy();
     this.setSimulationInterval((dtMs) => this.tick(dtMs), 1000 / TICK_RATE);
   }
 
@@ -287,7 +335,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     return admit(options);
   }
 
-  onJoin(client: Client) {
+  onJoin(client: Client, options?: unknown) {
     const record = client.auth as CharacterRecord;
     this.characters.set(client.sessionId, record);
     const xp = store.xp(record.characterId);
@@ -328,6 +376,11 @@ export class GameRoom extends Room<{ state: GameState }> {
     client.view = new StateView();
     // Com OWNER_TAG: o próprio jogador recebe também os campos privados (a fome).
     client.view.add(player, OWNER_TAG);
+    // Ferramentas de dev: avisa o cliente (o painel F2 só abre com elas) e leva ao destino pedido na entrada.
+    if (!DEV_TOOLS) return;
+    client.send("dev_tools", { room: this.roomKind() });
+    const target = devTargetOf(options);
+    if (target) this.devTeleport(client.sessionId, target);
   }
 
   // Queda de conexão (não intencional): o personagem fica parado no mundo, vulnerável, e a fome continua (regra 6).
@@ -356,6 +409,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.inventories.delete(sessionId);
     this.equipment.delete(sessionId);
     this.staggerUntil.delete(sessionId);
+    this.godMode.delete(sessionId);
+    this.forcedZones.delete(sessionId);
     if (this.channels.has(sessionId)) this.endChannel(sessionId);
     const record = this.characters.get(sessionId);
     if (record) release(record);
@@ -365,7 +420,7 @@ export class GameRoom extends Room<{ state: GameState }> {
   }
 
   private openExits() {
-    this.activeExits = pickActiveExits(level.exitCandidates, EXITS_ACTIVE, Math.random);
+    this.activeExits = pickActiveExits(this.level.exitCandidates, EXITS_ACTIVE, Math.random);
     this.activeExits.forEach((exit, i) => this.state.exits.set(`exit-${i + 1}`, new ExitState({ ...exit, phase: "idle", openMs: 0 })));
     this.rebuildLitMap();
   }
@@ -505,11 +560,16 @@ export class GameRoom extends Room<{ state: GameState }> {
     const result = applyGearAction(action, message, { inventory, equipment }, classId);
     if (result.kind === "refused") this.clients.getById(sessionId)?.send("notice", { text: result.notice });
     if (result.kind !== "changed") return;
-    this.setInventory(sessionId, player, result.gear.inventory);
-    this.equipment.set(sessionId, result.gear.equipment);
-    mirrorEquipment(player.equipment, result.gear.equipment);
+    this.applyGear(sessionId, player, result.gear);
+  }
+
+  // Mochila e equipamento novos: espelha e recalcula os status (vida máxima a mais sobe a vida atual junto).
+  private applyGear(sessionId: string, player: PlayerState, gear: DevGear) {
+    this.setInventory(sessionId, player, gear.inventory);
+    this.equipment.set(sessionId, gear.equipment);
+    mirrorEquipment(player.equipment, gear.equipment);
     const before = this.statsOf(sessionId);
-    const after = playerStats(this.essences.get(sessionId) ?? [], result.gear.equipment);
+    const after = playerStats(this.essences.get(sessionId) ?? [], gear.equipment);
     this.stats.set(sessionId, after);
     player.maxHp = after.maxHp;
     player.hp = Math.max(1, Math.min(after.maxHp, player.hp + (after.maxHp - before.maxHp)));
@@ -559,7 +619,9 @@ export class GameRoom extends Room<{ state: GameState }> {
     // Na zona dos gnomos, todo dano recebido vale mais (Ressonância Fragilizadora).
     const taken = zoneDamage(damageTaken(amount, type, this.statsOf(sessionId)), this.zones.get(sessionId));
     this.lastHurtMs.set(sessionId, this.clock.currentTime);
-    player.hp = applyDamage(player.hp, taken);
+    // Sala de Testes e God Mode: a vida para em 1 (o dano ainda aparece e ainda interrompe a canalização).
+    const next = applyDamage(player.hp, taken);
+    player.hp = (this.sandbox || this.godMode.has(sessionId)) && next < 1 ? Math.min(player.hp, 1) : next;
     if (player.hp === 0) this.deaths.set(sessionId, cause);
   }
 
@@ -585,7 +647,7 @@ export class GameRoom extends Room<{ state: GameState }> {
   }
 
   private entryPoint(): Vec2 {
-    return pickSpawnPoint(level.playerEntryPoints, Math.random());
+    return pickSpawnPoint(this.level.playerEntryPoints, Math.random());
   }
 
   // O cliente só diz para onde golpeou. Recarga, quem foi atingido e dano são decididos aqui.
@@ -610,7 +672,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     const id = `bolt-${this.nextBoltId++}`;
     this.state.projectiles.set(id, new ProjectileState({ x: from.x, y: from.y, angle, done: false }));
     this.bolts.set(id, { flight: { x: from.x, y: from.y, angle, traveled: 0 }, owner, damage });
-    this.applyBoltStep(id, launchProjectile(from, angle, level.grid, this.boltTargets(owner)));
+    this.applyBoltStep(id, launchProjectile(from, angle, this.level.grid, this.boltTargets(owner)));
   }
 
   // Janela de Skills: trocar a habilidade de um slot (Q ou R), a qualquer momento da run. Gravado na hora (não é loot).
@@ -644,7 +706,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (skill === "fireball") {
       this.fireBolt(sessionId, caster, angle, FIREBALL_SKILL.baseDamage + magicDamage);
     } else {
-      const at = spellTarget(caster, cast.target, level.grid);
+      const at = spellTarget(caster, cast.target, this.level.grid);
       if (!at) return;
       const id = `spell-${this.nextSpellId++}`;
       const lightning = skill === "lightning";
@@ -697,7 +759,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     const caster = this.state.players.get(spell.owner);
     const dead: string[] = [];
     this.state.mobs.forEach((mob, id) => {
-      if (!feetInside(area, mob, MOB_KINDS[mob.kind as MobKind].size / 2)) return;
+      if (!feetInside(area, mob, mobStats(mob.kind).size / 2)) return;
       mob.hp = applyDamage(mob.hp, spell.damage);
       const brain = this.mobBrains.get(id);
       if (brain && caster) brain.mind = provoke(brain.mind, spell.owner, caster);
@@ -723,7 +785,7 @@ export class GameRoom extends Room<{ state: GameState }> {
   // Quem um projétil pode acertar: os mobs e os outros jogadores vivos (fogo amigo, como o golpe). Nunca quem atirou.
   private boltTargets(owner: string): ProjectileTarget[] {
     const targets: ProjectileTarget[] = [];
-    this.state.mobs.forEach((mob, id) => targets.push({ id, x: mob.x, y: mob.y, radius: MOB_KINDS[mob.kind as MobKind].size / 2 }));
+    this.state.mobs.forEach((mob, id) => targets.push({ id, x: mob.x, y: mob.y, radius: mobStats(mob.kind).size / 2 }));
     this.state.players.forEach((player, id) => {
       if (id !== owner && player.hp > 0) targets.push({ id, x: player.x, y: player.y, radius: PLAYER_SIZE / 2 });
     });
@@ -740,7 +802,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.spentBolts.delete(id);
       this.state.projectiles.delete(id);
     }
-    for (const [id, bolt] of this.bolts) this.applyBoltStep(id, stepProjectile(bolt.flight, dtMs, level.grid, this.boltTargets(bolt.owner)));
+    for (const [id, bolt] of this.bolts) this.applyBoltStep(id, stepProjectile(bolt.flight, dtMs, this.level.grid, this.boltTargets(bolt.owner)));
   }
 
   private applyBoltStep(id: string, step: ProjectileStep) {
@@ -785,7 +847,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     const dead: string[] = [];
     const { physicalDamage, attack } = this.statsOf(attackerId);
     this.state.mobs.forEach((mob, id) => {
-      if (!isInSwing(attacker, angle, attack, mob, MOB_KINDS[mob.kind as MobKind].size / 2)) return;
+      if (!isInSwing(attacker, angle, attack, mob, mobStats(mob.kind).size / 2)) return;
       mob.hp = applyDamage(mob.hp, physicalDamage);
       if (mob.hp === 0) dead.push(id);
     });
@@ -795,6 +857,11 @@ export class GameRoom extends Room<{ state: GameState }> {
   // Mob morto: larga o loot, conta para quem matou (se ainda estiver na sala) e sai.
   private killMob(killerId: string, id: string) {
     const mob = this.state.mobs.get(id);
+    // O Boneco de Treino não morre: zerou, volta inteiro (sem loot, sem crédito).
+    if (mob && this.mobBrains.get(id)?.dummy) {
+      mob.hp = TRAINING_DUMMY.maxHp;
+      return;
+    }
     const killer = this.state.players.get(killerId);
     if (mob) {
       this.dropPile(mob, rollDrops(mob.kind as MobKind, Math.random));
@@ -860,17 +927,17 @@ export class GameRoom extends Room<{ state: GameState }> {
   // Uma vez, quando a sala nasce. Zonas hostis: grupos táticos (um por setor, com posto e vida em repouso). Outras
   // áreas (o centro): os mobs soltos de AREAS, vagando pela área inteira. Todos nascem longe da chegada.
   private spawnMobs() {
-    for (const area of level.areas) {
-      const cells = level.floorCells.get(area.name) ?? [];
-      const zone = AREAS[area.name]?.zone;
+    for (const area of this.level.areas) {
+      const cells = this.level.floorCells.get(area.name) ?? [];
+      const zone = this.level.configs[area.name]?.zone;
       if (zone) {
-        const plans = planPacks(cells, ZONE_KIND[zone], level.grid.tileSize, level.playerEntryPoints, Math.random);
+        const plans = planPacks(cells, ZONE_KIND[zone], this.level.grid.tileSize, this.level.playerEntryPoints, Math.random);
         plans.forEach((plan, i) => {
           const pack: Pack = {
             ...plan,
             area,
             homeCells: cells,
-            plan: idlePlanFor(plan.kind, plan.home, level.grid, level.crystals, Math.random),
+            plan: idlePlanFor(plan.kind, plan.home, this.level.grid, this.level.crystals, Math.random),
             alive: new Set(),
           };
           const id = `pack-${area.name}-${i + 1}`;
@@ -879,16 +946,16 @@ export class GameRoom extends Room<{ state: GameState }> {
         });
         continue;
       }
-      const spawnCells = safeSpawnCells(cells, level.playerEntryPoints, MOB_SPAWN_SAFE_RADIUS);
-      for (const { kind, position } of planMobSpawns(spawnCells, AREAS[area.name]?.mobs ?? {}, Math.random)) {
+      const spawnCells = safeSpawnCells(cells, this.level.playerEntryPoints, MOB_SPAWN_SAFE_RADIUS);
+      for (const { kind, position } of planMobSpawns(spawnCells, this.level.configs[area.name]?.mobs ?? {}, Math.random)) {
         this.addMob(kind, position, { kind, area, homeCells: cells, mind: { mode: "wander", wander: startIdle(Math.random) } });
       }
     }
   }
 
-  private addMob(kind: MobKind, at: Vec2, brain: MobBrain): string {
+  private addMob(kind: SpawnKind, at: Vec2, brain: MobBrain): string {
     const id = `mob-${this.nextMobId++}`;
-    this.state.mobs.set(id, new MobState({ kind, ...at, hp: MOB_KINDS[kind].maxHp, windup: false, attackAngle: 0, frenzy: false }));
+    this.state.mobs.set(id, new MobState({ kind, ...at, hp: mobStats(kind).maxHp, windup: false, attackAngle: 0, frenzy: false }));
     this.mobBrains.set(id, brain);
     return id;
   }
@@ -948,9 +1015,11 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.state.mobs.forEach((mob, id) => {
       const brain = this.mobBrains.get(id);
       if (!brain) return;
+      // Parado: o boneco, o spawn de dev com a IA desligada, ou a IA da sala desligada (set_mob_ai).
+      if (brain.ai === false || !this.mobAiOn) return;
       // Na lama de um Pântano, o mob anda mais devagar (o mesmo passo, com a velocidade reduzida). Lobo em frenesi:
       // mais rápido e nota de mais longe.
-      const kind = MOB_KINDS[brain.kind];
+      const kind = mobStats(brain.kind);
       const slow = swampSlow(mob, kind.size / 2, id, swamps);
       const frenzy = brain.kind === "lobo" && wolfFrenzy(mob, hurt);
       if (mob.frenzy !== frenzy) mob.frenzy = frenzy;
@@ -970,14 +1039,14 @@ export class GameRoom extends Room<{ state: GameState }> {
       const thinking = { position: { x: mob.x, y: mob.y }, mind: brain.mind };
       // Longe de todos e só vagando: hiberna neste tick (nem pensa nem se move). Acorda bem antes de alguém chegar.
       if (isDormant(thinking, players)) return;
-      const world = { grid: level.grid, home: brain.area, homeCells: brain.homeCells, stats, players, post: brain.post, noticeable };
+      const world = { grid: this.level.grid, home: brain.area, homeCells: brain.homeCells, stats, players, post: brain.post, noticeable };
       const next = stepMob(thinking, world, dtMs, Math.random);
       mob.x = next.position.x;
       mob.y = next.position.y;
       mob.windup = next.mind.mode === "windup";
       if (next.mind.mode === "windup") mob.attackAngle = next.mind.angle;
       brain.mind = next.mind;
-      if (next.strike !== undefined) this.mobStrike(next.position, next.strike, brain.kind);
+      if (next.strike !== undefined && brain.kind !== "dummy") this.mobStrike(next.position, next.strike, brain.kind);
     });
   }
 
@@ -1021,6 +1090,11 @@ export class GameRoom extends Room<{ state: GameState }> {
   // Fome é tick do servidor (regra 6): cai para todos (mais devagar com Vigor), e quem está zerado perde vida.
   private starvePlayers(dtMs: number) {
     this.state.players.forEach((player, sessionId) => {
+      // God Mode: fome travada.
+      if (this.godMode.has(sessionId)) {
+        player.hunger = HUNGER_MAX;
+        return;
+      }
       // No frio dos lobos, a fome anda mais rápido (o tick conta mais tempo).
       player.hunger = tickHunger(player.hunger, dtMs * zoneHungerFactor(this.zones.get(sessionId)), this.statsOf(sessionId).vigorPercent);
       const damage = starvationDamage(player.hunger, dtMs);
@@ -1041,6 +1115,8 @@ export class GameRoom extends Room<{ state: GameState }> {
       const stats = this.statsOf(sessionId);
       if (player.maxMana !== stats.maxMana) player.maxMana = stats.maxMana;
       player.mana = tickMana(player.mana, stats.maxMana, this.zones.get(sessionId), dtMs, LABYRINTH_REGEN_FACTOR);
+      // God Mode: Mana infinita.
+      if (this.godMode.has(sessionId)) player.mana = stats.maxMana;
     });
   }
 
@@ -1054,7 +1130,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       const stagger = now < (this.staggerUntil.get(sessionId) ?? 0) ? STAGGER.slow : 1;
       const speed = (this.stats.get(sessionId)?.speed ?? PLAYER_SPEED) * swampSlow(player, PLAYER_SIZE / 2, sessionId, swamps) * acid * stagger;
       const delta = movementDelta(this.moveInputs.get(sessionId) ?? NO_INPUT, dtMs, speed);
-      const next = moveWithCollision(level.grid, player, delta, PLAYER_SIZE / 2);
+      const next = moveWithCollision(this.level.grid, player, delta, PLAYER_SIZE / 2);
       player.x = next.x;
       player.y = next.y;
     });
@@ -1074,7 +1150,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.state.spells.forEach((spell) => {
       if (spell.kind === "lightning") carriers.push({ x: spell.x, y: spell.y, radius: LIGHTNING_SPELL.lightRadius });
     });
-    const grid = level.grid;
+    const grid = this.level.grid;
     const lit = (entity: MobState | LootState, view: StateView) => isLit(entity, this.lit, carriers, view.has(entity), grid);
     const reach = VIEW_RADIUS + VIEW_HYSTERESIS;
     for (const client of this.clients) {
@@ -1108,10 +1184,219 @@ export class GameRoom extends Room<{ state: GameState }> {
         hunters.push({ x: mob.x, y: mob.y, hunting: mind.targetId === sessionId });
       });
     }
-    const flat = goblinEyes(self, hunters, level.grid).flatMap((e) => [Math.round(e.x), Math.round(e.y)]);
+    const flat = goblinEyes(self, hunters, this.level.grid).flatMap((e) => [Math.round(e.x), Math.round(e.y)]);
     if (flat.length === self.eyes.length && flat.every((v, i) => self.eyes[i] === v)) return;
     self.eyes.splice(0, self.eyes.length);
     for (const v of flat) self.eyes.push(v);
+  }
+
+  // ---------------------------------------------------------------- ferramentas de dev (DEV_TOOLS=1)
+
+  private roomKind(): "game" | "sandbox" {
+    return this.sandbox ? "sandbox" : "game";
+  }
+
+  // Um comando do painel F2 ou do window.__DEV__. Só chega aqui com DEV_TOOLS=1 (o handler nem existe sem).
+  private handleDev(sessionId: string, message: unknown) {
+    const command = parseDevCommand(message);
+    const player = this.state.players.get(sessionId);
+    if (!command || !player) return;
+    switch (command.command) {
+      case "enter_test_room":
+        return this.devTeleport(sessionId, "test_room");
+      case "teleport_to":
+        return this.devTeleport(sessionId, command.target);
+      case "set_god_mode":
+        if (command.enabled) this.godMode.add(sessionId);
+        else this.godMode.delete(sessionId);
+        return this.notify(sessionId, command.enabled ? "God Mode ligado: imortal, Mana infinita e fome travada." : "God Mode desligado.");
+      case "set_mob_ai":
+        this.mobAiOn = command.enabled;
+        return this.notify(sessionId, command.enabled ? "IA dos mobs ligada." : "IA dos mobs desligada: todos parados.");
+      case "set_class":
+        return this.devSetClass(sessionId, player, command.characterClass);
+      case "give_item":
+        return this.devGear(sessionId, player, (gear, classId) => devGive(gear, command.item, command.count, command.equip, classId));
+      case "give_all_gear":
+        return this.devGear(sessionId, player, (gear, classId) => {
+          let out: { gear: DevGear; notice?: string } = { gear };
+          for (const item of IRON_GEAR) out = devGive(out.gear, item, 1, true, classId);
+          return out;
+        });
+      case "clear_bag":
+        return this.devGear(sessionId, player, (gear) => ({ gear: { inventory: emptyInventory(), equipment: gear.equipment } }));
+      case "add_gold":
+        return this.devAddGold(sessionId, player, command.amount);
+      case "heal":
+        player.hp = player.maxHp;
+        player.hunger = HUNGER_MAX;
+        player.mana = player.maxMana;
+        this.bleedMs.set(sessionId, 0);
+        return;
+      case "spawn_mob":
+        return this.devSpawn(player, command.mob, command.count, command.aiEnabled, command.lowHp, command.angle);
+      case "clear_mobs":
+        return this.devClearMobs(sessionId, player);
+      case "force_zone_effect":
+        return this.devForceZone(sessionId, player, command.effect);
+    }
+  }
+
+  // Destino em outra sala: o cliente troca de sala (dev_goto) e entra com o destino. Nesta sala: o jogador vai direto.
+  private devTeleport(sessionId: string, target: DevTeleport) {
+    const player = this.state.players.get(sessionId);
+    if (!player) return;
+    if (teleportRoom(target) !== this.roomKind()) {
+      this.clients.getById(sessionId)?.send("dev_goto", { target });
+      return;
+    }
+    const spot = this.devSpot(target, player);
+    if (!spot) return this.notify(sessionId, "Esse destino não existe aqui.");
+    player.x = spot.x;
+    player.y = spot.y;
+  }
+
+  // Onde cada destino fica nesta sala: a chegada (Sala de Testes), o meio de cada zona, ou ao lado da saída mais perto.
+  private devSpot(target: DevTeleport, player: Vec2): Vec2 | undefined {
+    if (target === "test_room") return this.level.playerEntryPoints[0];
+    if (target === "portal") {
+      let nearest: Vec2 | undefined;
+      for (const exit of this.activeExits) {
+        if (!nearest || Math.hypot(exit.x - player.x, exit.y - player.y) < Math.hypot(nearest.x - player.x, nearest.y - player.y)) nearest = exit;
+      }
+      if (!nearest) return undefined;
+      const ts = this.level.grid.tileSize;
+      const beside = [{ x: 0, y: 1.5 }, { x: 0, y: -1.5 }, { x: 1.5, y: 0 }, { x: -1.5, y: 0 }].map((d) => ({ x: nearest.x + d.x * ts, y: nearest.y + d.y * ts }));
+      return beside.find((p) => boxFits(this.level.grid, p, PLAYER_SIZE / 2)) ?? nearest;
+    }
+    const zone = DEV_ZONES[target.replace("_zone", "") as keyof typeof DEV_ZONES];
+    return zone ? this.zoneCenter(zone) : undefined;
+  }
+
+  // O meio de uma zona: o tile de chão dela mais perto da média dos tiles (calculado uma vez).
+  private zoneCenter(zone: ZoneId): Vec2 | undefined {
+    const cached = this.zoneCenters.get(zone);
+    if (cached) return cached;
+    const cells = this.level.areas.filter((a) => this.level.configs[a.name]?.zone === zone).flatMap((a) => this.level.floorCells.get(a.name) ?? []);
+    if (cells.length === 0) return undefined;
+    const mean = { x: cells.reduce((s, c) => s + c.x, 0) / cells.length, y: cells.reduce((s, c) => s + c.y, 0) / cells.length };
+    let best = cells[0] as Vec2;
+    for (const c of cells) if (Math.hypot(c.x - mean.x, c.y - mean.y) < Math.hypot(best.x - mean.x, best.y - mean.y)) best = c;
+    this.zoneCenters.set(zone, best);
+    return best;
+  }
+
+  // Troca de classe na hora, gravada (escolha do dono do projeto): o desenho, as habilidades iniciais da classe e o
+  // equipamento (o que a classe nova não usa vai para a mochila). Mochila e equipamento também vão para o banco, para
+  // o personagem gravado não ficar com peça de outra classe no corpo.
+  private devSetClass(sessionId: string, player: PlayerState, classId: ClassId) {
+    const record = this.characters.get(sessionId);
+    if (!record) return;
+    store.changeClass(record.characterId, classId);
+    record.classId = classId;
+    player.classId = classId;
+    const skills = startingSkills(classId);
+    store.setSkills(record.characterId, skills);
+    this.skills.set(sessionId, skills);
+    mirrorSkills(player.skills, skills);
+    this.devGear(sessionId, player, (gear) => ({ gear: dropForeignGear(gear, classId) }));
+    const gear = { inventory: this.inventories.get(sessionId), equipment: this.equipment.get(sessionId) };
+    if (gear.inventory && gear.equipment) store.saveGear(record.characterId, gear.inventory, gear.equipment);
+    this.notify(sessionId, `Classe trocada: ${CLASS_NAMES[classId]}.`);
+  }
+
+  private devGear(sessionId: string, player: PlayerState, change: (gear: DevGear, classId: ClassId | undefined) => { gear: DevGear; notice?: string }) {
+    const inventory = this.inventories.get(sessionId);
+    const equipment = this.equipment.get(sessionId);
+    if (!inventory || !equipment) return;
+    const out = change({ inventory, equipment }, this.characters.get(sessionId)?.classId);
+    this.applyGear(sessionId, player, out.gear);
+    if (out.notice) this.notify(sessionId, out.notice);
+  }
+
+  private devAddGold(sessionId: string, player: PlayerState, amount: number) {
+    const record = this.characters.get(sessionId);
+    if (!record) return;
+    const coins = store.coins(record.lineageId) + amount;
+    store.setCoins(record.lineageId, coins);
+    player.coins = coins;
+    this.notify(sessionId, `+${amount} moedas (agora ${coins}).`);
+  }
+
+  // Spawn a DEV.spawnTiles tiles à frente (na direção pedida, ou na do último golpe). Mob solto da área onde cai, como
+  // os do centro; com a IA desligada (ou o boneco), parado.
+  private devSpawn(player: PlayerState, kind: SpawnKind, count: number, aiEnabled: boolean, lowHp: boolean, angle?: number) {
+    const stats = mobStats(kind);
+    for (const at of spawnSpots(this.level.grid, player, angle ?? player.attackAngle, count, stats.size / 2)) {
+      const area = areaAt(this.level.areas, at) ?? this.level.areas[0];
+      if (!area) return;
+      const dummy = kind === "dummy";
+      const mind: MobMind = { mode: "wander", wander: startIdle(Math.random) };
+      const id = this.addMob(kind, at, { kind, area, homeCells: this.level.floorCells.get(area.name) ?? [], mind, ai: aiEnabled && !dummy, dummy });
+      const mob = this.state.mobs.get(id);
+      if (mob && lowHp) mob.hp = Math.max(1, Math.round(stats.maxHp * DEV.lowHpFraction));
+    }
+  }
+
+  // Um Boneco de Treino na Sala de Testes, ao lado da chegada.
+  private spawnTrainingDummy() {
+    const entry = this.level.playerEntryPoints[0];
+    const area = this.level.areas[0];
+    if (!entry || !area) return;
+    const ts = this.level.grid.tileSize;
+    const at = { x: entry.x + 4 * ts, y: entry.y - 2 * ts };
+    this.addMob("dummy", at, { kind: "dummy", area, homeCells: [], mind: { mode: "wander", wander: startIdle(Math.random) }, ai: false, dummy: true });
+  }
+
+  private devClearMobs(sessionId: string, player: Vec2) {
+    const gone: string[] = [];
+    this.state.mobs.forEach((mob, id) => {
+      if (Math.hypot(mob.x - player.x, mob.y - player.y) <= DEV.clearRadius) gone.push(id);
+    });
+    for (const id of gone) {
+      this.packs.get(this.mobBrains.get(id)?.pack ?? "")?.alive.delete(id);
+      this.state.mobs.delete(id);
+      this.mobBrains.delete(id);
+    }
+    this.notify(sessionId, `${gone.length} mob(s) removido(s).`);
+  }
+
+  // Efeito de zona forçado em quem pediu, onde ele estiver (a Sala de Testes não tem zona): os efeitos contínuos da
+  // zona e, para testar os do chão, uma poça ácida (slime) ou estilhaços e um cristal de descarga (gnomo) perto dele.
+  private devForceZone(sessionId: string, player: Vec2, effect: keyof typeof DEV_ZONES | "none") {
+    for (const id of this.devHazards) {
+      this.state.hazards.delete(id);
+      this.tempAcid.delete(id);
+    }
+    this.pulses = this.pulses.filter((p) => !this.devHazards.has(p.id));
+    this.devHazards.clear();
+    if (effect === "none") {
+      this.forcedZones.delete(sessionId);
+      return this.notify(sessionId, "Efeito de zona desligado.");
+    }
+    const zone = DEV_ZONES[effect];
+    this.forcedZones.set(sessionId, zone);
+    const ts = this.level.grid.tileSize;
+    const near = (dx: number, dy: number) => ({ x: player.x + dx * ts, y: player.y + dy * ts });
+    const fits = (p: Vec2) => boxFits(this.level.grid, p, ts / 2);
+    if (zone === "slime") {
+      const at = near(3, 0);
+      if (fits(at)) {
+        const id = this.addHazard("acid", at);
+        this.tempAcid.set(id, Infinity);
+        this.devHazards.add(id);
+      }
+    }
+    if (zone === "gnomo") {
+      for (const at of [near(2, 2), near(-2, 2), near(2, -2), near(-2, -2)].filter(fits)) this.devHazards.add(this.addHazard("shard", at));
+      const crystal = near(0, -3);
+      if (fits(crystal)) {
+        const id = this.addHazard("pulse", crystal);
+        this.pulses.push({ id, at: crystal, offsetMs: 0 });
+        this.devHazards.add(id);
+      }
+    }
+    this.notify(sessionId, `Efeito de zona forçado: ${effect}.`);
   }
 
   // ---------------------------------------------------------------- zonas hostis
@@ -1119,7 +1404,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   // Em que zona cada um está (para os efeitos e para o HUD).
   private updateZones() {
     this.state.players.forEach((player, sessionId) => {
-      const zone = zoneAt(level.areas, AREAS, player);
+      // Ferramentas de dev: a zona forçada (force_zone_effect) vale no lugar da do mapa.
+      const zone = this.forcedZones.get(sessionId) ?? zoneAt(this.level.areas, this.level.configs, player);
       this.zones.set(sessionId, zone);
       if (player.zone !== (zone ?? "")) player.zone = zone ?? "";
     });
@@ -1127,10 +1413,10 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   // Uma vez por run: tochas apagadas, estilhaços e as descargas dos cristais da zona dos gnomos.
   private placeHazards() {
-    level.torches.forEach((at, i) => this.state.torches.set(`torch-${i + 1}`, new TorchState({ x: at.x, y: at.y, lit: false })));
-    const gnomeCells = level.areas.filter((a) => AREAS[a.name]?.zone === "gnomo").flatMap((a) => level.floorCells.get(a.name) ?? []);
+    this.level.torches.forEach((at, i) => this.state.torches.set(`torch-${i + 1}`, new TorchState({ x: at.x, y: at.y, lit: false })));
+    const gnomeCells = this.level.areas.filter((a) => this.level.configs[a.name]?.zone === "gnomo").flatMap((a) => this.level.floorCells.get(a.name) ?? []);
     for (const at of scatterShards(gnomeCells, Math.random)) this.addHazard("shard", at);
-    this.pulses = level.pulseCrystals.map((at) => ({ id: this.addHazard("pulse", at), at, offsetMs: Math.random() * CRYSTAL_PULSE.periodMs }));
+    this.pulses = this.level.pulseCrystals.map((at) => ({ id: this.addHazard("pulse", at), at, offsetMs: Math.random() * CRYSTAL_PULSE.periodMs }));
   }
 
   private addHazard(kind: "acid" | "shard" | "pulse", at: Vec2): string {
@@ -1145,7 +1431,7 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   // Todas as poças ácidas agora: as do mapa e as dos slimes mortos.
   private acidPools(): Vec2[] {
-    const pools: Vec2[] = [...level.acidPools];
+    const pools: Vec2[] = [...this.level.acidPools];
     for (const id of this.tempAcid.keys()) {
       const h = this.state.hazards.get(id);
       if (h) pools.push(h);
@@ -1205,7 +1491,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.state.players.forEach((player, sessionId) => {
         if (Math.hypot(player.x - pulse.at.x, player.y - pulse.at.y) > CRYSTAL_PULSE.radius) return;
         this.hazardDamage(sessionId, player, CRYSTAL_PULSE.damage, "crystal", "magic");
-        const next = moveWithCollision(level.grid, player, knockback(pulse.at, player), PLAYER_SIZE / 2);
+        const next = moveWithCollision(this.level.grid, player, knockback(pulse.at, player), PLAYER_SIZE / 2);
         player.x = next.x;
         player.y = next.y;
       });
@@ -1227,7 +1513,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.state.torches.forEach((t) => {
       if (t.lit) torchLights.push({ x: t.x, y: t.y, radius: TORCH.lightRadius });
     });
-    const { width, height, tileSize } = level.grid;
-    this.lit = staticLitMap([...level.lights, ...exitLights, ...torchLights], width, height, tileSize, level.grid);
+    const { width, height, tileSize } = this.level.grid;
+    this.lit = staticLitMap([...this.level.lights, ...exitLights, ...torchLights], width, height, tileSize, this.level.grid);
   }
 }

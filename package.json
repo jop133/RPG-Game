@@ -10,6 +10,7 @@
   "scripts": {
     "dev:client": "npm run dev --workspace client",
     "dev:server": "npm run dev --workspace server",
+    "dev:sandbox": "npm run dev:sandbox --workspace server",
     "test": "npm run test --workspace shared --workspace server"
   }
 }

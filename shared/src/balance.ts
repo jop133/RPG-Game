@@ -446,3 +446,24 @@ export const BLEED = { damagePerSecond: 4, durationMs: 5000 };
 export const STAGGER = { slow: 0.6, durationMs: 250 };
 // No labirinto, a regeneração de Vida e a de Mana valem isto (a ração e o resto viram necessidade).
 export const LABYRINTH_REGEN_FACTOR = 0.5;
+
+// ---------------------------------------------------------------- ferramentas de dev (só com DEV_TOOLS=1 no servidor)
+
+// Sala de Testes (assets/maps/test_arena.json, de tools/assets/build_test_arena.py): uma área só, sem mobs nem zona.
+export const ARENA_AREAS: Record<string, AreaConfig> = { arena: { playerEntry: true, mobs: {} } };
+// Boneco de Treino: não anda, não ataca e não morre (zerou, volta inteiro). Fora do bestiário e sem loot.
+export const TRAINING_DUMMY: MobStats = {
+  size: 24,
+  speed: 0,
+  maxHp: 300,
+  aggroRadius: 0,
+  reach: 0,
+  windupMs: 1000,
+  attackDamage: 0,
+  attackReach: 0,
+  attackArcDegrees: 0,
+  recoverMs: 1000,
+};
+// Spawn de dev: a SPAWN_TILES tiles à frente de quem pediu (no máximo MAX_SPAWN de uma vez; lowHp: com LOW_HP_FRACTION
+// da vida). Limpar Mobs tira os a até CLEAR_RADIUS px. +GOLD moedas por clique.
+export const DEV = { spawnTiles: 3, maxSpawn: 10, lowHpFraction: 0.25, clearRadius: 640, gold: 1000 };

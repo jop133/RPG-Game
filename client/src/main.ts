@@ -9,6 +9,13 @@ import {
   EXIT_RADIUS,
   EXIT_CHANNEL,
   EXIT_IDLE_LIGHT_RADIUS,
+  DEV_SHOPS,
+  interactionAt as stationAt,
+  mobStats,
+  teleportRoom,
+  type DevRoom,
+  type DevShop,
+  type DevTeleport,
   FRENZY,
   exitIndexAt,
   lightReaches,
@@ -104,6 +111,8 @@ import { ZoneEffects, type HazardView } from "./zoneEffects";
 import { openRegistration, type Registration } from "./registration";
 import cityMapUrl from "../../assets/maps/city.json?url";
 import labyrinthMapUrl from "../../assets/maps/dungeon_floor1.json?url";
+import arenaMapUrl from "../../assets/maps/test_arena.json?url";
+import { DevPanel, installDevApi } from "./devPanel";
 
 // Só o que o cliente lê do estado do servidor. O formato real está em server/src/state.ts.
 interface PlayerView extends Vec2 {
@@ -175,7 +184,9 @@ interface ServerState {
 
 // Cada lugar é uma sala do servidor com o seu mapa.
 type Place = "city" | "labyrinth";
-const MAP_URLS: Record<Place, string> = { city: cityMapUrl, labyrinth: labyrinthMapUrl };
+// O mapa de cada sala: a Sala de Testes (sala "sandbox", só com DEV_TOOLS=1) é um "labirinto" com o mapa da arena.
+type MapKey = Place | "arena";
+const MAP_URLS: Record<MapKey, string> = { city: cityMapUrl, labyrinth: labyrinthMapUrl, arena: arenaMapUrl };
 // Todas as folhas de tiles do projeto. No Tiled, o nome de cada tileset é o nome do arquivo sem ".png":
 // é por esse nome que o mapa encontra a imagem, qualquer que seja o lugar.
 // A chave de cada imagem é o caminho dentro de assets/tilesets, sem ".png" (ex.: "city/houses/house_01").
@@ -336,6 +347,12 @@ const MOB_ART: Record<MobKind, { feet: number; walkFeet?: number; height: number
   gnomo: { feet: 61, walkFeet: 78, height: 60, shadow: 24 },
   slime: { feet: 58, height: 44, shadow: 40 },
 };
+// Boneco de Treino (só de dev): desenhado no código (createDummyTexture), com os pés na linha 60 do quadro de 64.
+const DUMMY_ART = { feet: 60, height: 56, shadow: 30 };
+function mobArt(kind: string): { feet: number; walkFeet?: number; height: number; shadow: number } {
+  return Object.hasOwn(MOB_ART, kind) ? MOB_ART[kind as MobKind] : DUMMY_ART;
+}
+
 // Diagonal sem caminhada (gnomo): anda com a da cardeal do lado para onde vai. Parado ou preparando golpe, o sprite
 // parado tem as 8 direções e é ele que aparece.
 const WALK_FALLBACK: Record<string, string> = {
@@ -566,6 +583,8 @@ const NUMBER_GAP = 8;
 
 // Partículas (só desenho). Gotas ao atingir um mob: sangue escuro; ácido no slime.
 const BLOOD_COLORS = [0x5d0a0a, 0x8b0000, 0x6d1010];
+// Palha do Boneco de Treino.
+const STRAW_COLORS = [0xd8b56a, 0xa8833f, 0x6e5428];
 const ACID_COLORS = [0x76ff03, 0x64dd17, 0xb2ff59];
 // Esporos por segundo em cada luz deste tipo que esteja na tela; espiral por segundo em cada portal.
 const SPORE_RATE: Record<string, number> = {
@@ -655,15 +674,17 @@ class WorldScene extends Phaser.Scene {
   private exitPhases = new Map<string, string>();
   private nearTorch = false;
   private lastOwnSwingAt = -Infinity;
+  private mapKey: MapKey = "city";
 
   init(data: SceneData) {
     this.place = data.place;
     this.room = data.room;
+    this.mapKey = data.place === "labyrinth" && data.room.name === "sandbox" ? "arena" : data.place;
   }
 
   // Mapas e folhas de tiles ficam no cache do jogo: só a primeira visita baixa os arquivos.
   preload() {
-    if (!this.cache.tilemap.exists(this.place)) this.load.tilemapTiledJSON(this.place, MAP_URLS[this.place]);
+    if (!this.cache.tilemap.exists(this.mapKey)) this.load.tilemapTiledJSON(this.mapKey, MAP_URLS[this.mapKey]);
     for (const { key, url } of [...TILESET_URLS, ...IDLE_URLS, ...MOB_IDLE_URLS, ...WEAPON_URLS, ...ARMOR_IDLE_URLS]) {
       if (!this.textures.exists(key)) this.load.image(key, url);
     }
@@ -703,6 +724,7 @@ class WorldScene extends Phaser.Scene {
     const room = this.room;
     if (!room) return;
     room.onMessage("notice", (notice: { text: string }) => hud.notice(notice.text));
+    createDummyTexture(this);
     if (this.place === "city") this.createCity(room, map);
     else this.createLabyrinth(room);
     activeScene = this;
@@ -772,7 +794,7 @@ class WorldScene extends Phaser.Scene {
   }
 
   private createLabyrinth(room: Room<unknown, ServerState>) {
-    const data = (this.cache.tilemap.get(this.place) as { data?: TiledMap } | undefined)?.data;
+    const data = (this.cache.tilemap.get(this.mapKey) as { data?: TiledMap } | undefined)?.data;
     if (data) {
       this.grid = parseCollisionGrid(data);
       this.lighting?.setOccluder(this.grid);
@@ -870,7 +892,8 @@ Subiu para o nível ${info.level}!` : "";
     const moving: Light[] = [];
     const delta = this.game.loop.delta;
     room.state.players.forEach((player, id) => {
-      moving.push({ x: player.x, y: player.y, radius: this.playerLightRadius(id, player, delta), look: PLAYER_LIGHT, phase: 0 });
+      const zone = id === room.sessionId ? ((player.zone || undefined) as ZoneId | undefined) : this.zoneOf(player);
+      moving.push({ x: player.x, y: player.y, radius: this.playerLightRadius(id, zone, delta), look: PLAYER_LIGHT, phase: 0 });
     });
     // Portal inativo: farol fraco; canalizando ou aberto, a luz forte (os mesmos raios do servidor).
     room.state.exits?.forEach((exit) => {
@@ -883,7 +906,7 @@ Subiu para o nível ${info.level}!` : "";
   }
 
   private readMapLights(): Light[] {
-    const data = (this.cache.tilemap.get(this.place) as { data?: TiledMap } | undefined)?.data;
+    const data = (this.cache.tilemap.get(this.mapKey) as { data?: TiledMap } | undefined)?.data;
     const layer = data?.layers.find((l) => l.type === "objectgroup" && l.name === LIGHT_LAYER);
     // Lanternas do mesmo tipo quase coladas (poste duplo) viram uma luz só.
     return mergeNearby(
@@ -1086,7 +1109,7 @@ Subiu para o nível ${info.level}!` : "";
       preparing.add(id);
       const startedAt = this.windupStartedAt.get(id) ?? time;
       this.windupStartedAt.set(id, startedAt);
-      const stats = MOB_KINDS[mob.kind as MobKind];
+      const stats = mobStats(mob.kind);
       const arc = mobStrikeArc(stats);
       const half = (arc.degrees * Math.PI) / 180 / 2;
       // Lobo em frenesi prepara o golpe mais rápido (FRENZY.attackTimeFactor), como no servidor.
@@ -1142,12 +1165,39 @@ Subiu para o nível ${info.level}!` : "";
   }
 
   // Luz de um jogador: no breu dos goblins encolhe (como no servidor), com a mesma transição suave.
-  private playerLightRadius(id: string, at: Vec2, delta: number): number {
-    const want = this.zoneOf(at) === "goblin" ? ZONE_EFFECTS.goblin.lightFactor : 1;
+  private playerLightRadius(id: string, zone: ZoneId | undefined, delta: number): number {
+    const want = zone === "goblin" ? ZONE_EFFECTS.goblin.lightFactor : 1;
     const now = this.lightFactors.get(id) ?? want;
     const next = now + (want - now) * Math.min(1, (delta / ZONE_FADE_MS) * 3);
     this.lightFactors.set(id, next);
     return PLAYER_LIGHT_RADIUS * next;
+  }
+
+  // Direção do próprio jogador para o mouse (spawn de dev "à frente"); sem mouse no jogo ainda, undefined.
+  aimAngle(): number | undefined {
+    const self = this.room?.state.players.get(this.room.sessionId);
+    const pointer = this.input.activePointer;
+    if (!self || (pointer.x === 0 && pointer.y === 0)) return undefined;
+    const target = pointer.positionToCamera(this.cameras.main) as Phaser.Math.Vector2;
+    return Math.atan2(target.y - self.y, target.x - self.x);
+  }
+
+  // Ferramentas de dev: a sala desta cena e o móvel em que o jogador está (na cidade).
+  get devRoom(): DevRoom | undefined {
+    if (!this.room) return undefined;
+    return this.place === "city" ? "city" : this.room.name === "sandbox" ? "sandbox" : "game";
+  }
+
+  stationHere(): string | undefined {
+    const self = this.room?.state.players.get(this.room.sessionId);
+    return self && this.place === "city" ? stationAt(self, this.interactions) : undefined;
+  }
+
+  // Sai desta sala sem fim de run (troca de sala de dev): a cena para de mandar e de ler a sala.
+  detachRoom(): Room<unknown, ServerState> | undefined {
+    const room = this.room;
+    this.room = undefined;
+    return room;
   }
 
   // Tecla de habilidade: só o slot e o ponto do mouse vão para o servidor; ele decide o que está no slot, se pode
@@ -1175,7 +1225,7 @@ Subiu para o nível ${info.level}!` : "";
     });
     room.state.mobs?.forEach((mob, id) => {
       const sprite = this.mobSprites.get(id);
-      if (sprite) step(mob, MOB_KINDS[mob.kind as MobKind].size / 2, sprite.lastMoveAt);
+      if (sprite) step(mob, mobStats(mob.kind).size / 2, sprite.lastMoveAt);
     });
   }
 
@@ -1234,19 +1284,18 @@ Subiu para o nível ${info.level}!` : "";
       g.fillRect(player.x - bar.width / 2, y, bar.width * Math.min(1, channelMs / EXIT_CHANNEL.channelMs), bar.height);
     });
     room.state.mobs?.forEach((mob) => {
-      const kind = mob.kind as MobKind;
-      const stats = MOB_KINDS[kind];
-      const top = mob.y + stats.size / 2 - MOB_ART[kind].height - HP_BAR_GAP - HP_BAR_HEIGHT;
+      const stats = mobStats(mob.kind);
+      const top = mob.y + stats.size / 2 - mobArt(mob.kind).height - HP_BAR_GAP - HP_BAR_HEIGHT;
       drawHpBar(g, mob.x, top, PLAYER_SIZE, mob.hp / stats.maxHp);
     });
   }
 
   // Só desenho: quem decide o que é parede é o servidor.
   private createMap(): Phaser.Tilemaps.Tilemap {
-    const map = this.make.tilemap({ key: this.place });
+    const map = this.make.tilemap({ key: this.mapKey });
     // Só os tilesets de uma imagem (folha de tiles). As coleções de imagens (casas, enfeites) o Phaser também lista
     // em map.tilesets, uma entrada por imagem; elas viram objetos em createMapObjects.
-    const data = (this.cache.tilemap.get(this.place) as { data?: TiledMap } | undefined)?.data;
+    const data = (this.cache.tilemap.get(this.mapKey) as { data?: TiledMap } | undefined)?.data;
     const sheets = new Set(data?.tilesets.filter((t) => t.image !== undefined).map((t) => t.name));
     const tilesets = map.tilesets.filter((tileset) => sheets.has(tileset.name)).map((tileset) => {
       const tiles = map.addTilesetImage(tileset.name, tileset.name);
@@ -1266,7 +1315,7 @@ Subiu para o nível ${info.level}!` : "";
   // No Tiled, x,y é o canto de baixo-esquerdo da imagem; a profundidade segue a base, como a dos jogadores, ou a linha
   // sortY do tile (prédios: a linha da porta, para os degraus e a soleira ficarem por baixo de quem está neles).
   private createMapObjects() {
-    const data = (this.cache.tilemap.get(this.place) as { data?: TiledMap } | undefined)?.data;
+    const data = (this.cache.tilemap.get(this.mapKey) as { data?: TiledMap } | undefined)?.data;
     if (!data) return;
     if (this.place === "labyrinth") this.areas = parseAreas(data);
     const keys = new Map<number, string>();
@@ -1594,10 +1643,10 @@ Subiu para o nível ${info.level}!` : "";
     const seen = new Set<string>();
     mobs.forEach((mob, id) => {
       seen.add(id);
-      const kind = mob.kind as MobKind;
+      const kind = mob.kind;
       let sprite = this.mobSprites.get(id);
       if (!sprite) {
-        const art = MOB_ART[kind];
+        const art = mobArt(kind);
         const body = this.add.sprite(mob.x, mob.y, mobKey(kind, "south")).setOrigin(0.5, art.feet / MOB_FRAME);
         const shadow = this.add.ellipse(mob.x, mob.y, art.shadow, art.shadow * 0.32, 0x000000, SHADOW_ALPHA).setDepth(SHADOW_DEPTH);
         const reaction = newReaction();
@@ -1623,7 +1672,7 @@ Subiu para o nível ${info.level}!` : "";
       if (Math.hypot(dx, dy) > 0.5) sprite.lastMoveAt = time;
       sprite.lastX = mob.x;
       sprite.lastY = mob.y;
-      const feet = mob.y + MOB_KINDS[kind].size / 2;
+      const feet = mob.y + mobStats(kind).size / 2;
       if (mob.hp < sprite.lastHp) this.onMobHit(room, mob, sprite, sprite.lastHp - mob.hp, time);
       sprite.lastHp = mob.hp;
       // Andando = mudou de lugar nos últimos WALK_LINGER_MS e não está parado preparando o golpe.
@@ -1655,8 +1704,8 @@ Subiu para o nível ${info.level}!` : "";
       // depois de um golpe que o alcançava, foi morto: o número é a vida que restava.
       if (this.swingReached(sprite.lastX, sprite.lastY, time)) {
         this.popNumber(sprite.lastX, sprite.body.y - sprite.body.displayHeight * sprite.body.originY, `${sprite.lastHp}`, "dealt");
-        const kind = sprite.body.texture.key.split("/")[1] as MobKind;
-        if (MOB_KINDS[kind]) this.splatter({ x: sprite.lastX, y: sprite.lastY }, kind, { x: 0, y: -1 }, time);
+        const kind = sprite.body.texture.key.split("/")[1] ?? "";
+        if (kind) this.splatter({ x: sprite.lastX, y: sprite.lastY }, kind, { x: 0, y: -1 }, time);
       }
       sprite.body.destroy();
       sprite.shadow.destroy();
@@ -1692,8 +1741,8 @@ Subiu para o nível ${info.level}!` : "";
 
   // Mob levou dano: número, flash e recuo para longe do jogador mais perto. Golpe do bárbaro que acerta treme leve.
   private onMobHit(room: Room<unknown, ServerState>, mob: MobView, sprite: MobSprite, damage: number, time: number) {
-    const kind = mob.kind as MobKind;
-    const top = mob.y + MOB_KINDS[kind].size / 2 - MOB_ART[kind].height;
+    const kind = mob.kind;
+    const top = mob.y + mobStats(kind).size / 2 - mobArt(kind).height;
     this.popNumber(mob.x, top, `${damage}`, "dealt");
     const players: Vec2[] = [];
     room.state.players.forEach((player) => players.push(player));
@@ -1708,9 +1757,11 @@ Subiu para o nível ${info.level}!` : "";
 
   // Andando: a caminhada da direção (ou da cardeal ao lado, se a diagonal não tem arte), continuando do mesmo quadro
   // ao virar. Parado, preparando golpe ou sem caminhada nenhuma (slime): o sprite parado da direção, nas 8.
-  private animateMob(sprite: MobSprite, kind: MobKind, walking: boolean) {
+  private animateMob(sprite: MobSprite, kind: string, walking: boolean) {
+    // O Boneco de Treino é uma imagem só (não anda nem vira).
+    if (kind === "dummy") return;
     const body = sprite.body;
-    const art = MOB_ART[kind];
+    const art = mobArt(kind);
     const walk = walking && art.walkFeet !== undefined ? this.mobWalkKey(kind, sprite.facing) : undefined;
     if (walk && art.walkFeet !== undefined) {
       if (body.anims.currentAnim?.key === walk && body.anims.isPlaying) return;
@@ -1723,7 +1774,7 @@ Subiu para o nível ${info.level}!` : "";
     if (body.texture.key !== idle) body.setTexture(idle).setOrigin(0.5, art.feet / MOB_FRAME);
   }
 
-  private mobWalkKey(kind: MobKind, facing: string): string | undefined {
+  private mobWalkKey(kind: string, facing: string): string | undefined {
     for (const direction of [facing, WALK_FALLBACK[facing]]) {
       const key = direction && mobKey(kind, `walk-${direction}`);
       if (key && this.anims.exists(key)) return key;
@@ -1732,10 +1783,10 @@ Subiu para o nível ${info.level}!` : "";
   }
 
   // Gotas saltando do meio do corpo do mob, para longe de quem bateu, na frente dele.
-  private splatter(mob: Vec2, kind: MobKind, away: Vec2, time: number) {
-    const feet = mob.y + MOB_KINDS[kind].size / 2;
-    const colors = kind === "slime" ? ACID_COLORS : BLOOD_COLORS;
-    this.particles?.burst(mob.x, feet - MOB_ART[kind].height / 2, colors, away.x, away.y, sortDepth(feet) + 1, time);
+  private splatter(mob: Vec2, kind: string, away: Vec2, time: number) {
+    const feet = mob.y + mobStats(kind).size / 2;
+    const colors = kind === "slime" ? ACID_COLORS : kind === "dummy" ? STRAW_COLORS : BLOOD_COLORS;
+    this.particles?.burst(mob.x, feet - mobArt(kind).height / 2, colors, away.x, away.y, sortDepth(feet) + 1, time);
   }
 
   // Algum golpe recente alcançava este ponto (raio do golpe mais a metade do maior mob)?
@@ -1893,11 +1944,104 @@ window.addEventListener("resize", () => {
     game.scale.setGameSize(size.width, size.height);
   });
 });
+// Ferramentas de dev: o painel (F2) e o window.__DEV__. Só funcionam com DEV_TOOLS=1 no servidor.
+const devPanel = new DevPanel({
+  // Pela sala, não pela cena: logo depois de entrar a cena ainda não existe, e o pedido não pode se perder.
+  where: () => (currentRoom ? devRoomOf(currentRoom) : undefined),
+  send: (command) => currentRoom?.send("dev_command", command),
+  goTo: (target) => devGoTo(target),
+  openShop: (shop) => devOpenShop(shop),
+  aim: () => activeScene?.aimAngle(),
+  notice: (text) => hud.notice(text),
+});
+installDevApi(devPanel);
+
+function devRoomOf(room: Room<unknown, ServerState>): DevRoom {
+  return room.name === "city" ? "city" : room.name === "sandbox" ? "sandbox" : "game";
+}
+
+// Troca de sala de dev: sai da atual (no labirinto, saída intencional: volta como antes da run) e entra na do destino
+// já com ele (devTarget; o servidor confere e leva). Falhou (servidor sem DEV_TOOLS=1): volta para a cidade.
+async function devGoTo(target: DevTeleport): Promise<void> {
+  const room = teleportRoom(target);
+  devPanel.setUnavailable();
+  sessionStorage.removeItem(RECONNECTION_TOKEN_KEY);
+  // A sala atual vem de show(), não da cena: logo depois de entrar, a cena nova ainda não rodou o create.
+  activeScene?.detachRoom();
+  const current = currentRoom;
+  currentRoom = undefined;
+  if (current) await current.leave(true).catch(() => undefined);
+  const options = { name: sessionStorage.getItem(NAME_KEY), devTarget: target };
+  try {
+    const joined = await joinWithRetry(room, options);
+    if (room === "city") {
+      watchDev(joined);
+      await firstState(joined);
+      show({ place: "city", room: joined });
+    } else await enterLabyrinth(joined);
+  } catch (e) {
+    await goToCity();
+    hud.notice(`Não deu para ir a "${target}": ${errorMessage(e)}`);
+  }
+}
+
+// Logo depois de sair de uma sala, a entrada na outra pode chegar antes de o servidor soltar o personagem ("já está
+// no jogo"): tenta de novo algumas vezes.
+async function joinWithRetry(room: DevRoom, options: Record<string, unknown>): Promise<Room<unknown, ServerState>> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await client.joinOrCreate<ServerState>(room, options);
+    } catch (e) {
+      if (attempt >= 4 || room === "sandbox" && /not defined|não existe/i.test(errorMessage(e))) throw e;
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+  }
+}
+
+// Loja: vai ao móvel dela na cidade e abre a janela quando o jogador chega lá (a janela só vale no móvel).
+async function devOpenShop(shop: DevShop): Promise<void> {
+  const station = DEV_SHOPS[shop];
+  if (activeScene?.devRoom === "city") activeScene.send("dev_command", { command: "teleport_to", target: shop });
+  else await devGoTo(shop);
+  for (let i = 0; i < 40; i++) {
+    if (activeScene?.stationHere() === station) {
+      if (hud.station !== station) hud.toggleStation(station);
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
+// O Boneco de Treino: estaca, braços, corpo de saco de palha com um alvo e cabeça; os pés na linha 60 de 64.
+function createDummyTexture(scene: Phaser.Scene) {
+  const key = mobKey("dummy", "south");
+  if (scene.textures.exists(key)) return;
+  const g = scene.make.graphics({}, false);
+  g.fillStyle(0x3b2a1a, 1).fillRect(22, 57, 20, 4);
+  g.fillStyle(0x6b4a2a, 1).fillRect(30, 26, 5, 32);
+  g.fillStyle(0x5a3d22, 1).fillRect(13, 29, 38, 4);
+  g.fillStyle(0xc9a35a, 1).fillRoundedRect(21, 20, 22, 26, 5);
+  g.lineStyle(1, 0x6e5428, 1).strokeRoundedRect(21, 20, 22, 26, 5);
+  g.fillStyle(0xb02a2a, 1).fillCircle(32, 33, 7);
+  g.fillStyle(0xf2e6cf, 1).fillCircle(32, 33, 4.5);
+  g.fillStyle(0xb02a2a, 1).fillCircle(32, 33, 2);
+  g.fillStyle(0xd8b56a, 1).fillCircle(32, 12, 8);
+  g.lineStyle(1, 0x6e5428, 1).strokeCircle(32, 12, 8);
+  g.lineStyle(2, 0x4a3420, 1).lineBetween(21, 24, 43, 24).lineBetween(21, 42, 43, 42);
+  g.generateTexture(key, MOB_FRAME, MOB_FRAME);
+  g.destroy();
+}
+
 let currentScene: string | undefined;
 let sceneCount = 0;
+// Esta aba já recebeu "dev_tools" de algum servidor (ver o start).
+const DEV_SEEN_KEY = "rpg-extracao:devTools";
+// A sala em que a página está agora (a da última cena mostrada).
+let currentRoom: Room<unknown, ServerState> | undefined;
 
 // Troca de lugar: uma cena nova para cada sala, e a anterior sai inteira (desenhos, teclas, estado).
 function show(data: SceneData) {
+  currentRoom = data.room;
   if (currentScene) game.scene.remove(currentScene);
   currentScene = `world-${++sceneCount}`;
   game.scene.add(currentScene, WorldScene, true, data);
@@ -1949,8 +2093,19 @@ async function goToCity() {
   }
 }
 
+// Ferramentas de dev (DEV_TOOLS=1 no servidor): o painel liga nesta sala; destino em outra sala, troca de sala. Logo
+// depois de entrar: o servidor avisa no onJoin, antes de a cena existir.
+function watchDev(room: Room<unknown, ServerState>) {
+  room.onMessage("dev_tools", (info: { room: DevRoom }) => {
+    sessionStorage.setItem(DEV_SEEN_KEY, "1");
+    devPanel.setAvailable(info.room);
+  });
+  room.onMessage("dev_goto", (info: { target: DevTeleport }) => void devGoTo(info.target));
+}
+
 async function enterCity(name: string, classId?: ClassId) {
   const room = await client.joinOrCreate<ServerState>("city", classId ? { name, classId } : { name });
+  watchDev(room);
   sessionStorage.setItem(NAME_KEY, name);
   localStorage.setItem(LAST_NAME_KEY, name);
   await firstState(room);
@@ -1976,6 +2131,7 @@ async function goToLabyrinth() {
 }
 
 async function enterLabyrinth(room: Room<unknown, ServerState>) {
+  watchDev(room);
   sessionStorage.setItem(RECONNECTION_TOKEN_KEY, room.reconnectionToken);
   // O Colyseus troca o token a cada reconexão; o guardado precisa acompanhar.
   room.onReconnect(() => sessionStorage.setItem(RECONNECTION_TOKEN_KEY, room.reconnectionToken));
@@ -1986,10 +2142,20 @@ async function enterLabyrinth(room: Room<unknown, ServerState>) {
 // Ao abrir: se esta aba tem um personagem no labirinto (recarregou ou caiu), volta a ele; senão, cidade.
 // Se a volta falhar (morreu enquanto estava fora, ou a run acabou), avisa em vez de seguir calado.
 async function start() {
+  await enter();
+  // ?testRoom=1: direto para a Sala de Testes (precisa de DEV_TOOLS=1 no servidor).
+  if (new URLSearchParams(window.location.search).has("testRoom") && (!currentRoom || devRoomOf(currentRoom) !== "sandbox")) await devGoTo("test_room");
+}
+
+async function enter() {
   const token = sessionStorage.getItem(RECONNECTION_TOKEN_KEY);
   if (!token) return goToCity();
   try {
-    await enterLabyrinth(await client.reconnect<ServerState>(token));
+    const room = await client.reconnect<ServerState>(token);
+    await enterLabyrinth(room);
+    // Voltou a uma sala (recarregou a página): o servidor não repete o aviso do onJoin; esta aba já usava as
+    // ferramentas, então pergunta de novo.
+    if (sessionStorage.getItem(DEV_SEEN_KEY)) room.send("dev_hello");
   } catch {
     sessionStorage.removeItem(RECONNECTION_TOKEN_KEY);
     showEndScreen("Seu personagem se foi", "Ele morreu ou a partida acabou enquanto você estava fora.", "Ir para a cidade");

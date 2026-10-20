@@ -1,0 +1,99 @@
+/* Painel da Sala de Testes (client/src/devPanel.ts). Ferramenta de dev: limpo e compacto, no canto direito, por cima
+   de tudo (até das janelas do HUD). Não é arte do jogo. */
+.dev-panel {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 200000;
+  width: 300px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  padding: 8px 10px 10px;
+  font: 12px/1.3 system-ui, "Segoe UI", sans-serif;
+  color: #e6e1d6;
+  background: rgba(14, 14, 18, 0.94);
+  border: 1px solid #5c4e3d;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+}
+
+.dev-panel[hidden] {
+  display: none;
+}
+
+.dev-head {
+  font-weight: 700;
+  font-size: 13px;
+  color: #ffd166;
+}
+
+.dev-status {
+  margin: 2px 0 6px;
+  color: #9fe08a;
+}
+
+.dev-off .dev-status {
+  color: #e88a7a;
+}
+
+.dev-off .dev-section {
+  opacity: 0.45;
+}
+
+.dev-section {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid #2c2620;
+}
+
+.dev-title {
+  margin-bottom: 4px;
+  font-weight: 600;
+  color: #c9b78f;
+}
+
+.dev-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.dev-btn {
+  padding: 3px 7px;
+  font: inherit;
+  color: #f2ead8;
+  background: #2a2520;
+  border: 1px solid #5c4e3d;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.dev-btn:hover {
+  background: #3a3128;
+  border-color: #d4a359;
+}
+
+.dev-btn:active {
+  transform: translateY(1px);
+}
+
+.dev-small {
+  font-size: 11px;
+  padding: 2px 6px;
+}
+
+.dev-primary {
+  background: #3b2a55;
+  border-color: #9356d6;
+}
+
+.dev-danger {
+  color: #ffb4a8;
+  border-color: #7a3a2e;
+}
+
+.dev-check {
+  display: block;
+  margin: 2px 0;
+  cursor: pointer;
+}

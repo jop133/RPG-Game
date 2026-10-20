@@ -5,6 +5,7 @@ export * from "./classes";
 export * from "./collision";
 export * from "./combat";
 export * from "./death";
+export * from "./dev";
 export * from "./equipment";
 export * from "./extraction";
 export * from "./forge";
