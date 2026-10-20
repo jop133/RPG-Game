@@ -49,7 +49,19 @@ export interface HudView {
   kills?: readonly string[];
   // As habilidades nos slots Q e R e quanto falta (ms) da recarga de cada uma (0 fora do labirinto).
   skills: readonly { id: SkillId | null; cooldownMs: number }[];
+  // Mana (no labirinto; na cidade, cheia) e a zona hostil em que está (no labirinto; undefined fora delas).
+  mana?: number;
+  maxMana?: number;
+  zone?: string;
 }
+
+// Indicador da zona hostil, no topo: o nome da zona e a penalidade que vale agora.
+const ZONE_BANNERS: Record<string, { name: string; effect: string; color: string }> = {
+  goblin: { name: "Acampamento Goblin", effect: "Breu Abissal: luz −75%", color: "#d9a35b" },
+  slime: { name: "Fosso dos Slimes", effect: "Miasma Ácido: cura −30% · lodo corrosivo", color: "#8fd65a" },
+  lobo: { name: "Covil dos Lobos", effect: "Frio Cortante: fome 1,75× · Frenesi de Sangue abaixo de 35% de vida", color: "#9fd0ff" },
+  gnomo: { name: "Minas dos Gnomos", effect: "Radiação Arcana: −1,5 Mana/s · +25% de dano recebido", color: "#5fe3ff" },
+};
 
 // Botões das habilidades (Q e R), à esquerda da barra rápida (como a mochila à direita): o ícone da habilidade do
 // slot (ou o do slot vazio), a tecla e a recarga escurecendo de cima para baixo, com os segundos que faltam.
@@ -75,7 +87,6 @@ const SOCKET = 28;
 const MAX_ESSENCE_SLOTS = LEVEL_XP.length + 1;
 const DOCK_SCALE = 1.5; // vãos de 40 px do dock -> 60 px
 // Recurso de classe (barra azul): ainda não existe (passo 10); a barra fica cheia com este texto até lá.
-const CLASS_RESOURCE_PLACEHOLDER = 100;
 // Anel de XP em volta do medalhão do nível (SVG): raio e espessura do trilho, em px do bloco de status.
 // Mesmo centro do medalhão (46 px, em (124, 134)); o traço fica todo por fora dele (raio 23).
 const XP_RING = { size: 62, radius: 27, stroke: 5 };
@@ -206,6 +217,10 @@ export class Hud {
   private readonly coinText: HTMLSpanElement;
   private readonly notices: HTMLDivElement;
   private readonly hintText: HTMLDivElement;
+  private readonly mpText: HTMLSpanElement;
+  private readonly zoneBanner: HTMLDivElement;
+  private readonly zoneName: HTMLDivElement;
+  private readonly zoneEffect: HTMLDivElement;
   private readonly dockSlots: SlotView[] = [];
   private readonly skillIcons: HTMLImageElement[] = [];
   private readonly skillShades: HTMLDivElement[] = [];
@@ -243,7 +258,7 @@ export class Hud {
     const hp = this.bar(status, "hp");
     hp.trough.prepend(this.ghost = el("div", "hud-ghost"));
     this.hpText = hp.text;
-    setText(this.bar(status, "mp").text, `${CLASS_RESOURCE_PLACEHOLDER} / ${CLASS_RESOURCE_PLACEHOLDER}`);
+    this.mpText = this.bar(status, "mp").text;
     const hunger = this.bar(status, "hunger");
     this.hungerIcon = hunger.icon;
     this.hungerText = hunger.text;
@@ -257,6 +272,10 @@ export class Hud {
 
     // Topo, no centro: avisos que somem sozinhos e a dica fixa (portal, extração).
     const top = el("div", "hud-top", this.root);
+    this.zoneBanner = el("div", "hud-zone", top);
+    this.zoneName = el("div", "hud-zone-name", this.zoneBanner);
+    this.zoneEffect = el("div", "hud-zone-effect", this.zoneBanner);
+    this.zoneBanner.hidden = true;
     this.hintText = el("div", "hud-hint", top);
     this.notices = el("div", "hud-notices", top);
 
@@ -419,7 +438,17 @@ export class Hud {
     else if (time - this.lastDropAt > GHOST_HOLD_MS) this.ghostFraction = Math.max(hp, this.ghostFraction - GHOST_SPEED * dt);
     this.setWidth("hp", this.fills.get("hp"), hp);
     this.setWidth("ghost", this.ghost, this.ghostFraction);
-    this.setWidth("mp", this.fills.get("mp"), 1); // recurso de classe: passo 10
+    const maxMana = view.maxMana ?? 100;
+    const mana = view.mana ?? maxMana;
+    this.setWidth("mp", this.fills.get("mp"), maxMana > 0 ? Math.max(0, mana) / maxMana : 0);
+    setText(this.mpText, `${Math.floor(Math.max(0, mana))} / ${maxMana}`);
+    const banner = view.zone ? ZONE_BANNERS[view.zone] : undefined;
+    this.zoneBanner.hidden = !banner;
+    if (banner) {
+      setText(this.zoneName, banner.name);
+      setText(this.zoneEffect, banner.effect);
+      this.zoneName.style.color = banner.color;
+    }
     const hunger = view.hunger === undefined ? 1 : view.hunger / HUNGER_MAX;
     this.setWidth("hunger", this.fills.get("hunger"), hunger);
     this.hungerIcon.classList.toggle("hud-alert", hunger < HUNGER_ALERT);

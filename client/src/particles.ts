@@ -4,12 +4,13 @@ import Phaser from "phaser";
 // - gotas de impacto: saltam do mob atingido e caem (sangue escuro; ácido verde no slime);
 // - esporos: pontinhos ciano subindo devagar perto de cristais, minério e cogumelos;
 // - espiral: faíscas roxas subindo em volta dos portais;
-// - faíscas: voam em linha reta, freando e apagando (rastro e explosão do Projétil Mágico).
+// - faíscas: voam em linha reta, freando e apagando (rastro e explosão do Projétil Mágico);
+// - flocos: em linha reta sem frear, acendendo e apagando (neve dos lobos, névoa dos slimes).
 // Esporos e espiral brilham (soma de cor) por cima da camada de luz: aparecem mesmo no escuro.
 
 const PIXEL_KEY = "pixel";
 
-type Motion = "drop" | "drift" | "spiral" | "spark";
+type Motion = "drop" | "drift" | "spiral" | "spark" | "linear";
 
 interface Particle {
   image: Phaser.GameObjects.Image;
@@ -92,6 +93,11 @@ export class Particles {
     this.add(x, y, color, Phaser.Math.Between(1, 2), this.glowDepth, true, { motion: "spark", life, vx, vy, time });
   }
 
+  // Floco: anda reto a (vx, vy) px/s por `life` ms. glow: soma de cor (brilha no escuro) ou cor normal.
+  flake(x: number, y: number, color: number, vx: number, vy: number, life: number, size: number, glow: boolean, time: number) {
+    this.add(x, y, color, size, glow ? this.glowDepth : this.glowDepth - 0.04, glow, { motion: "linear", life, vx, vy, time });
+  }
+
   // Explosão: faíscas em todas as direções a partir de (x, y).
   explode(x: number, y: number, colors: readonly number[], time: number) {
     for (let i = 0; i < 16; i++) {
@@ -120,6 +126,10 @@ export class Particles {
         p.image.x += (p.vx + Math.sin((time + p.born) / 400) * 4) * dt;
         p.image.y += p.vy * dt;
         p.image.setAlpha(Math.sin(Math.PI * t)); // acende e apaga devagar
+      } else if (p.motion === "linear") {
+        p.image.x += p.vx * dt;
+        p.image.y += p.vy * dt;
+        p.image.setAlpha(Math.sin(Math.PI * t));
       } else if (p.motion === "spark") {
         const keep = Math.max(0, 1 - SPARK_DRAG * dt);
         p.vx *= keep;

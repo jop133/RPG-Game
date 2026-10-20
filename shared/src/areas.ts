@@ -1,4 +1,5 @@
 import type { MobKind } from "./balance";
+import type { ZoneId } from "./zones";
 import type { Vec2 } from "./movement";
 
 export interface Rect {
@@ -27,6 +28,8 @@ export function areaAt(areas: readonly Area[], p: Vec2): Area | undefined {
 export interface AreaConfig {
   playerEntry: boolean;
   mobs: Partial<Record<MobKind, number>>;
+  // Uma das 4 zonas hostis (ver ZONES em zones.ts): grupos táticos do povo dela e o efeito em quem entra.
+  zone?: ZoneId;
 }
 
 // Mapa e configuração precisam concordar nos nomes. Devolve os problemas encontrados; lista vazia = ok.

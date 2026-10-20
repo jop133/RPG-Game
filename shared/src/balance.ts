@@ -360,13 +360,72 @@ export const MOB_WAKE_RADIUS = 1000;
 export const MOB_SPAWN_SAFE_RADIUS = 320;
 
 // Uma entrada por área do mapa (camada "areas" no Tiled). Os nomes precisam bater com os do mapa.
-// mobs: quantos de cada tipo nascem na área quando a sala é criada.
+// mobs: quantos de cada tipo nascem soltos na área quando a sala é criada (o centro, onde se chega, com poucos).
+// zone: a área é uma das 4 zonas hostis (ZONES): o povo dela nasce em grupos táticos por setor (PACKS), e quem está
+// nela sofre o efeito da zona.
 // Valores do 1º andar (assets/maps/dungeon_floor1.json, gerado por tools/assets/build_labyrinth.py).
-// Centro: onde se chega, com poucos mobs. Cada região de fora tem o seu povo.
 export const AREAS: Record<string, AreaConfig> = {
   centro: { playerEntry: true, mobs: { goblin: 1, lobo: 1, gnomo: 1, slime: 1 } },
-  noroeste: { playerEntry: false, mobs: { goblin: 12 } },
-  nordeste: { playerEntry: false, mobs: { lobo: 10 } },
-  sudeste: { playerEntry: false, mobs: { gnomo: 10 } },
-  sudoeste: { playerEntry: false, mobs: { slime: 10 } },
+  noroeste: { playerEntry: false, mobs: {}, zone: "goblin" },
+  nordeste: { playerEntry: false, mobs: {}, zone: "lobo" },
+  sudeste: { playerEntry: false, mobs: {}, zone: "gnomo" },
+  sudoeste: { playerEntry: false, mobs: {}, zone: "slime" },
 };
+
+// ---------------------------------------------------------------- spawns táticos (mapa vivo sem enxame)
+
+// O labirinto é dividido em setores de SECTOR_TILES x SECTOR_TILES; cada setor de zona com chão bastante
+// (MIN_SECTOR_CELLS) recebe um grupo de SIZE mobs do povo da zona, num posto (home) a pelo menos MIN_DISTANCE px do
+// posto de qualquer outro grupo e longe das entradas (MOB_SPAWN_SAFE_RADIUS). Os membros nascem a até SPREAD_TILES
+// tiles do posto.
+export const PACKS = { sectorTiles: 25, minSectorCells: 40, size: { min: 2, max: 4 }, minDistance: 576, spreadTiles: 3 };
+// Coleira: perseguindo a mais de RADIUS px do posto, o mob desiste, volta a RETURN_SPEED x a velocidade e fica
+// IMMUNE_MS sem notar ninguém. Teto de perseguidores: um jogador com MAX_CHASERS atrás dele não atrai mais ninguém, e
+// só os MAX_CHASERS mais perto continuam a caça.
+export const LEASH = { radius: 480, returnSpeed: 1.4, immuneMs: 3000 };
+export const MAX_CHASERS = 5;
+// Respawn de um grupo inteiro morto: depois de DELAY_MS, e só com nenhum jogador a menos de CLEAR_RADIUS px do posto.
+export const PACK_RESPAWN = { delayMs: 160_000, clearRadius: 704 };
+// Vida em repouso (sem aggro), por tipo, em tiles e ms:
+// goblin: rondas curtas de 2 a 4 tiles em volta do posto, parando 3 a 5 s; lobo: o grupo patrulha junto um eixo de 5 a
+// 7 tiles do corredor; slime: fica no lugar (o cliente pulsa); gnomo: anda entre os cristais a até CRYSTAL_TILES do
+// posto (sem cristal perto, ronda como o goblin).
+export const IDLE = {
+  roamTiles: { min: 2, max: 4 },
+  pauseMs: { min: 3000, max: 5000 },
+  patrolTiles: { min: 5, max: 7 },
+  crystalTiles: 10,
+};
+
+// ---------------------------------------------------------------- zonas hostis (efeitos em quem está nelas)
+
+// Breu dos Goblins: a luz de cada um cai a LIGHT_FACTOR (e com ela o que o servidor envia, regra 4); goblins que
+// notaram o jogador a EYES px dele aparecem só como dois olhos no escuro.
+// Miasma dos Slimes: toda cura recebida (regeneração) vale HEAL_FACTOR.
+// Frio dos Lobos: a fome cai HUNGER_FACTOR x mais rápido.
+// Radiação dos Gnomos: drena MANA_DRAIN de Mana por segundo, a regeneração de Mana vale MANA_REGEN_FACTOR e todo dano
+// recebido vale DAMAGE_TAKEN_FACTOR.
+export const ZONE_EFFECTS = {
+  goblin: { lightFactor: 0.25, eyes: { min: 96, max: 256 } },
+  slime: { healFactor: 0.7 },
+  lobo: { hungerFactor: 1.75 },
+  gnomo: { manaDrainPerSecond: 1.5, manaRegenFactor: 0.2, damageTakenFactor: 1.25 },
+};
+// Mana: volta a MANA_REGEN_PER_SECOND por segundo, até a Mana máxima (status). As skills ainda não gastam.
+export const MANA_REGEN_PER_SECOND = 2;
+// Tochas dos Goblins: as do mapa (e os braseiros) começam apagadas; [E] a até INTERACT_RADIUS px acende para todos até
+// o fim da run, com luz de LIGHT_RADIUS px.
+export const TORCH = { interactRadius: 56, lightRadius: 180 };
+// Poças de lodo ácido (as do mapa e as que um slime deixa ao morrer, por SLIME_DEATH_MS): quem pisa (os pés a até
+// RADIUS px do centro) anda a SLOW da velocidade e perde DAMAGE_PER_SECOND de vida por segundo.
+export const ACID = { radius: 30, slow: 0.6, damagePerSecond: 2, slimeDeathMs: 6000 };
+// Frenesi de Sangue: jogador na zona dos lobos com vida abaixo de HP_FRACTION da máxima enlouquece os lobos a até
+// RADIUS px dele: velocidade x SPEED_FACTOR e raio de aggro x AGGRO_FACTOR.
+export const FRENZY = { hpFraction: 0.35, radius: 384, speedFactor: 1.25, aggroFactor: 1.4 };
+// Descarga dos cristais (os cristais médios da zona dos gnomos): a cada PERIOD_MS, carrega por CHARGE_MS (anel no chão) e
+// dispara: quem estiver a até RADIUS px leva DAMAGE (mágico) e é empurrado KNOCKBACK px para fora.
+export const CRYSTAL_PULSE = { periodMs: 6000, chargeMs: 800, radius: 96, damage: 12, knockback: 28 };
+// Estilhaços de cristal no chão da zona dos gnomos: COUNT por run, a pelo menos MIN_SPACING px entre si; quem passa
+// andando por cima (os pés a até RADIUS px) quebra o estilhaço, leva DAMAGE e sangra (BLEED).
+export const SHARDS = { count: 70, radius: 12, damage: 6, minSpacing: 96 };
+export const BLEED = { damagePerSecond: 3, durationMs: 4000 };

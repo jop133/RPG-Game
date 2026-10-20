@@ -5,8 +5,38 @@ import {
   EXIT_LIGHT_RADIUS,
   EXITS_ACTIVE,
   MOB_SPAWN_SAFE_RADIUS,
+  ACID,
+  BLEED,
+  CRYSTAL_PULSE,
+  FRENZY,
   HUNGER_MAX,
   INVENTORY_SLOTS,
+  MAX_CHASERS,
+  PACK_RESPAWN,
+  SHARDS,
+  TORCH,
+  ZONE_KIND,
+  crystalPulse,
+  excessChasers,
+  goblinEyes,
+  idlePlanFor,
+  inAcid,
+  knockback,
+  planPacks,
+  scatterShards,
+  shardUnderfoot,
+  tickBleed,
+  tickMana,
+  torchInReach,
+  wolfFrenzy,
+  zoneAt,
+  zoneDamage,
+  zoneHeal,
+  zoneHungerFactor,
+  zoneLightRadius,
+  type IdlePlan,
+  type MobPost,
+  type ZoneId,
   LIGHTNING_SPELL,
   MAGIC_BOLT,
   SWAMP_SPELL,
@@ -67,6 +97,7 @@ import {
   type Area,
   type DamageType,
   type DeathCause,
+  type HazardKind,
   type Equipment,
   type ExtractionResult,
   type FirstKillMessage,
@@ -75,6 +106,7 @@ import {
   type ItemStack,
   type LightCarrier,
   type LitMap,
+  type LightSource,
   type PlayerStats,
   type Projectile,
   type ProjectileStep,
@@ -103,6 +135,8 @@ import {
   PlayerState,
   ProjectileState,
   SpellState,
+  TorchState,
+  HazardState,
   mirrorEquipment,
   mirrorSkills,
 } from "./state";
@@ -114,13 +148,31 @@ const SPENT_BOLT_TICKS = 3;
 
 const level = loadLevel(new URL("../../assets/maps/dungeon_floor1.json", import.meta.url));
 
-// O que o servidor precisa saber de um mob para movê-lo, e que o cliente não precisa ver.
+// O que o servidor precisa saber de um mob para movê-lo, e que o cliente não precisa ver. post e pack: só os mobs de
+// grupo (spawns táticos das zonas): o posto e de qual grupo é.
 interface MobBrain {
   kind: MobKind;
   area: Area;
   homeCells: Vec2[];
   mind: MobMind;
+  post?: MobPost;
+  pack?: string;
 }
+
+// Um grupo tático: onde nasce, quem está vivo dele e, morto o grupo inteiro, desde quando (para o respawn).
+interface Pack {
+  kind: MobKind;
+  area: Area;
+  homeCells: Vec2[];
+  home: Vec2;
+  members: Vec2[];
+  plan: IdlePlan;
+  alive: Set<string>;
+  deadSinceMs?: number;
+}
+
+// Ticks entre duas checagens de respawn dos grupos (não precisa ser a cada tick).
+const RESPAWN_CHECK_TICKS = 20;
 
 // Projétil Mágico em voo, do lado do servidor: o voo (shared/src/projectile.ts), quem atirou (o mob atingido vai atrás
 // dele; jogador e mob não acertam quem atirou) e o Dano Mágico de quem atirou no instante do disparo.
@@ -168,6 +220,18 @@ export class GameRoom extends Room<{ state: GameState }> {
   private essences = new Map<string, ItemId[]>();
   private stats = new Map<string, PlayerStats>();
   private mobBrains = new Map<string, MobBrain>();
+  private nextMobId = 1;
+  // Grupos táticos, por id, e há quantos ticks o respawn foi checado.
+  private packs = new Map<string, Pack>();
+  private ticksSinceRespawnCheck = 0;
+  // Zonas hostis: em que zona cada um está; sangramento que falta (ms); poças ácidas (as do mapa e as dos slimes mortos,
+  // estas com o fim em ms); tochas acesas; as descargas dos cristais (o atraso de cada um) e o relógio do último tick.
+  private zones = new Map<string, ZoneId | undefined>();
+  private bleedMs = new Map<string, number>();
+  private tempAcid = new Map<string, number>();
+  private nextHazardId = 1;
+  private pulses: { id: string; at: Vec2; offsetMs: number }[] = [];
+  private lastTickMs = 0;
   // Projéteis em voo, por id. ProjectileState só leva posição e ângulo ao cliente.
   private bolts = new Map<string, Bolt>();
   private nextBoltId = 1;
@@ -197,8 +261,10 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.onMessage(action, (client, message) => this.handleGear(client.sessionId, action, message));
     }
     this.onMessage("pickup", (client) => this.handlePickup(client.sessionId));
+    this.onMessage("lightTorch", (client) => this.handleLightTorch(client.sessionId));
     this.spawnMobs();
     this.openExits();
+    this.placeHazards();
     this.setSimulationInterval((dtMs) => this.tick(dtMs), 1000 / TICK_RATE);
   }
 
@@ -224,6 +290,10 @@ export class GameRoom extends Room<{ state: GameState }> {
       maxHp: stats.maxHp,
       attackSeq: 0,
       attackAngle: 0,
+      mana: stats.maxMana,
+      maxMana: stats.maxMana,
+      zone: "",
+      bleeding: false,
       hunger: HUNGER_MAX,
       extractMs: 0,
       xp,
@@ -266,6 +336,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.lastHurtMs.delete(sessionId);
     this.lastSpellMs.delete(sessionId);
     this.skills.delete(sessionId);
+    this.zones.delete(sessionId);
+    this.bleedMs.delete(sessionId);
     this.inventories.delete(sessionId);
     this.equipment.delete(sessionId);
     this.extractProgress.delete(sessionId);
@@ -279,9 +351,7 @@ export class GameRoom extends Room<{ state: GameState }> {
   private openExits() {
     this.activeExits = pickActiveExits(level.exitCandidates, EXITS_ACTIVE, Math.random);
     this.activeExits.forEach((exit, i) => this.state.exits.set(`exit-${i + 1}`, new ExitState(exit)));
-    const exitLights = this.activeExits.map((exit) => ({ ...exit, radius: EXIT_LIGHT_RADIUS }));
-    const { width, height, tileSize } = level.grid;
-    this.lit = staticLitMap([...level.lights, ...exitLights], width, height, tileSize);
+    this.rebuildLitMap();
   }
 
   // Só conta para quem está conectado: um corpo largado num portal não extrai sozinho.
@@ -385,7 +455,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   // ou a Resistência Mágica (mágico) de quem leva reduzem o dano; a fome é dano verdadeiro.
   private damagePlayer(sessionId: string, player: PlayerState, amount: number, cause: DeathCause, type: DamageType) {
     if (player.hp === 0) return;
-    const taken = damageTaken(amount, type, this.statsOf(sessionId));
+    // Na zona dos gnomos, todo dano recebido vale mais (Ressonância Fragilizadora).
+    const taken = zoneDamage(damageTaken(amount, type, this.statsOf(sessionId)), this.zones.get(sessionId));
     this.lastHurtMs.set(sessionId, this.clock.currentTime);
     player.hp = applyDamage(player.hp, taken);
     if (player.hp === 0) this.deaths.set(sessionId, cause);
@@ -627,7 +698,11 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (mob) {
       this.dropPile(mob, rollDrops(mob.kind as MobKind, Math.random));
       if (killer) this.creditKill(killerId, killer, mob.kind as MobKind);
+      // O slime deixa uma poça de lodo ácido por ACID.slimeDeathMs.
+      if (mob.kind === "slime") this.addTempAcid(mob);
     }
+    const pack = this.mobBrains.get(id)?.pack;
+    this.packs.get(pack ?? "")?.alive.delete(id);
     this.state.mobs.delete(id);
     this.mobBrains.delete(id);
   }
@@ -681,27 +756,77 @@ export class GameRoom extends Room<{ state: GameState }> {
     });
   }
 
-  // Uma vez, quando a sala nasce: cada área recebe os mobs de AREAS em tiles de chão sorteados.
+  // Uma vez, quando a sala nasce. Zonas hostis: grupos táticos (um por setor, com posto e vida em repouso). Outras
+  // áreas (o centro): os mobs soltos de AREAS, vagando pela área inteira. Todos nascem longe da chegada.
   private spawnMobs() {
-    let nextId = 1;
     for (const area of level.areas) {
       const cells = level.floorCells.get(area.name) ?? [];
-      const counts = AREAS[area.name]?.mobs ?? {};
-      // Nascem longe da chegada; depois vagam pela área inteira (homeCells continua sendo a área toda).
+      const zone = AREAS[area.name]?.zone;
+      if (zone) {
+        const plans = planPacks(cells, ZONE_KIND[zone], level.grid.tileSize, level.playerEntryPoints, Math.random);
+        plans.forEach((plan, i) => {
+          const pack: Pack = {
+            ...plan,
+            area,
+            homeCells: cells,
+            plan: idlePlanFor(plan.kind, plan.home, level.grid, level.crystals, Math.random),
+            alive: new Set(),
+          };
+          const id = `pack-${area.name}-${i + 1}`;
+          this.packs.set(id, pack);
+          this.spawnPack(id, pack);
+        });
+        continue;
+      }
       const spawnCells = safeSpawnCells(cells, level.playerEntryPoints, MOB_SPAWN_SAFE_RADIUS);
-      for (const { kind, position } of planMobSpawns(spawnCells, counts, Math.random)) {
-        const id = `mob-${nextId++}`;
-        this.state.mobs.set(id, new MobState({ kind, ...position, hp: MOB_KINDS[kind].maxHp, windup: false, attackAngle: 0 }));
-        this.mobBrains.set(id, { kind, area, homeCells: cells, mind: { mode: "wander", wander: startIdle(Math.random) } });
+      for (const { kind, position } of planMobSpawns(spawnCells, AREAS[area.name]?.mobs ?? {}, Math.random)) {
+        this.addMob(kind, position, { kind, area, homeCells: cells, mind: { mode: "wander", wander: startIdle(Math.random) } });
       }
     }
   }
 
+  private addMob(kind: MobKind, at: Vec2, brain: MobBrain): string {
+    const id = `mob-${this.nextMobId++}`;
+    this.state.mobs.set(id, new MobState({ kind, ...at, hp: MOB_KINDS[kind].maxHp, windup: false, attackAngle: 0, frenzy: false }));
+    this.mobBrains.set(id, brain);
+    return id;
+  }
+
+  // O grupo nasce inteiro no posto, em repouso.
+  private spawnPack(packId: string, pack: Pack) {
+    pack.deadSinceMs = undefined;
+    for (const at of pack.members) {
+      const post = { home: pack.home, plan: pack.plan };
+      const mind: MobMind = { mode: "idle", path: [], waitMs: Math.random() * 1500, leg: 0 };
+      pack.alive.add(this.addMob(pack.kind, at, { kind: pack.kind, area: pack.area, homeCells: pack.homeCells, mind, post, pack: packId }));
+    }
+  }
+
+  // Grupo inteiro morto: depois de PACK_RESPAWN.delayMs, renasce, se ninguém estiver perto do posto (fora da tela).
+  private respawnPacks() {
+    if (++this.ticksSinceRespawnCheck < RESPAWN_CHECK_TICKS) return;
+    this.ticksSinceRespawnCheck = 0;
+    const now = this.clock.currentTime;
+    for (const [id, pack] of this.packs) {
+      if (pack.alive.size > 0) continue;
+      pack.deadSinceMs ??= now;
+      if (now - pack.deadSinceMs < PACK_RESPAWN.delayMs) continue;
+      let watched = false;
+      this.state.players.forEach((p) => {
+        if (Math.hypot(p.x - pack.home.x, p.y - pack.home.y) < PACK_RESPAWN.clearRadius) watched = true;
+      });
+      if (!watched) this.spawnPack(id, pack);
+    }
+  }
+
   private tick(dtMs: number) {
+    this.updateZones();
     this.movePlayers(dtMs);
     this.starvePlayers(dtMs);
     this.regeneratePlayers(dtMs);
+    this.tickZoneHazards(dtMs);
     this.moveMobs(dtMs);
+    this.respawnPacks();
     this.moveBolts(dtMs);
     this.tickSpells(dtMs);
     this.resolveDeaths();
@@ -716,17 +841,24 @@ export class GameRoom extends Room<{ state: GameState }> {
       players.set(sessionId, { x: player.x, y: player.y, stealthPercent: this.statsOf(sessionId).stealthPercent }),
     );
     const swamps = this.activeSwamps();
+    const noticeable = this.limitChasers();
+    const hurt: (Vec2 & { hp: number; maxHp: number; zone: ZoneId | undefined })[] = [];
+    this.state.players.forEach((p, sessionId) => hurt.push({ x: p.x, y: p.y, hp: p.hp, maxHp: p.maxHp, zone: this.zones.get(sessionId) }));
     this.state.mobs.forEach((mob, id) => {
       const brain = this.mobBrains.get(id);
       if (!brain) return;
-      // Na lama de um Pântano, o mob anda mais devagar (o mesmo passo, com a velocidade reduzida).
+      // Na lama de um Pântano, o mob anda mais devagar (o mesmo passo, com a velocidade reduzida). Lobo em frenesi:
+      // mais rápido e nota de mais longe.
       const kind = MOB_KINDS[brain.kind];
       const slow = swampSlow(mob, kind.size / 2, id, swamps);
-      const stats = slow === 1 ? kind : { ...kind, speed: kind.speed * slow };
+      const frenzy = brain.kind === "lobo" && wolfFrenzy(mob, hurt);
+      if (mob.frenzy !== frenzy) mob.frenzy = frenzy;
+      const boost = frenzy ? FRENZY.speedFactor : 1;
+      const stats = slow === 1 && !frenzy ? kind : { ...kind, speed: kind.speed * slow * boost, aggroRadius: kind.aggroRadius * (frenzy ? FRENZY.aggroFactor : 1) };
       const thinking = { position: { x: mob.x, y: mob.y }, mind: brain.mind };
       // Longe de todos e só vagando: hiberna neste tick (nem pensa nem se move). Acorda bem antes de alguém chegar.
       if (isDormant(thinking, players)) return;
-      const world = { grid: level.grid, home: brain.area, homeCells: brain.homeCells, stats, players };
+      const world = { grid: level.grid, home: brain.area, homeCells: brain.homeCells, stats, players, post: brain.post, noticeable };
       const next = stepMob(thinking, world, dtMs, Math.random);
       mob.x = next.position.x;
       mob.y = next.position.y;
@@ -735,6 +867,30 @@ export class GameRoom extends Room<{ state: GameState }> {
       brain.mind = next.mind;
       if (next.strike !== undefined) this.mobStrike(next.position, next.strike, brain.kind);
     });
+  }
+
+  // Teto de perseguidores (anti-enxame): por jogador, só os MAX_CHASERS mais perto continuam caçando; os outros desistem
+  // e voltam. Devolve quem ainda pode ser notado (quem tem menos que o teto atrás de si).
+  private limitChasers(): Set<string> {
+    const chasers: { id: string; targetId: string; distance: number }[] = [];
+    for (const [id, brain] of this.mobBrains) {
+      const mind = brain.mind;
+      if (mind.mode !== "chase" && mind.mode !== "windup" && mind.mode !== "recover") continue;
+      const mob = this.state.mobs.get(id);
+      const target = this.state.players.get(mind.targetId);
+      if (mob && target) chasers.push({ id, targetId: mind.targetId, distance: Math.hypot(mob.x - target.x, mob.y - target.y) });
+    }
+    for (const id of excessChasers(chasers, MAX_CHASERS)) {
+      const brain = this.mobBrains.get(id);
+      if (brain) brain.mind = { mode: "return", path: [] };
+    }
+    const counts = new Map<string, number>();
+    for (const c of chasers) counts.set(c.targetId, (counts.get(c.targetId) ?? 0) + 1);
+    const noticeable = new Set<string>();
+    this.state.players.forEach((_, sessionId) => {
+      if ((counts.get(sessionId) ?? 0) < MAX_CHASERS) noticeable.add(sessionId);
+    });
+    return noticeable;
   }
 
   // Golpe do mob: acerta todos os jogadores no arco travado, não só o alvo. Mob não fere mob.
@@ -750,7 +906,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   // Fome é tick do servidor (regra 6): cai para todos (mais devagar com Vigor), e quem está zerado perde vida.
   private starvePlayers(dtMs: number) {
     this.state.players.forEach((player, sessionId) => {
-      player.hunger = tickHunger(player.hunger, dtMs, this.statsOf(sessionId).vigorPercent);
+      // No frio dos lobos, a fome anda mais rápido (o tick conta mais tempo).
+      player.hunger = tickHunger(player.hunger, dtMs * zoneHungerFactor(this.zones.get(sessionId)), this.statsOf(sessionId).vigorPercent);
       const damage = starvationDamage(player.hunger, dtMs);
       if (damage > 0) this.damagePlayer(sessionId, player, damage, { kind: "starvation" }, "true");
     });
@@ -761,15 +918,22 @@ export class GameRoom extends Room<{ state: GameState }> {
     const now = this.clock.currentTime;
     this.state.players.forEach((player, sessionId) => {
       const sinceHurt = now - (this.lastHurtMs.get(sessionId) ?? -Infinity);
-      player.hp = regenerate(player.hp, this.statsOf(sessionId), dtMs, sinceHurt);
+      // No miasma dos slimes, a cura vale menos.
+      const healed = regenerate(player.hp, this.statsOf(sessionId), dtMs, sinceHurt) - player.hp;
+      if (healed > 0) player.hp += zoneHeal(healed, this.zones.get(sessionId));
+      // Mana: regenera; na zona dos gnomos, drena.
+      const stats = this.statsOf(sessionId);
+      if (player.maxMana !== stats.maxMana) player.maxMana = stats.maxMana;
+      player.mana = tickMana(player.mana, stats.maxMana, this.zones.get(sessionId), dtMs);
     });
   }
 
   private movePlayers(dtMs: number) {
     const swamps = this.activeSwamps();
     this.state.players.forEach((player, sessionId) => {
-      // Na lama de um Pântano de outro jogador, anda mais devagar (na própria lama, não).
-      const speed = (this.stats.get(sessionId)?.speed ?? PLAYER_SPEED) * swampSlow(player, PLAYER_SIZE / 2, sessionId, swamps);
+      // Na lama de um Pântano de outro jogador, anda mais devagar (na própria lama, não); numa poça ácida, também.
+      const acid = inAcid(player, PLAYER_SIZE / 2, this.acidPools()) ? ACID.slow : 1;
+      const speed = (this.stats.get(sessionId)?.speed ?? PLAYER_SPEED) * swampSlow(player, PLAYER_SIZE / 2, sessionId, swamps) * acid;
       const delta = movementDelta(this.moveInputs.get(sessionId) ?? NO_INPUT, dtMs, speed);
       const next = moveWithCollision(level.grid, player, delta, PLAYER_SIZE / 2);
       player.x = next.x;
@@ -782,8 +946,9 @@ export class GameRoom extends Room<{ state: GameState }> {
   // (regra 4); a luz de cada jogador vai até a Percepção dele, e cada projétil carrega a sua (MAGIC_BOLT.lightRadius).
   private updateViews() {
     const carriers: LightCarrier[] = [];
+    // No breu dos goblins, a luz de quem está lá cai (e com ela o que é enviado).
     this.state.players.forEach((player, sessionId) =>
-      carriers.push({ x: player.x, y: player.y, radius: this.statsOf(sessionId).lightRadius }),
+      carriers.push({ x: player.x, y: player.y, radius: zoneLightRadius(this.statsOf(sessionId).lightRadius, this.zones.get(sessionId)) }),
     );
     this.state.projectiles.forEach((bolt) => carriers.push({ x: bolt.x, y: bolt.y, radius: MAGIC_BOLT.lightRadius }));
     this.state.spells.forEach((spell) => {
@@ -802,6 +967,138 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.state.exits.forEach((exit) => updateVisibility(view, self, exit));
       this.state.projectiles.forEach((bolt) => updateVisibility(view, self, bolt));
       this.state.spells.forEach((spell) => updateVisibility(view, self, spell));
+      this.state.torches.forEach((torch) => updateVisibility(view, self, torch));
+      this.state.hazards.forEach((hazard) => updateVisibility(view, self, hazard));
+      this.updateEyes(client.sessionId, self, view);
     }
+  }
+
+  // Breu dos goblins: os goblins que caçam este jogador, entre 3 e 8 tiles e fora do que ele recebe, viram só olhos.
+  private updateEyes(sessionId: string, self: PlayerState, view: StateView) {
+    const hunters: (Vec2 & { hunting: boolean })[] = [];
+    if (this.zones.get(sessionId) === "goblin") {
+      this.state.mobs.forEach((mob, id) => {
+        const mind = this.mobBrains.get(id)?.mind;
+        if (mob.kind !== "goblin" || view.has(mob) || !mind || !("targetId" in mind)) return;
+        hunters.push({ x: mob.x, y: mob.y, hunting: mind.targetId === sessionId });
+      });
+    }
+    const flat = goblinEyes(self, hunters).flatMap((e) => [Math.round(e.x), Math.round(e.y)]);
+    if (flat.length === self.eyes.length && flat.every((v, i) => self.eyes[i] === v)) return;
+    self.eyes.splice(0, self.eyes.length);
+    for (const v of flat) self.eyes.push(v);
+  }
+
+  // ---------------------------------------------------------------- zonas hostis
+
+  // Em que zona cada um está (para os efeitos e para o HUD).
+  private updateZones() {
+    this.state.players.forEach((player, sessionId) => {
+      const zone = zoneAt(level.areas, AREAS, player);
+      this.zones.set(sessionId, zone);
+      if (player.zone !== (zone ?? "")) player.zone = zone ?? "";
+    });
+  }
+
+  // Uma vez por run: tochas apagadas, estilhaços e as descargas dos cristais da zona dos gnomos.
+  private placeHazards() {
+    level.torches.forEach((at, i) => this.state.torches.set(`torch-${i + 1}`, new TorchState({ x: at.x, y: at.y, lit: false })));
+    const gnomeCells = level.areas.filter((a) => AREAS[a.name]?.zone === "gnomo").flatMap((a) => level.floorCells.get(a.name) ?? []);
+    for (const at of scatterShards(gnomeCells, Math.random)) this.addHazard("shard", at);
+    this.pulses = level.pulseCrystals.map((at) => ({ id: this.addHazard("pulse", at), at, offsetMs: Math.random() * CRYSTAL_PULSE.periodMs }));
+  }
+
+  private addHazard(kind: "acid" | "shard" | "pulse", at: Vec2): string {
+    const id = `hazard-${this.nextHazardId++}`;
+    this.state.hazards.set(id, new HazardState({ kind, x: at.x, y: at.y, active: false }));
+    return id;
+  }
+
+  private addTempAcid(at: Vec2) {
+    this.tempAcid.set(this.addHazard("acid", at), this.clock.currentTime + ACID.slimeDeathMs);
+  }
+
+  // Todas as poças ácidas agora: as do mapa e as dos slimes mortos.
+  private acidPools(): Vec2[] {
+    const pools: Vec2[] = [...level.acidPools];
+    for (const id of this.tempAcid.keys()) {
+      const h = this.state.hazards.get(id);
+      if (h) pools.push(h);
+    }
+    return pools;
+  }
+
+  // [E] perto de uma tocha apagada dos goblins: acende para todos, e a luz dela passa a valer para o que é enviado.
+  private handleLightTorch(sessionId: string) {
+    const player = this.state.players.get(sessionId);
+    if (!player) return;
+    const entries: [string, TorchState][] = [];
+    this.state.torches.forEach((torch, id) => entries.push([id, torch]));
+    const id = torchInReach(player, entries, TORCH.interactRadius);
+    const torch = id && this.state.torches.get(id);
+    if (!torch) return;
+    torch.lit = true;
+    this.rebuildLitMap();
+  }
+
+  // Cada tick: poças ácidas (dano em quem pisa, fim das temporárias), estilhaços pisados (dano e sangramento),
+  // sangramento e as descargas dos cristais.
+  private tickZoneHazards(dtMs: number) {
+    const now = this.clock.currentTime;
+    for (const [id, until] of this.tempAcid) {
+      if (now < until) continue;
+      this.tempAcid.delete(id);
+      this.state.hazards.delete(id);
+    }
+    const pools = this.acidPools();
+    const shards: [string, HazardState][] = [];
+    this.state.hazards.forEach((h, id) => {
+      if (h.kind === "shard") shards.push([id, h]);
+    });
+    this.state.players.forEach((player, sessionId) => {
+      if (inAcid(player, PLAYER_SIZE / 2, pools)) this.hazardDamage(sessionId, player, (ACID.damagePerSecond * dtMs) / 1000, "acid", "true");
+      const input = this.moveInputs.get(sessionId) ?? NO_INPUT;
+      const moving = input.up || input.down || input.left || input.right;
+      const shard = moving ? shardUnderfoot(player, PLAYER_SIZE / 2, shards) : undefined;
+      if (shard) {
+        this.state.hazards.delete(shard);
+        this.hazardDamage(sessionId, player, SHARDS.damage, "shards", "physical");
+        this.bleedMs.set(sessionId, BLEED.durationMs);
+      }
+      const bleed = tickBleed(this.bleedMs.get(sessionId) ?? 0, dtMs);
+      this.bleedMs.set(sessionId, bleed.remainingMs);
+      if (bleed.damage > 0) this.hazardDamage(sessionId, player, bleed.damage, "bleed", "true");
+      if (player.bleeding !== bleed.remainingMs > 0) player.bleeding = bleed.remainingMs > 0;
+    });
+    const prev = this.lastTickMs || now - dtMs;
+    this.lastTickMs = now;
+    for (const pulse of this.pulses) {
+      const state = this.state.hazards.get(pulse.id);
+      const { charging, fired } = crystalPulse(prev, now, pulse.offsetMs);
+      if (state && state.active !== charging) state.active = charging;
+      if (!fired) continue;
+      this.state.players.forEach((player, sessionId) => {
+        if (Math.hypot(player.x - pulse.at.x, player.y - pulse.at.y) > CRYSTAL_PULSE.radius) return;
+        this.hazardDamage(sessionId, player, CRYSTAL_PULSE.damage, "crystal", "magic");
+        const next = moveWithCollision(level.grid, player, knockback(pulse.at, player), PLAYER_SIZE / 2);
+        player.x = next.x;
+        player.y = next.y;
+      });
+    }
+  }
+
+  private hazardDamage(sessionId: string, player: PlayerState, amount: number, hazard: HazardKind, type: DamageType) {
+    this.damagePlayer(sessionId, player, amount, { kind: "hazard", hazard }, type);
+  }
+
+  // A luz fixa da run: as do mapa, as saídas ativas e as tochas acesas dos goblins.
+  private rebuildLitMap() {
+    const exitLights = this.activeExits.map((exit) => ({ ...exit, radius: EXIT_LIGHT_RADIUS }));
+    const torchLights: LightSource[] = [];
+    this.state.torches.forEach((t) => {
+      if (t.lit) torchLights.push({ x: t.x, y: t.y, radius: TORCH.lightRadius });
+    });
+    const { width, height, tileSize } = level.grid;
+    this.lit = staticLitMap([...level.lights, ...exitLights, ...torchLights], width, height, tileSize);
   }
 }

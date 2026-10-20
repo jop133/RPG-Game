@@ -1183,6 +1183,27 @@ Slot vazio usa a moldura comum.
 
 ---
 
+## 2026-10 — Spawns táticos e os efeitos hostis das 4 zonas
+
+**Pedido do dono do projeto:** um mapa vivo sem enxame (grupos por setor com posto, vida em repouso, coleira, teto de perseguidores, respawn fora da tela) e um efeito hostil por zona: Breu Abissal (goblins), Miasma Ácido e lodo (slimes), Frio Cortante e Frenesi de Sangue (lobos), Radiação Arcana e Ressonância Fragilizadora com descarga dos cristais e estilhaços (gnomos).
+
+**Decisões (perguntadas ao dono do projeto):**
+- **A Mana vira recurso:** atual e máxima no servidor (só o dono vê), regenera 2/s, barra azul do HUD de verdade. As skills ainda não gastam.
+- **Breu na regra 4:** nos goblins a luz do jogador cai a 25% no servidor (o que fica no escuro não é enviado) e o cliente escurece junto. Os olhos: o servidor manda só pontos (x, y) dos goblins que caçam o jogador a 3–8 tiles e que ele não recebe — nem tipo, nem vida.
+- **Tochas:** as 31 tochas e 12 braseiros do mapa na zona dos goblins começam apagados a cada run; [E] a até 56 px acende para todos até o fim da run, e a luz (180 px) passa a valer no servidor também.
+- **Densidade como no pedido:** com o mapa de hoje são 57 a 63 grupos por zona, **716 mobs** no andar (eram 43). Os longe de todos hibernam (já existia), então o servidor aguenta; o jogo fica bem mais difícil.
+
+**Como ficou:**
+- `shared/src/packs.ts`: `planPacks` (setores de 25x25 tiles com chão bastante, um grupo de 2–4 por setor, postos a ≥ 576 px entre si e longe das entradas), `IdlePlan` por tipo (`roam` 2–4 tiles com pausas de 3–5 s; `patrol` num eixo de 5–7 tiles do corredor, o grupo junto; `visit` entre os cristais perto; `still`), `patrolAxis`, `roamPoint`.
+- `shared/src/mobAi.ts`: modo `idle` para mob com posto (`MobWorld.post`); coleira (`LEASH`: a mais de 480 px do posto volta 1,4x mais rápido e fica 3 s sem notar ninguém, nem por `provoke`); `noticeable` (quem pode ser notado; o servidor tira quem já tem `MAX_CHASERS` = 5 atrás de si, e `excessChasers` manda os mais longe desistirem).
+- `shared/src/zones.ts`: `zoneAt` (pela área do mapa; `AREAS[...].zone`), os efeitos contínuos (`zoneLightRadius`, `zoneHeal`, `zoneHungerFactor`, `zoneDamage`, `tickMana`), `goblinEyes`, `torchInReach`, `inAcid`, `wolfFrenzy`, `crystalPulse`, `knockback`, `scatterShards`, `shardUnderfoot`, `tickBleed`. Números em `balance.ts` (`PACKS`, `LEASH`, `MAX_CHASERS`, `PACK_RESPAWN`, `IDLE`, `ZONE_EFFECTS`, `TORCH`, `ACID`, `FRENZY`, `CRYSTAL_PULSE`, `SHARDS`, `BLEED`).
+- Servidor: grupos com posto e respawn (160 s, ninguém a menos de 704 px); a zona de cada um a cada tick; luz pela zona; cura, fome, Mana e dano pela zona; lodo ácido (8 poças do mapa + 6 s onde um slime morre: 0,6 da velocidade e 2/s); frenesi dos lobos (`MobState.frenzy`); descarga dos 10 cristais médios da zona dos gnomos (a zona não tem cristal grande) a cada 6 s, anel de 0,8 s, 12 de dano e empurrão; 70 estilhaços (dano e sangramento de 3/s por 4 s). Estado novo: `torches`, `hazards`, e no jogador `mana`, `maxMana`, `zone`, `eyes`, `bleeding`. Morte pelo ambiente tem causa própria.
+- Cliente (`client/src/zoneEffects.ts` e `main.ts`): indicador da zona e da penalidade no topo; breu e luz com transição de 1,2 s; olhos piscando; tochas escurecidas até acender, com a dica "[E] Acender tocha"; névoa verde e bolhas; neve na diagonal e vinheta azul-gelo; poça, estilhaços, anel da descarga e o clarão; gotas de sangue; slime parado pulsa; lobo em frenesi fica vermelho.
+
+**Escolhas minhas (avise se quiser diferente):** o dano ácido e o do sangramento ignoram a Defesa (como a fome); os estilhaços pisados somem até o fim da run; o centro do labirinto continua com os 4 mobs soltos de antes; a vinheta dos lobos ficou mais leve (0,5) do que a primeira versão, que escondia a tela.
+
+**Achado no teste e corrigido:** dano e cura aos pedaços (fome, lodo, sangramento, regeneração) viravam um número cru por tick ("0.1525…") e um flash vermelho constante; agora se somam e aparecem a cada ponto inteiro, e o flash fica para os golpes.
+
 ## 2026-10 — Habilidades (skills) equipáveis no Q e no R
 
 **Pedido do dono do projeto:** um sistema de habilidades para as 4 classes, com 2 slots (Q e R), a janela de Skills (Tábua de Skills) ao lado de Status no inventário, e os ícones oficiais na barra.

@@ -36,6 +36,14 @@ import {
   parseClassId,
   feetInside,
   swampArea,
+  AREAS,
+  TORCH,
+  ZONE_EFFECTS,
+  parseAreas,
+  torchInReach,
+  zoneAt,
+  type Area,
+  type ZoneId,
   SKILL_SLOTS,
   SKILL_IDS,
   type SkillId,
@@ -48,6 +56,7 @@ import {
   type InteractionPoint,
   type ClassId,
   type DeathCause,
+  type HazardKind,
   type ExtractionResult,
   type FirstKillMessage,
   type ItemId,
@@ -84,6 +93,7 @@ import { Lighting, mergeNearby, phaseAt, type Light, type LightLook } from "./li
 import { Particles } from "./particles";
 import { Bolts, FIREBALL_FPS, FIREBALL_KEY, type ProjectileView } from "./projectiles";
 import { MUD_FPS, MUD_KEY, SPELL_SHEETS, STRIKE_FPS, STRIKE_KEY, SpellEffects, type SpellView } from "./spells";
+import { ZoneEffects, type HazardView } from "./zoneEffects";
 import { openRegistration, type Registration } from "./registration";
 import cityMapUrl from "../../assets/maps/city.json?url";
 import labyrinthMapUrl from "../../assets/maps/dungeon_floor1.json?url";
@@ -101,6 +111,13 @@ interface PlayerView extends Vec2 {
   // cada habilidade da classe.
   skills?: { forEach(callback: (skill: string, index: number) => void): void };
   skillCooldowns?: { get(skill: string): number | undefined };
+  // Só o próprio jogador, no labirinto: Mana, a zona hostil ("" fora delas) e os olhos dos goblins no breu (x, y, ...).
+  mana?: number;
+  maxMana?: number;
+  zone?: string;
+  eyes?: { forEach(callback: (value: number, index: number) => void): void };
+  // Público: sangrando (gotas de sangue).
+  bleeding?: boolean;
   attackSeq?: number;
   attackAngle?: number;
   // Só chegam para o próprio jogador; para os outros ficam undefined. Fome e extração, só no labirinto.
@@ -122,6 +139,8 @@ interface MobView extends Vec2 {
   hp: number;
   windup: boolean;
   attackAngle: number;
+  // Lobo em Frenesi de Sangue.
+  frenzy?: boolean;
 }
 // O formato da cidade (server/src/state.ts, CityState) é o do labirinto sem mobs, pilhas e saídas.
 interface ServerState {
@@ -136,6 +155,9 @@ interface ServerState {
   projectiles?: { forEach(callback: (bolt: ProjectileView, id: string) => void): void };
   // Magias do mago no chão (só no labirinto).
   spells?: { forEach(callback: (spell: SpellView, id: string) => void): void };
+  // Zonas hostis: tochas dos goblins e perigos do chão.
+  torches?: { forEach(callback: (torch: Vec2 & { lit: boolean }, id: string) => void): void };
+  hazards?: { forEach(callback: (hazard: HazardView, id: string) => void): void };
 }
 
 // Cada lugar é uma sala do servidor com o seu mapa.
@@ -190,6 +212,19 @@ const SPELL_URLS = Object.entries(
 ).map(([path, url]) => ({ key: path.slice(path.indexOf("spells/"), -".png".length), url }));
 // Altura das magias no chão: acima das sombras, abaixo do anel das saídas, dos avisos e de todo mundo em pé.
 const SPELL_GROUND_DEPTH = 0.3;
+// Zonas hostis no cliente. Breu dos goblins: o ambiente vai para quase preto (opacidade ~0,96) e a luz de quem está lá
+// encolhe junto com a do servidor (ZONE_EFFECTS.goblin.lightFactor), numa transição de ZONE_FADE_MS. Frio dos lobos:
+// vinheta azul-gelo, mais forte. Tocha apagada: a arte escurecida. Slime parado pulsa; lobo em frenesi fica vermelho.
+const ZONE_FADE_MS = 1200;
+const GOBLIN_AMBIENT = 0x060709;
+const FROST_TINT = 0x8fc8ff;
+const FROST_VIGNETTE_ALPHA = 0.5;
+const UNLIT_TORCH_TINT = 0x2e2a26;
+const FRENZY_TINT = 0xff6a5a;
+const HAZARD_DEPTH = 0.29;
+// Tocha do mapa e a do servidor são a mesma se estão a até isto (px): a luz do mapa fica no fogo, um pouco acima.
+const TORCH_MATCH = 48;
+
 // Teclas dos slots de habilidade (escolha do dono do projeto: 1 e 2 são a barra rápida, E é portal e portas).
 const SKILL_KEYS = ["Q", "R"] as const;
 
@@ -344,6 +379,8 @@ interface Avatar {
   armor: Map<EquipSlot, Phaser.GameObjects.Image>;
   swingAt: number;
   swingAngle: number;
+  // Vida que mudou aos pedaços e ainda não virou número (ver onPlayerHp).
+  pendingHp: number;
   // A arma na mão agora (id do item) e, com cajado, um disparo esperando o clarão na ponta do cristal.
   weaponItem?: string;
   castFlash: boolean;
@@ -580,6 +617,17 @@ class WorldScene extends Phaser.Scene {
   // Magias do mago no chão (círculos, raio, poça) e as teclas delas.
   private spellEffects?: SpellEffects;
   private skillKeys: Phaser.Input.Keyboard.Key[] = [];
+  // [E] no labirinto: acender tocha dos goblins; a dica fica até se afastar.
+  private torchKey?: Phaser.Input.Keyboard.Key;
+  private torchHint = "";
+  // Zonas hostis: os efeitos, as áreas do mapa (qual zona), as artes das tochas dos goblins, o fator de luz suave de
+  // cada jogador (1 = normal) e o escuro suave do ambiente (0 a 1).
+  private zoneFx?: ZoneEffects;
+  private areas: Area[] = [];
+  private torchArt: { image: Phaser.GameObjects.Image; x: number; y: number }[] = [];
+  private lightFactors = new Map<string, number>();
+  private darkness = 0;
+  private frost = 0;
   private lastOwnSwingAt = -Infinity;
 
   init(data: SceneData) {
@@ -614,6 +662,7 @@ class WorldScene extends Phaser.Scene {
     this.particles = new Particles(this, LIGHT_DEPTH + 0.05);
     this.bolts = new Bolts(this, this.particles, LIGHT_DEPTH + 0.05);
     this.spellEffects = new SpellEffects(this, this.particles, SPELL_GROUND_DEPTH, sortDepth, (amplitude) => this.shake.kick(amplitude));
+    this.zoneFx = new ZoneEffects(this, this.particles, HAZARD_DEPTH, LIGHT_DEPTH + 0.06);
     this.keys = this.input.keyboard?.addKeys({ up: "W", down: "S", left: "A", right: "D" }) as MoveKeys;
     // Teclas dos slots nos dois lugares: o personagem leva o inventário para a cidade. Clicar no slot do HUD faz o mesmo.
     SLOT_KEYS.forEach((key, i) => {
@@ -705,6 +754,7 @@ class WorldScene extends Phaser.Scene {
       const phaserKey = this.input.keyboard?.addKey(key);
       if (phaserKey) this.skillKeys[slot] = phaserKey;
     });
+    this.torchKey = this.input.keyboard?.addKey("E");
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => this.sendAttack(pointer));
     room.onMessage("extracted", (result: ExtractionResult) => {
       this.room = undefined;
@@ -770,17 +820,29 @@ Subiu para o nível ${info.level}!` : "";
 
   // Luzes deste quadro: as do mapa e, no labirinto, a de cada jogador e a de cada saída ativa que chegaram do servidor.
   private currentLights(room: Room<unknown, ServerState>): Light[] {
-    const fixed = this.mapLights?.around(this.cameras.main.worldView) ?? [];
-    if (this.place === "city") return [...fixed];
+    const all = this.mapLights?.around(this.cameras.main.worldView) ?? [];
+    if (this.place === "city") return [...all];
+    // Tochas e braseiros dos goblins só iluminam acesos (o servidor manda quais).
+    const lit: Vec2[] = [];
+    room.state.torches?.forEach((torch) => {
+      if (torch.lit) lit.push(torch);
+    });
+    const fixed = all.filter(
+      (light) =>
+        !(light.kind === "tocha" || light.kind === "braseiro") ||
+        this.zoneOf(light) !== "goblin" ||
+        lit.some((t) => Math.hypot(t.x - light.x, t.y - light.y) <= TORCH_MATCH),
+    );
     const moving: Light[] = [];
-    room.state.players.forEach((player) => {
-      moving.push({ x: player.x, y: player.y, radius: PLAYER_LIGHT_RADIUS, look: PLAYER_LIGHT, phase: 0 });
+    const delta = this.game.loop.delta;
+    room.state.players.forEach((player, id) => {
+      moving.push({ x: player.x, y: player.y, radius: this.playerLightRadius(id, player, delta), look: PLAYER_LIGHT, phase: 0 });
     });
     room.state.exits?.forEach((exit) => {
       const phase = phaseAt(exit.x, exit.y);
       moving.push({ x: exit.x, y: exit.y, radius: EXIT_LIGHT_RADIUS, look: EXIT_LIGHT, phase, kind: "saida" });
     });
-    return [...fixed, ...moving, ...(this.bolts?.lights() ?? []), ...(this.spellEffects?.lights() ?? [])];
+    return [...fixed, ...moving, ...(this.bolts?.lights() ?? []), ...(this.spellEffects?.lights() ?? []), ...(this.zoneFx?.lights() ?? [])];
   }
 
   private readMapLights(): Light[] {
@@ -852,6 +914,7 @@ Subiu para o nível ${info.level}!` : "";
     this.bolts?.sync(room.state.projectiles, time, this.game.loop.delta);
     this.spellEffects?.sync(room.state.spells, time);
     this.stepInMud(room, time);
+    this.updateZoneEffects(room, time);
     this.drawOverlay(room, this.overlay, time);
     this.drawTelegraphs(room, this.telegraphs, time);
     if (this.exitsLayer) this.drawExits(room, this.exitsLayer);
@@ -914,12 +977,15 @@ Subiu para o nível ${info.level}!` : "";
         bestiary,
         kills,
         skills: skillsOf(self).map((id) => ({ id, cooldownMs: id ? self.skillCooldowns?.get(id) ?? 0 : 0 })),
+        mana: self.mana,
+        maxMana: self.maxMana,
+        zone: this.place === "labyrinth" ? self.zone || undefined : undefined,
       },
       time,
     );
     if (this.place !== "labyrinth") return;
     const extractMs = self.extractMs ?? 0;
-    hud.hint(extractMs > 0 ? `Extraindo… ${((EXTRACT_MS - extractMs) / 1000).toFixed(1)} s` : "");
+    hud.hint(extractMs > 0 ? `Extraindo… ${((EXTRACT_MS - extractMs) / 1000).toFixed(1)} s` : this.torchHint);
   }
 
   private drawTelegraphs(room: Room<unknown, ServerState>, g: Phaser.GameObjects.Graphics, time: number) {
@@ -942,6 +1008,64 @@ Subiu para o nível ${info.level}!` : "";
       g.fillPath();
     });
     for (const id of this.windupStartedAt.keys()) if (!preparing.has(id)) this.windupStartedAt.delete(id);
+  }
+
+  // Zonas hostis no quadro: perigos do chão, olhos no breu, clima, sangue, tochas (arte, dica e [E]), escuro e
+  // vinheta. A zona de quem joga vem do servidor; a dos outros, da mesma regra (zoneAt) pela posição.
+  private updateZoneEffects(room: Room<unknown, ServerState>, time: number) {
+    const fx = this.zoneFx;
+    const self = room.state.players.get(room.sessionId);
+    if (!fx || !self) return;
+    const delta = this.game.loop.delta;
+    const zone = (self.zone || undefined) as ZoneId | undefined;
+    fx.syncHazards(room.state.hazards, time);
+    const eyes: number[] = [];
+    self.eyes?.forEach((v) => eyes.push(v));
+    fx.drawEyes(Array.from({ length: Math.floor(eyes.length / 2) }, (_, i) => ({ x: eyes[2 * i] ?? 0, y: eyes[2 * i + 1] ?? 0 })), time);
+    fx.weather(zone, this.cameras.main.worldView, time, delta);
+    room.state.players.forEach((player) => {
+      if (player.bleeding) fx.bleed(player, time, delta);
+    });
+    // Tochas: arte escura enquanto apagada; perto de uma apagada, a dica e o [E].
+    const torches: [string, Vec2 & { lit: boolean }][] = [];
+    room.state.torches?.forEach((torch, id) => torches.push([id, torch]));
+    for (const art of this.torchArt) {
+      const lit = torches.some(([, t]) => t.lit && Math.hypot(t.x - art.x, t.y - art.y) <= TORCH_MATCH);
+      if (lit && art.image.isTinted) art.image.clearTint();
+      if (!lit && !art.image.isTinted) art.image.setTint(UNLIT_TORCH_TINT);
+    }
+    const near = torchInReach(self, torches, TORCH.interactRadius);
+    this.torchHint = near ? "[E] Acender tocha" : "";
+    if (near && this.torchKey && Phaser.Input.Keyboard.JustDown(this.torchKey)) room.send("lightTorch");
+    // Breu e frio, com transição suave.
+    const k = Math.min(1, delta / ZONE_FADE_MS);
+    this.darkness += ((zone === "goblin" ? 1 : 0) - this.darkness) * k * 3;
+    this.frost += ((zone === "lobo" ? 1 : 0) - this.frost) * k * 3;
+    const ambient = Phaser.Display.Color.Interpolate.ColorWithColor(
+      Phaser.Display.Color.ValueToColor(AMBIENT.labyrinth),
+      Phaser.Display.Color.ValueToColor(GOBLIN_AMBIENT),
+      1,
+      this.darkness,
+    );
+    this.lighting?.setLook(
+      Phaser.Display.Color.GetColor(ambient.r, ambient.g, ambient.b),
+      VIGNETTE_ALPHA.labyrinth + (FROST_VIGNETTE_ALPHA - VIGNETTE_ALPHA.labyrinth) * this.frost,
+    );
+    this.lighting?.setVignetteTint(this.frost > 0.05 ? FROST_TINT : 0xffffff);
+  }
+
+  // Em que zona hostil um ponto está (pelas áreas do mapa).
+  private zoneOf(p: Vec2): ZoneId | undefined {
+    return zoneAt(this.areas, AREAS, p);
+  }
+
+  // Luz de um jogador: no breu dos goblins encolhe (como no servidor), com a mesma transição suave.
+  private playerLightRadius(id: string, at: Vec2, delta: number): number {
+    const want = this.zoneOf(at) === "goblin" ? ZONE_EFFECTS.goblin.lightFactor : 1;
+    const now = this.lightFactors.get(id) ?? want;
+    const next = now + (want - now) * Math.min(1, (delta / ZONE_FADE_MS) * 3);
+    this.lightFactors.set(id, next);
+    return PLAYER_LIGHT_RADIUS * next;
   }
 
   // Tecla de habilidade: só o slot e o ponto do mouse vão para o servidor; ele decide o que está no slot, se pode
@@ -1054,6 +1178,7 @@ Subiu para o nível ${info.level}!` : "";
   private createMapObjects() {
     const data = (this.cache.tilemap.get(this.place) as { data?: TiledMap } | undefined)?.data;
     if (!data) return;
+    if (this.place === "labyrinth") this.areas = parseAreas(data);
     const keys = new Map<number, string>();
     for (const tileset of data.tilesets) {
       for (const tile of tileset.tiles ?? []) if (tile.image) keys.set(tileset.firstgid + tile.id, imageKey(tile.image));
@@ -1067,6 +1192,8 @@ Subiu para o nível ${info.level}!` : "";
         const box = { left: object.x, top: object.y - image.displayHeight, right: object.x + image.displayWidth, bottom: object.y };
         this.culler.add(image, box);
         const name = key.slice(key.lastIndexOf("/") + 1);
+        const middle = { x: object.x + image.displayWidth / 2, y: object.y - image.displayHeight / 2 };
+        if ((name === "tocha" || name === "braseiro") && this.zoneOf(middle) === "goblin") this.torchArt.push({ image, ...middle });
         const shadow = this.place === "labyrinth" ? !FLAT_PROPS.has(name) && !BUILDING.test(name) : THIN_PROP.test(name);
         if (shadow) {
           this.culler.add(this.addPropShadow(object.x + image.displayWidth / 2, object.y, image.displayWidth), box);
@@ -1363,6 +1490,7 @@ Subiu para o nível ${info.level}!` : "";
       swingAt: -Infinity,
       swingAngle: 0,
       castFlash: false,
+      pendingHp: 0,
     };
   }
 
@@ -1421,6 +1549,12 @@ Subiu para o nível ${info.level}!` : "";
       const lunge = mobLungeOffset(sprite.lungeAt, sprite.lungeAngle, time);
       sprite.body.setPosition(mob.x + recoil.x + lunge.x, feet + recoil.y + lunge.y).setDepth(sortDepth(feet));
       applyFlash(sprite.body, sprite.reaction, time, HIT_FLASH_COLOR);
+      // Slime parado respira (vida em repouso); lobo em frenesi fica vermelho (o flash do golpe vence).
+      if (kind === "slime" && !walking) {
+        const beat = Math.sin(time / 380 + mob.x * 0.01);
+        sprite.body.setScale(1 + 0.05 * beat, 1 - 0.04 * beat);
+      } else if (sprite.body.scaleX !== 1) sprite.body.setScale(1);
+      if (mob.frenzy && time >= sprite.reaction.flashUntil) sprite.body.setTint(FRENZY_TINT);
       // A sombra pulsa com o passo da caminhada; quem não tem caminhada (slime) pulsa no ritmo do relógio.
       const squash = sprite.body.anims.isPlaying ? stepSquash(sprite.body) : 1 - 0.1 * Math.abs(Math.sin(time / 90));
       sprite.shadow.setPosition(mob.x, feet - 1).setScale(walking ? squash : 1);
@@ -1450,12 +1584,17 @@ Subiu para o nível ${info.level}!` : "";
     time: number,
   ) {
     const top = player.y + PLAYER_SIZE / 2 - AVATAR_HEIGHT;
-    if (change > 0) {
-      if (isSelf) this.popNumber(player.x, top, `+${change}`, "heal");
-      return;
+    // Dano e cura aos pedaços (fome, lodo ácido, sangramento, regeneração: frações por tick) se somam e só aparecem a
+    // cada ponto inteiro; o flash e o recuo ficam para os golpes (1 ponto ou mais de uma vez).
+    avatar.pendingHp += change;
+    const whole = Math.trunc(avatar.pendingHp);
+    if (whole !== 0) {
+      avatar.pendingHp -= whole;
+      if (whole > 0 && isSelf) this.popNumber(player.x, top, `+${whole}`, "heal");
+      if (whole < 0) this.popNumber(player.x, top, `${-whole}`, isSelf ? "taken" : "dealt");
     }
+    if (change > -1) return;
     const damage = -change;
-    this.popNumber(player.x, top, `${damage}`, isSelf ? "taken" : "dealt");
     const away = awayFromNearest(player, mobPositions(room));
     startReaction(avatar.reaction, time, away.x, away.y);
     if (isSelf && damage >= SHAKE_MIN_DAMAGE) this.shake.kick(damage * SHAKE_PER_DAMAGE);
@@ -1596,9 +1735,17 @@ function describeLoot(result: ExtractionResult): string {
   return "Levou: " + result.items.map((stack) => `${ITEMS[stack.item].name} ×${stack.count}`).join(", ") + ".";
 }
 
+const HAZARD_DEATHS: Record<HazardKind, string> = {
+  acid: "Dissolvido no lodo ácido dos slimes.",
+  crystal: "Fulminado pela descarga de um cristal.",
+  shards: "Retalhado pelos estilhaços de cristal.",
+  bleed: "Sangrou até a morte.",
+};
+
 function describeDeath(cause: DeathCause): string {
   if (cause.kind === "starvation") return "Morreu de fome.";
   if (cause.kind === "mob") return `Morto por ${MOB_NAMES[cause.mob]}.`;
+  if (cause.kind === "hazard") return HAZARD_DEATHS[cause.hazard];
   return "Morto por outro jogador.";
 }
 

@@ -25,6 +25,7 @@ import {
   parsePortalPoints,
   parseSpawnPoints,
   validateAreas,
+  zoneAt,
   type Area,
   type BuildingId,
   type InteractionPoint,
@@ -42,8 +43,16 @@ export interface Level {
   floorCells: Map<string, Vec2[]>;
   // Candidatos a portal de saída; os ativos são sorteados por sala (run).
   exitCandidates: Vec2[];
-  // Luzes do mapa (camada "luzes"), já com o raio do tipo: o que elas iluminam, os jogadores enxergam (regra 4).
+  // Luzes do mapa (camada "luzes"), já com o raio do tipo: o que elas iluminam, os jogadores enxergam (regra 4). Sem as
+  // tochas da zona dos goblins, que começam apagadas (torches).
   lights: LightSource[];
+  // Zonas hostis: as tochas e braseiros da zona dos goblins (apagados no começo de cada run), os cristais do mapa (os
+  // gnomos andam entre eles), os cristais que dão descarga (os médios e grandes da zona dos gnomos) e as poças de lodo
+  // ácido do mapa (objetos "poca-acida", pelo centro).
+  torches: Vec2[];
+  crystals: Vec2[];
+  pulseCrystals: Vec2[];
+  acidPools: Vec2[];
 }
 
 export interface City {
@@ -86,8 +95,23 @@ export function loadLevel(file: URL): Level {
   }
   if (errors.length > 0) throw new Error(`Mapa inválido (${file.pathname}):\n- ${errors.join("\n- ")}`);
 
-  const lights = mapLights.map(({ kind, x, y }) => ({ x, y, radius: lightRadius(kind) ?? 0 }));
-  return { grid, areas, playerEntryPoints, floorCells, exitCandidates, lights };
+  const zoneOf = (p: Vec2) => zoneAt(areas, AREAS, p);
+  const isTorch = (light: { kind: string } & Vec2) => (light.kind === "tocha" || light.kind === "braseiro") && zoneOf(light) === "goblin";
+  const point = ({ x, y }: Vec2) => ({ x, y });
+  const lights = mapLights.filter((l) => !isTorch(l)).map(({ kind, x, y }) => ({ x, y, radius: lightRadius(kind) ?? 0 }));
+  const torches = mapLights.filter(isTorch).map(point);
+  const crystals = mapLights.filter((l) => l.kind.startsWith("cristal")).map(point);
+  const pulseCrystals = mapLights.filter((l) => (l.kind === "cristal-medio" || l.kind === "cristal-grande") && zoneOf(l) === "gnomo").map(point);
+  const acidPools = objectCenters(map, "poca-acida");
+  return { grid, areas, playerEntryPoints, floorCells, exitCandidates, lights, torches, crystals, pulseCrystals, acidPools };
+}
+
+// Centro dos objetos de imagem com este nome (no Tiled, x e y são o canto de baixo à esquerda da imagem).
+function objectCenters(map: TiledMap, name: string): Vec2[] {
+  return map.layers
+    .flatMap((layer) => (layer.type === "objectgroup" ? (layer.objects ?? []) : []))
+    .filter((o) => o.name === name)
+    .map((o) => ({ x: o.x + (o.width ?? 0) / 2, y: o.y - (o.height ?? 0) / 2 }));
 }
 
 // A cidade não tem áreas, mobs nem saídas: só onde se chega, os portais para o labirinto, as portas e os móveis dos

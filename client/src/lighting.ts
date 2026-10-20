@@ -119,6 +119,13 @@ export class Lighting {
     this.vignette.setAlpha(vignetteAlpha);
   }
 
+  // Cor da vinheta (branco = a da arte, preta; outra cor pinta a borda inteira dela, ex.: azul-gelo na zona dos lobos).
+  // Preenche em vez de multiplicar: preto multiplicado por qualquer cor continua preto.
+  setVignetteTint(color: number) {
+    if (color === 0xffffff) this.vignette.clearTint();
+    else this.vignette.setTintFill(color);
+  }
+
   resize(width: number, height: number) {
     this.layer.resize(width, height);
     this.glow.resize(width, height);

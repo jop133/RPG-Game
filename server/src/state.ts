@@ -39,6 +39,14 @@ export const PlayerState = schema(
     // o HUD. Só o dono vê.
     skills: t.array("string").view(OWNER_TAG),
     skillCooldowns: t.map("number").view(OWNER_TAG),
+    // Mana atual e máxima (barra azul do HUD), a zona hostil em que está ("" = fora delas: o HUD mostra o efeito) e,
+    // no breu dos goblins, os olhos dos goblins que o caçam fora da luz (x, y, x, y...). Só o dono vê.
+    mana: t.number().view(OWNER_TAG),
+    maxMana: t.number().view(OWNER_TAG),
+    zone: t.string().view(OWNER_TAG),
+    eyes: t.array("number").view(OWNER_TAG),
+    // Sangrando (estilhaços de cristal): público, todos veem as gotas.
+    bleeding: t.boolean(),
   },
   "PlayerState",
 );
@@ -46,8 +54,9 @@ export type PlayerState = SchemaType<typeof PlayerState>;
 
 // `kind` é uma chave de MOB_KINDS (shared/src/balance.ts); o cliente usa para saber tamanho, cor e vida máxima.
 // windup + attackAngle são o telegrafo: o cliente desenha onde o golpe vai cair enquanto o mob prepara.
+// frenzy: lobo em Frenesi de Sangue (o cliente brilha os olhos de vermelho).
 export const MobState = schema(
-  { kind: t.string(), x: t.number(), y: t.number(), hp: t.number(), windup: t.boolean(), attackAngle: t.number() },
+  { kind: t.string(), x: t.number(), y: t.number(), hp: t.number(), windup: t.boolean(), attackAngle: t.number(), frenzy: t.boolean() },
   "MobState",
 );
 export type MobState = SchemaType<typeof MobState>;
@@ -73,6 +82,15 @@ export type ProjectileState = SchemaType<typeof ProjectileState>;
 export const SpellState = schema({ kind: t.string(), x: t.number(), y: t.number(), phase: t.string() }, "SpellState");
 export type SpellState = SchemaType<typeof SpellState>;
 
+// Tocha da zona dos goblins: apagada no começo da run; [E] perto acende (para todos, até o fim da run).
+export const TorchState = schema({ x: t.number(), y: t.number(), lit: t.boolean() }, "TorchState");
+export type TorchState = SchemaType<typeof TorchState>;
+
+// Perigo do chão que o cliente desenha: "acid" (poça de um slime morto, some sozinha), "shard" (estilhaços de cristal,
+// somem ao serem pisados) e "pulse" (cristal da descarga; active = carregando, o anel no chão).
+export const HazardState = schema({ kind: t.string(), x: t.number(), y: t.number(), active: t.boolean() }, "HazardState");
+export type HazardState = SchemaType<typeof HazardState>;
+
 // `.view()`: cada cliente só recebe o que o servidor adicionou à visão dele (regra 5).
 export const GameState = schema(
   {
@@ -82,6 +100,8 @@ export const GameState = schema(
     exits: t.map(ExitState).view(),
     projectiles: t.map(ProjectileState).view(),
     spells: t.map(SpellState).view(),
+    torches: t.map(TorchState).view(),
+    hazards: t.map(HazardState).view(),
   },
   "GameState",
 );
