@@ -1,6 +1,8 @@
 import { StateView, type ArraySchema } from "@colyseus/schema";
 import { CloseCode, Room, type Client } from "colyseus";
 import {
+  equipSkill,
+  parseSkillEquip,
   HUNGER_MAX,
   INVENTORY_SLOTS,
   ITEMS,
@@ -38,7 +40,7 @@ import type { CharacterRecord } from "./db";
 import { applyGearAction, isEquippableSlot, type GearAction } from "./gear";
 import { loadCity } from "./level";
 import { admit, release } from "./presence";
-import { CityPlayerState, CityState, ItemSlotState, OWNER_TAG, mirrorEquipment } from "./state";
+import { CityPlayerState, CityState, ItemSlotState, OWNER_TAG, mirrorEquipment, mirrorSkills } from "./state";
 import { store } from "./store";
 import { updateVisibility } from "./views";
 
@@ -98,6 +100,7 @@ export class CityRoom extends Room<{ state: CityState }> {
     for (const action of ["move", "equip", "unequip"] as const) {
       this.onMessage(action, (client, message) => this.handleGear(client.sessionId, action, message));
     }
+    this.onMessage("equipSkill", (client, message) => this.handleEquipSkill(client.sessionId, message));
     this.onMessage("deposit", (client, message) => this.handleStash(client.sessionId, message, "deposit"));
     this.onMessage("withdraw", (client, message) => this.handleStash(client.sessionId, message, "withdraw"));
     this.onMessage("sell", (client, message) => this.handleTrade(client.sessionId, message, "sell"));
@@ -134,6 +137,7 @@ export class CityRoom extends Room<{ state: CityState }> {
     for (let i = 0; i < STASH_SLOTS; i++) player.stash.push(new ItemSlotState({ item: "", count: 0 }));
     this.setInventory(client.sessionId, player, store.inventory(record.characterId));
     this.setEquipment(client.sessionId, player, store.equipment(record.characterId, record.classId));
+    mirrorSkills(player.skills, store.skills(record.characterId, record.classId));
     mirror(player.stash, lineage.stash);
     this.state.players.set(client.sessionId, player);
     client.view = new StateView();
@@ -188,6 +192,19 @@ export class CityRoom extends Room<{ state: CityState }> {
     store.saveGear(record.characterId, result.gear.inventory, result.gear.equipment);
     this.setInventory(sessionId, player, result.gear.inventory);
     this.setEquipment(sessionId, player, result.gear.equipment);
+  }
+
+  // Janela de Skills: trocar a habilidade de um slot (Q ou R). Só as da classe; gravado na hora.
+  private handleEquipSkill(sessionId: string, message: unknown) {
+    const player = this.state.players.get(sessionId);
+    const record = this.characters.get(sessionId);
+    const request = parseSkillEquip(message);
+    if (!player || !record || !request) return;
+    const current = store.skills(record.characterId, record.classId);
+    const next = equipSkill(current, request.slot, request.skill, record.classId);
+    if (!next) return;
+    store.setSkills(record.characterId, next);
+    mirrorSkills(player.skills, next);
   }
 
   // Tecla do slot, como no labirinto. Sem fome na cidade: comida é gasta sem efeito (escolha do dono do projeto).

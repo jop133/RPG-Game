@@ -11,6 +11,7 @@ import {
   type Equipment,
   type ItemId,
   type ItemStats,
+  type SkillId,
 } from "shared";
 import type { Send } from "./cityWindows";
 import layout from "../../assets/ui/hud/layout.json";
@@ -39,6 +40,7 @@ import {
   type TooltipContent,
 } from "./hudParts";
 import { classLabel } from "./registration";
+import { SkillsTablet, TABLET } from "./skillsTablet";
 import { StatusScroll } from "./statusScroll";
 
 // Janela de inventário (I, Tab ou B), em duas alas lado a lado, cada uma num painel de ferro e couro (inv_panel_wide:
@@ -46,8 +48,9 @@ import { StatusScroll } from "./statusScroll";
 // - esquerda, a mochila: os 12 slots em dois blocos (o cinturão rápido, atalhos 1 a 6, e a carga, 7 a =), as moedas e
 //   um quadro de inspeção do item sob o mouse;
 // - direita, o personagem: sprite grande (com a armadura equipada por cima) entre os 8 slots de equipamento (armaduras
-//   à esquerda, arma, escudo, amuleto e anel à direita), o botão "Status" (abre o pergaminho dos 12 status ao lado,
-//   StatusScroll) e o altar das essências absorvidas.
+//   à esquerda, arma, escudo, amuleto e anel à direita), os botões "Status" (abre o pergaminho dos 12 status ao lado,
+//   StatusScroll) e "Skills" (abre a Tábua de Skills no mesmo lugar, SkillsTablet; um de cada vez) e o altar das
+//   essências absorvidas.
 // Só desenho: os números vêm do servidor ou das mesmas regras puras de shared. Medidas em px de tela na tela-base
 // (1366x768), ampliadas com o resto da HUD (--u).
 // Arrastar e soltar (só pede; quem decide e muda é o servidor, regra 1): entre slots da mochila manda "move"; da
@@ -66,7 +69,12 @@ export interface InventoryView {
   inventory: readonly (HudSlot | undefined)[];
   // O que está equipado, slot -> id de item (slot ausente = vazio).
   equipment: Partial<Record<EquipSlot, string>>;
+  // As habilidades nos slots Q e R.
+  skills: readonly { id: SkillId | null }[];
 }
+
+// O que abre ao lado da ala do personagem (um de cada vez).
+type SidePanel = "status" | "skills";
 
 // O que está sendo arrastado: um slot da mochila ou uma peça equipada.
 type Dragging = { from: "bag"; slot: number } | { from: "equip"; slot: EquipSlot };
@@ -92,8 +100,9 @@ const LEATHER = layout.leather_wide;
 const GAP_BETWEEN = 16;
 // O pergaminho dos status, à direita da ala do personagem: a janela alarga e continua centrada.
 const SCROLL_W = layout.status_scroll.w;
-const STATUS_BUTTON = { w: 140, h: 30 };
-const STATUS_AREA = 36; // altura do vão do botão Status, entre o personagem e o altar
+const STATUS_BUTTON = { w: 124, h: 30 };
+const SIDE_BUTTON_GAP = 12;
+const STATUS_AREA = 36; // altura do vão dos botões Status e Skills, entre o personagem e o altar
 const SLOT = 68;
 const SLOT_GAP = 6;
 const BELT = 6;
@@ -125,7 +134,11 @@ export class InventoryWindow {
   private readonly sprite: HTMLImageElement;
   private readonly heroTitle: HTMLDivElement;
   private readonly statusButton: HTMLButtonElement;
+  private readonly skillsButton: HTMLButtonElement;
   private readonly scroll: StatusScroll;
+  private readonly tablet: SkillsTablet;
+  // O que está aberto ao lado da ala do personagem.
+  private side?: SidePanel;
   private readonly essenceTitle: HTMLDivElement;
   private readonly essenceSlots: EssenceSlot[] = [];
   private readonly bagSlots: SlotView[] = [];
@@ -231,19 +244,26 @@ export class InventoryWindow {
       layer.hidden = true;
       this.armorLayers.set(piece, layer);
     }
-    // Botão do pergaminho dos status, no vão entre o personagem e o altar (onde ficavam as placas de atributo).
+    // Botões Status e Skills lado a lado, no vão entre o personagem e o altar (onde ficavam as placas de atributo).
     const statusTop = equipTop + column + 6;
-    this.statusButton = place(
-      el("button", "hud-abs hud-inv-status-btn", right),
-      LEATHER.x + (LEATHER.w - STATUS_BUTTON.w) / 2,
-      statusTop + (STATUS_AREA - STATUS_BUTTON.h) / 2,
-      STATUS_BUTTON.w,
-      STATUS_BUTTON.h,
-    );
-    this.statusButton.type = "button";
-    this.statusButton.textContent = "Status";
-    this.statusButton.addEventListener("click", () => this.setScrollOpen(!this.scroll.open));
+    const sideButton = (label: string, i: number, panel: SidePanel) => {
+      const buttonsLeft = LEATHER.x + (LEATHER.w - (2 * STATUS_BUTTON.w + SIDE_BUTTON_GAP)) / 2;
+      const button = place(
+        el("button", "hud-abs hud-inv-status-btn", right),
+        buttonsLeft + i * (STATUS_BUTTON.w + SIDE_BUTTON_GAP),
+        statusTop + (STATUS_AREA - STATUS_BUTTON.h) / 2,
+        STATUS_BUTTON.w,
+        STATUS_BUTTON.h,
+      );
+      button.type = "button";
+      button.textContent = label;
+      button.addEventListener("click", () => this.setSidePanel(this.side === panel ? undefined : panel));
+      return button;
+    };
+    this.statusButton = sideButton("Status", 0, "status");
+    this.skillsButton = sideButton("Skills", 1, "skills");
     this.scroll = new StatusScroll(this.root, PANEL.w * 2 + GAP_BETWEEN * 2, 0);
+    this.tablet = new SkillsTablet(this.root, PANEL.w * 2 + GAP_BETWEEN * 2, (PANEL.h - TABLET.h) / 2, tooltip, send);
     // Altar das essências: os slots que o nível abre e os próximos, trancados.
     const altarTop = statusTop + STATUS_AREA;
     this.essenceTitle = place(el("div", "hud-abs hud-section-title hud-inv-section", right), LEATHER.x, altarTop, LEATHER.w);
@@ -268,11 +288,16 @@ export class InventoryWindow {
     this.setOpen(false);
   }
 
-  // O pergaminho abre ao lado da ala do personagem: a janela alarga (e continua centrada, pelo translate(-50%)).
-  private setScrollOpen(open: boolean) {
-    this.scroll.setOpen(open);
-    this.statusButton.classList.toggle("hud-inv-status-open", open);
-    size(this.root, PANEL.w * 2 + GAP_BETWEEN + (open ? GAP_BETWEEN + SCROLL_W : 0), PANEL.h);
+  // O pergaminho ou a tábua abre ao lado da ala do personagem (um fecha o outro): a janela alarga e continua centrada
+  // (pelo translate(-50%)).
+  private setSidePanel(side: SidePanel | undefined) {
+    this.side = side;
+    this.scroll.setOpen(side === "status");
+    this.tablet.setOpen(side === "skills");
+    this.statusButton.classList.toggle("hud-inv-status-open", side === "status");
+    this.skillsButton.classList.toggle("hud-inv-status-open", side === "skills");
+    const extra = side === "status" ? SCROLL_W : side === "skills" ? TABLET.w : 0;
+    size(this.root, PANEL.w * 2 + GAP_BETWEEN + (side ? GAP_BETWEEN + extra : 0), PANEL.h);
   }
 
   private setOpen(open: boolean) {
@@ -289,6 +314,7 @@ export class InventoryWindow {
     // Bônus no pergaminho = o que vem de essências e equipamento, sobre a base com o golpe da arma.
     const stats = playerStats(view.essences as ItemId[], this.equipment());
     this.scroll.update(stats, statsFrom([], stats.attack));
+    this.tablet.update(view);
     setText(this.essenceTitle, `Essências absorvidas (${view.essences.length} / ${view.level})`);
     const used = view.inventory.filter((slot) => slot && slot.count > 0).length;
     setText(this.slotsText, `Slots: ${used} / ${INVENTORY_SLOTS}`);

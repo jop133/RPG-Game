@@ -1183,6 +1183,24 @@ Slot vazio usa a moldura comum.
 
 ---
 
+## 2026-10 — Habilidades (skills) equipáveis no Q e no R
+
+**Pedido do dono do projeto:** um sistema de habilidades para as 4 classes, com 2 slots (Q e R), a janela de Skills (Tábua de Skills) ao lado de Status no inventário, e os ícones oficiais na barra.
+
+**Decisões (perguntadas ao dono do projeto):**
+- **O clique com o cajado não faz nada por enquanto;** a Bola de Fogo virou só habilidade (no Q/R dispara o projétil de sempre, com BASE_DAMAGE 8 + Dano Mágico e recarga de 1 s). Isto troca a decisão do Cajado Arcano ("o cajado dispara").
+- **As habilidades equipadas ficam gravadas no personagem** (migração 8, coluna `skills`, JSON `[Q, R]`; NULL = as iniciais da classe). Gravadas na hora em que mudam, na cidade e no labirinto (não são loot).
+
+**Como ficou:**
+- `shared/src/skills.ts`: `SKILLS` (nome, descrição, recarga), `CLASS_SKILLS` (o mago tem as 3; elfo, bárbaro e homem-fera ainda nenhuma: a janela mostra cadeados e "Em breve"), `startingSkills` (o mago entra com Bola de Fogo no Q e Raio no R), `restoreSkills`, `equipSkill` (só da classe; a que já está no outro slot troca de lugar; null esvazia), `parseSkillEquip`, `parseSkillCast`.
+- Servidor: `equipSkill` nas duas salas; `skill` (slot + ponto do mouse) no labirinto lança a habilidade do slot, com a recarga dela; o lançamento conta como golpe (attackSeq), para o cajado inclinar para a mira. As recargas vão por habilidade (`skillCooldowns`), só para o dono.
+- Cliente: botões Status e Skills lado a lado (um painel de cada vez); a Tábua (`client/src/skillsTablet.ts`) com o título na plaquinha, os slots Q e R (botão direito ou ✕ desequipa), a grade das liberadas (borda dourada nas equipadas, ciano na escolhida; clicar escolhe e, se houver slot vazio, já equipa) e o painel com nome, descrição, recarga e "Equipar em Q/R". Barra: os ícones oficiais (ou o slot vazio), a tecla numa plaquinha dentro do botão (antes o topo das letras era cortado), a recarga escurecendo o ícone.
+
+**Escolhas minhas (avise se quiser diferente):**
+- A tábua aparece em 330x460, centrada na altura da janela, e não na altura inteira: com a largura da arte em 640 de altura (458), a janela não caberia numa tela de 1366.
+- Os botões de habilidade aparecem para todas as classes (vazios para quem ainda não tem), na cidade também (lá as teclas não lançam).
+- A descrição do Pântano diz "monstros e outros jogadores" (é o que o servidor faz), não só "inimigos".
+
 ## 2026-10 — Magias do mago: Bola de Fogo, Raio Celestial e Pântano de Lama
 
 **Pedido do dono do projeto:** as 3 magias do mago com a arte de `magias1`: a Bola de Fogo como ataque do cajado, o Raio Celestial em área (aviso de 400 ms, depois o raio) e o Pântano de Lama (zona de 5 s que deixa lento), no ponto do mouse.

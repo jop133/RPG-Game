@@ -7,6 +7,8 @@ Saída:   assets/ui/          peças da interface recoloridas para dark fantasy 
          assets/characters/<classe>/<direção>.png        sprite parado (idle) de cada direção, 64x64
          assets/characters/<classe>/walk-<direção>.png   caminhada: fita horizontal de quadros 96x96 (dos GIFs de walk/)
          assets/characters/hand_sockets.json             a mão que segura a arma, em cada quadro (ver hand_sockets)
+         assets/ui/skill_<habilidade>.png                ícones das habilidades, 64x64 (ver skill_art)
+         assets/ui/ui_skills_tablet.png                  a Tábua de Skills, fundo da aba ao lado do inventário
 
 Licença do pacote Paper UI: pode usar e modificar em jogos; NÃO pode redistribuir o pacote (nem modificado).
 Por isso o repositório com estes arquivos não deve ser público.
@@ -14,6 +16,7 @@ Por isso o repositório com estes arquivos não deve ser público.
 Uso (da raiz do projeto):
     tools/assets/.venv/Scripts/python.exe -I tools/assets/process_ui.py
     tools/assets/.venv/Scripts/python.exe -I tools/assets/process_ui.py --sockets   (só o hand_sockets.json)
+    tools/assets/.venv/Scripts/python.exe -I tools/assets/process_ui.py --skills    (só os ícones e a tábua de skills)
 """
 
 from __future__ import annotations
@@ -222,6 +225,61 @@ def hand_sockets() -> dict:
     return out
 
 
+# Arte das habilidades (do dono do projeto, fora do git): uma grade 2x2 de ícones com moldura de metal e a Tábua.
+NEW_ART = ROOT / "assets" / "tilesets" / "novos tilesets"
+SKILL_ICONS = ["skill_fireball", "skill_lightning", "skill_swamp", "skill_slot_empty"]  # esquerda->direita, cima->baixo
+SKILL_ICON = 64
+TABLET_BLACK = 12  # o "preto" do fundo de fora da tábua (os pretos de dentro da pedra não encostam nele)
+
+
+def opaque_box(px: np.ndarray) -> tuple[int, int, int, int]:
+    ys, xs = np.nonzero(px[..., 3] > 0)
+    return xs.min(), ys.min(), xs.max() + 1, ys.max() + 1
+
+
+def skill_icons() -> None:
+    """Os 4 quadrantes da grade, cada um recortado pela borda de fora da moldura (a caixa do que não é transparente
+    no quadrante) e reduzido a 64x64 (LANCZOS: a arte é detalhada e o ícone é bem menor)."""
+    sheet = np.asarray(Image.open(NEW_ART / "iconeskills1.png").convert("RGBA"))
+    h, w = sheet.shape[:2]
+    for i, name in enumerate(SKILL_ICONS):
+        x0, y0 = (i % 2) * w // 2, (i // 2) * h // 2
+        cell = sheet[y0 : y0 + h // 2, x0 : x0 + w // 2]
+        bx0, by0, bx1, by1 = opaque_box(cell)
+        side = max(bx1 - bx0, by1 - by0)
+        icon = Image.fromarray(cell[by0 : by0 + side, bx0 : bx0 + side]).resize((SKILL_ICON, SKILL_ICON), Image.LANCZOS)
+        icon.save(UI_OUT / f"{name}.png")
+        print(f"{name}: moldura {bx1 - bx0}x{by1 - by0} em ({x0 + bx0}, {y0 + by0}) -> {SKILL_ICON}x{SKILL_ICON}")
+
+
+def skills_tablet() -> None:
+    """A Tábua: só o preto de fora sai (flood-fill a partir dos 4 cantos, por pixels transparentes ou quase pretos),
+    e o recorte fica justo no que sobrou. Os tons escuros da pedra e das runas, por dentro da moldura, ficam."""
+    px = np.asarray(Image.open(NEW_ART / "telaskills.png").convert("RGBA")).copy()
+    clear = (px[..., 3] == 0) | (px[..., :3].max(axis=2) < TABLET_BLACK)
+    h, w = clear.shape
+    seen = np.zeros_like(clear)
+    stack = [(y, x) for y, x in ((0, 0), (0, w - 1), (h - 1, 0), (h - 1, w - 1)) if clear[y, x]]
+    for y, x in stack:
+        seen[y, x] = True
+    while stack:
+        y, x = stack.pop()
+        for ny, nx in ((y + 1, x), (y - 1, x), (y, x + 1), (y, x - 1)):
+            if 0 <= ny < h and 0 <= nx < w and clear[ny, nx] and not seen[ny, nx]:
+                seen[ny, nx] = True
+                stack.append((ny, nx))
+    px[seen, 3] = 0
+    x0, y0, x1, y1 = opaque_box(px)
+    Image.fromarray(px[y0:y1, x0:x1]).save(UI_OUT / "ui_skills_tablet.png")
+    print(f"ui_skills_tablet: {x1 - x0}x{y1 - y0} (de {w}x{h})")
+
+
+def skill_art() -> None:
+    UI_OUT.mkdir(parents=True, exist_ok=True)
+    skill_icons()
+    skills_tablet()
+
+
 def frames(folder: Path, count: int) -> list[Image.Image]:
     return [Image.open(folder / f"{i}.png").convert("RGBA") for i in range(1, count + 1)]
 
@@ -251,10 +309,13 @@ def main() -> None:
         print(f"{class_id}: caminhada em 8 direções, {sheet.width // WALK_FRAME} quadros de {WALK_FRAME}x{WALK_FRAME}")
     print(f"{len(PIECES)} peças em {UI_OUT.relative_to(ROOT)}, {len(CLASS_FOLDERS)} classes em {CHAR_OUT.relative_to(ROOT)}")
     hand_sockets()
+    skill_art()
 
 
 if __name__ == "__main__":
     if "--sockets" in sys.argv:
         hand_sockets()
+    elif "--skills" in sys.argv:
+        skill_art()
     else:
         main()

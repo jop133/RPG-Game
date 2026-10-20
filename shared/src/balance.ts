@@ -197,6 +197,9 @@ export const MAGIC_BOLT = { speed: 420, range: 340, spawnOffset: 20, radius: 5, 
 // ponto é puxado para dentro do alcance). Limitadas só pela recarga; a Mana ainda não é gasta. As áreas são elipses no
 // chão (a vista é 3/4: um círculo no chão aparece achatado, SPELL_FLATTEN), testadas nos pés de cada um.
 export const SPELL_CAST_RANGE = 320;
+// Bola de Fogo (skill do mago): dispara o projétil do cajado (MAGIC_BOLT) na direção do mouse, com BASE_DAMAGE + o Dano
+// Mágico de quem lançou. O clique com o cajado não faz nada por enquanto (pedido do dono do projeto).
+export const FIREBALL_SKILL = { baseDamage: 8, cooldownMs: 1000 };
 export const SPELL_FLATTEN = 0.55;
 // Raio Celestial (Q): o círculo avisa por WARN_MS; aí o raio cai, com BASE_DAMAGE + o Dano Mágico de quem lançou, em
 // todos dentro da elipse (fogo amigo, menos quem lançou). O círculo e o raio carregam luz (regra 4).

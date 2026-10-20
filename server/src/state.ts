@@ -1,5 +1,5 @@
-import { type MapSchema, schema, t, type SchemaType } from "@colyseus/schema";
-import { EQUIP_SLOTS, type Equipment } from "shared";
+import { type ArraySchema, type MapSchema, schema, t, type SchemaType } from "@colyseus/schema";
+import { EQUIP_SLOTS, type Equipment, type EquippedSkills } from "shared";
 
 // Tag de visão do dono: campos marcados com ela só vão para o próprio jogador. Tags precisam ser potência de 2.
 export const OWNER_TAG = 1;
@@ -35,9 +35,10 @@ export const PlayerState = schema(
     essences: t.array("string").view(OWNER_TAG),
     // Moedas da linhagem, só para o HUD: no labirinto não se ganha nem se gasta moeda.
     coins: t.number().view(OWNER_TAG),
-    // Recarga que falta (ms) das magias do mago (Raio no Q, Pântano no R), para o HUD. 0 = pronta.
-    lightningCooldownMs: t.number().view(OWNER_TAG),
-    swampCooldownMs: t.number().view(OWNER_TAG),
+    // Habilidades equipadas nos slots Q e R ("" = vazio) e a recarga que falta (ms) de cada habilidade da classe, para
+    // o HUD. Só o dono vê.
+    skills: t.array("string").view(OWNER_TAG),
+    skillCooldowns: t.map("number").view(OWNER_TAG),
   },
   "PlayerState",
 );
@@ -107,6 +108,8 @@ export const CityPlayerState = schema(
     // Na cidade não se mata nada: lidos uma vez, ao entrar.
     bestiary: t.array("string").view(OWNER_TAG),
     kills: t.array("string").view(OWNER_TAG),
+    // Habilidades equipadas nos slots Q e R ("" = vazio): a janela de Skills troca na cidade também.
+    skills: t.array("string").view(OWNER_TAG),
   },
   "CityPlayerState",
 );
@@ -115,6 +118,16 @@ export type CityPlayerState = SchemaType<typeof CityPlayerState>;
 // Mesmo na cidade, cada cliente só recebe quem está no raio de visão dele (regra 5).
 export const CityState = schema({ players: t.map(CityPlayerState).view() }, "CityState");
 export type CityState = SchemaType<typeof CityState>;
+
+// Copia as habilidades equipadas (verdade do servidor) para a lista do dono: uma posição por slot, "" = vazio.
+export function mirrorSkills(view: ArraySchema<string>, skills: EquippedSkills) {
+  skills.forEach((skill, i) => {
+    const value = skill ?? "";
+    if (i < view.length) {
+      if (view[i] !== value) view[i] = value;
+    } else view.push(value);
+  });
+}
 
 // Copia o equipamento (verdade do servidor) para o mapa público do jogador: só os slots ocupados.
 export function mirrorEquipment(view: MapSchema<string>, equipment: Equipment) {

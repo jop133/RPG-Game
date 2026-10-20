@@ -21,6 +21,7 @@ export * from "./pathfinding";
 export * from "./progression";
 export * from "./projectile";
 export * from "./shop";
+export * from "./skills";
 export * from "./spells";
 export * from "./spawn";
 export * from "./stats";

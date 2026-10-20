@@ -28,7 +28,12 @@ import {
   isOffCooldown,
   feetInside,
   lightningArea,
-  parseSpellCast,
+  parseSkillCast,
+  parseSkillEquip,
+  equipSkill,
+  CLASS_SKILLS,
+  FIREBALL_SKILL,
+  SKILLS,
   spellTarget,
   swampArea,
   swampSlow,
@@ -75,6 +80,8 @@ import {
   type ProjectileStep,
   type ProjectileTarget,
   type SpellKind,
+  type SkillId,
+  type EquippedSkills,
   type GroundEllipse,
   type MobKind,
   type MobMind,
@@ -97,6 +104,7 @@ import {
   ProjectileState,
   SpellState,
   mirrorEquipment,
+  mirrorSkills,
 } from "./state";
 import { store } from "./store";
 import { updateVisibility } from "./views";
@@ -131,7 +139,6 @@ interface CastSpell {
   damage: number;
 }
 
-const SPELL_COOLDOWN_MS: Record<SpellKind, number> = { lightning: LIGHTNING_SPELL.cooldownMs, swamp: SWAMP_SPELL.cooldownMs };
 
 export class GameRoom extends Room<{ state: GameState }> {
   maxClients = 4;
@@ -170,7 +177,9 @@ export class GameRoom extends Room<{ state: GameState }> {
   // Magias no chão, por id (SpellState leva tipo, lugar e fase ao cliente), e quando cada um lançou cada magia.
   private spells = new Map<string, CastSpell>();
   private nextSpellId = 1;
-  private lastSpellMs = new Map<string, Partial<Record<SpellKind, number>>>();
+  private lastSpellMs = new Map<string, Partial<Record<SkillId, number>>>();
+  // Habilidades equipadas de cada um (Q e R). PlayerState.skills espelha para o dono.
+  private skills = new Map<string, EquippedSkills>();
   // Mortes do tick (ou do golpe) atual. Resolvidas depois dos laços, para não remover jogador no meio de um forEach.
   private deaths = new Map<string, DeathCause>();
   // Jogadores com a conexão caída: o personagem continua no mundo esperando eles voltarem.
@@ -181,7 +190,8 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.moveInputs.set(client.sessionId, parseMoveInput(message));
     });
     this.onMessage("attack", (client, message) => this.handleAttack(client.sessionId, message));
-    this.onMessage("spell", (client, message) => this.handleSpell(client.sessionId, message));
+    this.onMessage("skill", (client, message) => this.handleSkill(client.sessionId, message));
+    this.onMessage("equipSkill", (client, message) => this.handleEquipSkill(client.sessionId, message));
     this.onMessage("use", (client, message) => this.handleUse(client.sessionId, message));
     for (const action of ["move", "equip", "unequip"] as const) {
       this.onMessage(action, (client, message) => this.handleGear(client.sessionId, action, message));
@@ -214,8 +224,6 @@ export class GameRoom extends Room<{ state: GameState }> {
       maxHp: stats.maxHp,
       attackSeq: 0,
       attackAngle: 0,
-      lightningCooldownMs: 0,
-      swampCooldownMs: 0,
       hunger: HUNGER_MAX,
       extractMs: 0,
       xp,
@@ -225,6 +233,9 @@ export class GameRoom extends Room<{ state: GameState }> {
     for (let i = 0; i < INVENTORY_SLOTS; i++) player.inventory.push(new ItemSlotState({ item: "", count: 0 }));
     for (const essence of essences) player.essences.push(essence);
     mirrorEquipment(player.equipment, equipment);
+    const skills = store.skills(record.characterId, record.classId);
+    this.skills.set(client.sessionId, skills);
+    mirrorSkills(player.skills, skills);
     // O que o personagem trouxe da cidade (ou o kit inicial, se for novo).
     this.setInventory(client.sessionId, player, store.inventory(record.characterId));
     this.state.players.set(client.sessionId, player);
@@ -254,6 +265,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.lastAttackMs.delete(sessionId);
     this.lastHurtMs.delete(sessionId);
     this.lastSpellMs.delete(sessionId);
+    this.skills.delete(sessionId);
     this.inventories.delete(sessionId);
     this.equipment.delete(sessionId);
     this.extractProgress.delete(sessionId);
@@ -404,23 +416,20 @@ export class GameRoom extends Room<{ state: GameState }> {
     return pickSpawnPoint(level.playerEntryPoints, Math.random());
   }
 
-  // O cliente só diz para onde golpeou. Recarga, quem foi atingido e dano são decididos aqui. Com cajado, em vez do
-  // golpe, sai um Projétil Mágico (fireBolt).
+  // O cliente só diz para onde golpeou. Recarga, quem foi atingido e dano são decididos aqui.
   private handleAttack(sessionId: string, message: unknown) {
     const angle = parseAttackAngle(message);
     const attacker = this.state.players.get(sessionId);
     const now = this.clock.currentTime;
     const stats = this.statsOf(sessionId);
+    // Com cajado, o clique não faz nada por enquanto (pedido do dono do projeto): a Bola de Fogo é uma habilidade.
+    if (stats.attack.weaponType === "staff") return;
     if (angle === undefined || !attacker || !isOffCooldown(this.lastAttackMs.get(sessionId), now, attackCooldownMs(stats))) return;
     this.lastAttackMs.set(sessionId, now);
     attacker.attackSeq += 1;
     attacker.attackAngle = angle;
-    if (stats.attack.weaponType === "staff") {
-      this.fireBolt(sessionId, attacker, angle, stats.magicDamage);
-    } else {
-      this.hitMobs(sessionId, attacker, angle);
-      this.hitPlayers(sessionId, attacker, angle);
-    }
+    this.hitMobs(sessionId, attacker, angle);
+    this.hitPlayers(sessionId, attacker, angle);
     this.resolveDeaths();
   }
 
@@ -432,25 +441,51 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.applyBoltStep(id, launchProjectile(from, angle, level.grid, this.boltTargets(owner)));
   }
 
-  // Magia do mago (Q: Raio, R: Pântano). O cliente diz qual e o ponto do mouse; aqui: só o mago, fora da recarga, e
-  // o ponto vira o lugar de verdade (spellTarget: no alcance, fora de parede).
-  private handleSpell(sessionId: string, message: unknown) {
-    const cast = parseSpellCast(message);
+  // Janela de Skills: trocar a habilidade de um slot (Q ou R), a qualquer momento da run. Gravado na hora (não é loot).
+  private handleEquipSkill(sessionId: string, message: unknown) {
+    const player = this.state.players.get(sessionId);
+    const record = this.characters.get(sessionId);
+    const request = parseSkillEquip(message);
+    const current = this.skills.get(sessionId);
+    if (!player || !record || !request || !current) return;
+    const next = equipSkill(current, request.slot, request.skill, record.classId);
+    if (!next) return;
+    this.skills.set(sessionId, next);
+    store.setSkills(record.characterId, next);
+    mirrorSkills(player.skills, next);
+  }
+
+  // Tecla da skill (Q = slot 0, R = slot 1). O cliente diz o slot e o ponto do mouse; aqui: a skill equipada nele,
+  // fora da recarga dela. Bola de Fogo dispara o projétil na direção do ponto; Raio e Pântano caem no ponto de verdade
+  // (spellTarget: no alcance, fora de parede). O lançamento conta como golpe (attackSeq): quem vê o mago desenha o
+  // cajado inclinando para a mira.
+  private handleSkill(sessionId: string, message: unknown) {
+    const cast = parseSkillCast(message);
     const caster = this.state.players.get(sessionId);
-    if (!cast || !caster || this.characters.get(sessionId)?.classId !== "mago") return;
+    const skill = cast && this.skills.get(sessionId)?.[cast.slot];
+    if (!cast || !caster || !skill) return;
     const now = this.clock.currentTime;
     const last = this.lastSpellMs.get(sessionId) ?? {};
-    if (!isOffCooldown(last[cast.spell], now, SPELL_COOLDOWN_MS[cast.spell])) return;
-    const at = spellTarget(caster, cast.target, level.grid);
-    if (!at) return;
-    this.lastSpellMs.set(sessionId, { ...last, [cast.spell]: now });
-    const id = `spell-${this.nextSpellId++}`;
-    const lightning = cast.spell === "lightning";
-    const phase = lightning ? "warn" : "cast";
-    const remainingMs = lightning ? LIGHTNING_SPELL.warnMs : SWAMP_SPELL.castMs;
-    const damage = LIGHTNING_SPELL.baseDamage + this.statsOf(sessionId).magicDamage;
-    this.spells.set(id, { kind: cast.spell, owner: sessionId, phase, remainingMs, damage });
-    this.state.spells.set(id, new SpellState({ kind: cast.spell, x: at.x, y: at.y, phase }));
+    if (!isOffCooldown(last[skill], now, SKILLS[skill].cooldownMs)) return;
+    const magicDamage = this.statsOf(sessionId).magicDamage;
+    const angle = Math.atan2(cast.target.y - caster.y, cast.target.x - caster.x);
+    if (skill === "fireball") {
+      this.fireBolt(sessionId, caster, angle, FIREBALL_SKILL.baseDamage + magicDamage);
+    } else {
+      const at = spellTarget(caster, cast.target, level.grid);
+      if (!at) return;
+      const id = `spell-${this.nextSpellId++}`;
+      const lightning = skill === "lightning";
+      const phase = lightning ? "warn" : "cast";
+      const remainingMs = lightning ? LIGHTNING_SPELL.warnMs : SWAMP_SPELL.castMs;
+      const damage = LIGHTNING_SPELL.baseDamage + magicDamage;
+      this.spells.set(id, { kind: skill, owner: sessionId, phase, remainingMs, damage });
+      this.state.spells.set(id, new SpellState({ kind: skill, x: at.x, y: at.y, phase }));
+    }
+    this.lastSpellMs.set(sessionId, { ...last, [skill]: now });
+    caster.attackSeq += 1;
+    caster.attackAngle = angle;
+    this.resolveDeaths();
   }
 
   // Cada tick: as fases andam (aviso → raio, conjuração → poça → fim) e a recarga de cada um desce no HUD.
@@ -476,8 +511,11 @@ export class GameRoom extends Room<{ state: GameState }> {
     const now = this.clock.currentTime;
     this.state.players.forEach((player, sessionId) => {
       const last = this.lastSpellMs.get(sessionId) ?? {};
-      player.lightningCooldownMs = Math.max(0, LIGHTNING_SPELL.cooldownMs - (now - (last.lightning ?? -Infinity)));
-      player.swampCooldownMs = Math.max(0, SWAMP_SPELL.cooldownMs - (now - (last.swamp ?? -Infinity)));
+      const classId = this.characters.get(sessionId)?.classId;
+      for (const skill of classId ? CLASS_SKILLS[classId] : []) {
+        const left = Math.max(0, SKILLS[skill].cooldownMs - (now - (last[skill] ?? -Infinity)));
+        if (player.skillCooldowns.get(skill) !== left) player.skillCooldowns.set(skill, left);
+      }
     });
   }
 

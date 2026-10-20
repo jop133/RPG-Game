@@ -107,6 +107,16 @@ Os GIFs de caminhada (`walk/<direção>.gif`, 6 quadros de 96x96) viram fitas ho
 `assets/characters/<classe>/walk-<direção>.png`, sem reamostrar. Se faltar uma direção, o script espelha o lado
 leste (para oeste) ou usa a cardinal mais próxima (para diagonal), e avisa.
 
+```bash
+tools/assets/.venv/Scripts/python.exe -I tools/assets/process_ui.py --skills
+```
+
+Só a arte das habilidades (sem mexer no resto, que regera os sprites das classes): de `assets/tilesets/novos tilesets/`
+(arte do dono do projeto, fora do git), `iconeskills1.png` (grade 2x2, 2048x2048) vira `assets/ui/skill_fireball.png`,
+`skill_lightning.png`, `skill_swamp.png` e `skill_slot_empty.png` (cada quadrante recortado pela borda de fora da
+moldura, 64x64 em LANCZOS), e `telaskills.png` vira `assets/ui/ui_skills_tablet.png` (só o preto de fora sai, por
+flood-fill a partir dos 4 cantos; recorte justo, 693x967).
+
 Por fim grava `assets/characters/hand_sockets.json`: a mão que segura a arma em cada quadro, por classe, animação
 (`idle`, `walk` e `attack` quando houver `attack-<direção>.png`) e direção, como `{dx, dy, behindBody}` em px a partir
 dos pés do sprite. A mão é sempre a direita do personagem; a do parado é a tabela `HAND_IDLE`, marcada no punho da arte;

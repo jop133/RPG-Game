@@ -123,3 +123,25 @@ describe("equipamento (migração 7)", () => {
     store.close();
   });
 });
+
+describe("habilidades (migração 8)", () => {
+  it("mago de antes das habilidades entra com as iniciais; a troca fica gravada; o herdeiro recomeça", () => {
+    const file = tempFile();
+    const old = new Database(file);
+    MIGRATIONS.slice(0, 7).forEach((sql) => old.exec(sql));
+    old.pragma("user_version = 7");
+    old.prepare("INSERT INTO lineages (id, name) VALUES (1, 'Ana')").run();
+    old.prepare("INSERT INTO characters (id, lineage_id, class) VALUES (7, 1, 'mago')").run();
+    old.close();
+
+    const store = new Store(file);
+    expect(store.skills(7, "mago")).toEqual(["fireball", "lightning"]);
+    store.setSkills(7, ["swamp", "fireball"]);
+    expect(store.skills(7, "mago")).toEqual(["swamp", "fireball"]);
+    store.markDead(7, { kind: "starvation" });
+    const heir = store.enter("Ana");
+    expect(store.skills(heir.characterId, "mago")).toEqual(["fireball", "lightning"]);
+    expect(store.skills(heir.characterId, "barbaro")).toEqual([null, null]);
+    store.close();
+  });
+});

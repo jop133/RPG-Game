@@ -1181,18 +1181,31 @@
 
 /* ---- magias do mago (Q e R), à esquerda da barra rápida (hud.ts, SPELL_BUTTONS) ---- */
 .hud-spell {
-  background-size: 100% 100%;
-  image-rendering: pixelated;
   pointer-events: auto;
   overflow: hidden;
+  box-shadow: 0 0 0 1px #0c0806;
 }
 
 .hud-spell-icon {
   position: absolute;
-  inset: 6px;
-  width: calc(100% - 12px);
-  height: calc(100% - 12px);
-  image-rendering: pixelated;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* A tecla do slot numa plaquinha dentro do botão, descida do topo (antes o topo das letras era cortado). */
+.hud-spell-key {
+  position: absolute;
+  left: 3px;
+  top: 4px;
+  padding: 0 3px;
+  font-size: 11px;
+  font-weight: bold;
+  line-height: 13px;
+  color: #ffe9a8;
+  background: rgba(12, 8, 6, 0.8);
+  border: 1px solid #6b5a48;
+  border-radius: 2px;
 }
 
 .hud-spell-shade {
@@ -1215,4 +1228,128 @@
   font-size: 18px;
   color: #ffe9a8;
   text-shadow: 0 0 3px #000, 1px 1px 0 #000;
+}
+
+/* ---- Tábua de Skills (skillsTablet.ts), ao lado da ala do personagem ---- */
+.hud-tablet {
+  pointer-events: auto;
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.7));
+  animation: hud-unroll 220ms ease-out;
+}
+
+.hud-tablet > img {
+  image-rendering: pixelated;
+}
+
+.hud-tablet-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #ffe9a8;
+  text-shadow: 0 1px 0 #000, 0 0 4px #000;
+}
+
+.hud-tablet-section {
+  text-align: center;
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #c9a227;
+  text-shadow: 0 1px 0 #000;
+}
+
+.hud-tablet-slot,
+.hud-tablet-tile {
+  cursor: pointer;
+  box-shadow: 0 0 0 1px #0c0806;
+}
+
+.hud-tablet-slot > img,
+.hud-tablet-tile > img {
+  image-rendering: auto;
+}
+
+.hud-tablet-clear {
+  padding: 0;
+  border: 1px solid #6b5a48;
+  border-radius: 2px;
+  background: rgba(12, 8, 6, 0.85);
+  color: #ff8b7b;
+  font-size: 10px;
+  line-height: 14px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.hud-tablet-tile.hud-tablet-equipped {
+  box-shadow: 0 0 0 2px #c9a227, 0 0 8px rgba(201, 162, 39, 0.6);
+}
+
+.hud-tablet-tile.hud-tablet-selected {
+  box-shadow: 0 0 0 2px #5fe3ff, 0 0 8px rgba(95, 227, 255, 0.6);
+}
+
+.hud-tablet-tile.hud-tablet-equipped.hud-tablet-selected {
+  box-shadow: 0 0 0 2px #c9a227, 0 0 0 4px #5fe3ff;
+}
+
+.hud-tablet-locked {
+  cursor: default;
+  filter: grayscale(0.6) brightness(0.7);
+}
+
+.hud-tablet-soon {
+  text-align: center;
+  font-style: italic;
+  color: #a8957a;
+}
+
+.hud-tablet-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px 8px;
+  box-sizing: border-box;
+  font-size: 11px;
+  background: rgba(8, 8, 12, 0.45);
+  border: 1px solid #3a3228;
+  color: #e8d9b5;
+}
+
+.hud-tablet-name {
+  font-size: 13px;
+  font-weight: bold;
+  color: #ffe9a8;
+}
+
+.hud-tablet-text {
+  line-height: 1.35;
+}
+
+.hud-tablet-cooldown {
+  color: #9fd6ff;
+}
+
+.hud-tablet-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.hud-tablet-equip {
+  position: relative;
+  flex: 1;
+  height: 26px;
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+.hud-tablet-equip:disabled {
+  opacity: 0.45;
+  cursor: default;
 }

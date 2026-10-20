@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { LIGHTNING_SPELL, SPELL_CAST_RANGE, SPELL_FLATTEN, SWAMP_SPELL } from "./balance";
 import type { CollisionGrid } from "./collision";
-import { feetInside, lightningArea, parseSpellCast, spellTarget, swampArea, swampSlow } from "./spells";
+import { feetInside, lightningArea, spellTarget, swampArea, swampSlow } from "./spells";
 
 const TILE = 32;
 // 30x30 tiles de chão, com uma parede no tile (10, 3).
@@ -11,19 +11,6 @@ const GRID: CollisionGrid = {
   tileSize: TILE,
   solid: Array.from({ length: 900 }, (_, i) => i === 3 * 30 + 10),
 };
-
-describe("parseSpellCast", () => {
-  it("aceita magia conhecida e ponto finito", () => {
-    expect(parseSpellCast({ spell: "lightning", x: 10, y: 20 })).toEqual({ spell: "lightning", target: { x: 10, y: 20 } });
-    expect(parseSpellCast({ spell: "swamp", x: 0, y: 0 })?.spell).toBe("swamp");
-  });
-
-  it("recusa o resto", () => {
-    for (const raw of [null, 3, {}, { spell: "fireball", x: 1, y: 1 }, { spell: "swamp", x: "1", y: 1 }, { spell: "swamp", x: NaN, y: 1 }]) {
-      expect(parseSpellCast(raw)).toBeUndefined();
-    }
-  });
-});
 
 describe("spellTarget", () => {
   const caster = { x: 100, y: 400 };

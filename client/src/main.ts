@@ -36,7 +36,9 @@ import {
   parseClassId,
   feetInside,
   swampArea,
-  type SpellKind,
+  SKILL_SLOTS,
+  SKILL_IDS,
+  type SkillId,
   DRAWN_BODY_LAYERS,
   type EquipSlot,
   type Equipment,
@@ -95,9 +97,10 @@ interface PlayerView extends Vec2 {
   // Só no labirinto: a cidade não tem vida nem combate.
   hp?: number;
   maxHp?: number;
-  // Só o próprio mago, no labirinto: recarga que falta (ms) das magias.
-  lightningCooldownMs?: number;
-  swampCooldownMs?: number;
+  // Só o próprio jogador: as habilidades nos slots Q e R ("" = vazio) e, no labirinto, a recarga que falta (ms) de
+  // cada habilidade da classe.
+  skills?: { forEach(callback: (skill: string, index: number) => void): void };
+  skillCooldowns?: { get(skill: string): number | undefined };
   attackSeq?: number;
   attackAngle?: number;
   // Só chegam para o próprio jogador; para os outros ficam undefined. Fome e extração, só no labirinto.
@@ -187,8 +190,17 @@ const SPELL_URLS = Object.entries(
 ).map(([path, url]) => ({ key: path.slice(path.indexOf("spells/"), -".png".length), url }));
 // Altura das magias no chão: acima das sombras, abaixo do anel das saídas, dos avisos e de todo mundo em pé.
 const SPELL_GROUND_DEPTH = 0.3;
-// Teclas das magias do mago (escolha do dono do projeto: 1 e 2 são a barra rápida, E é portal e portas).
-const SPELL_KEYS: Record<SpellKind, string> = { lightning: "Q", swamp: "R" };
+// Teclas dos slots de habilidade (escolha do dono do projeto: 1 e 2 são a barra rápida, E é portal e portas).
+const SKILL_KEYS = ["Q", "R"] as const;
+
+// As habilidades nos slots Q e R do jogador ("" no estado = vazio).
+function skillsOf(player: PlayerView): (SkillId | null)[] {
+  const out: (SkillId | null)[] = Array.from({ length: SKILL_SLOTS }, () => null);
+  player.skills?.forEach((skill, i) => {
+    if (i < SKILL_SLOTS) out[i] = SKILL_IDS.find((id) => id === skill) ?? null;
+  });
+  return out;
+}
 // Armas (tools/assets/weapons.py): 48x48, na horizontal apontando para a direita; chave "weapons/<arma>".
 const WEAPON_URLS = Object.entries(
   import.meta.glob<string>("../../assets/weapons/*.png", { eager: true, query: "?url", import: "default" }),
@@ -567,7 +579,7 @@ class WorldScene extends Phaser.Scene {
   private bolts?: Bolts;
   // Magias do mago no chão (círculos, raio, poça) e as teclas delas.
   private spellEffects?: SpellEffects;
-  private spellKeys = new Map<SpellKind, Phaser.Input.Keyboard.Key>();
+  private skillKeys: Phaser.Input.Keyboard.Key[] = [];
   private lastOwnSwingAt = -Infinity;
 
   init(data: SceneData) {
@@ -689,10 +701,10 @@ class WorldScene extends Phaser.Scene {
     this.telegraphs = this.add.graphics().setDepth(TELEGRAPH_DEPTH);
     this.exitsLayer = this.add.graphics().setDepth(EXIT_DEPTH);
     this.pickupKey = this.input.keyboard?.addKey("F");
-    for (const [spell, key] of Object.entries(SPELL_KEYS) as [SpellKind, string][]) {
+    SKILL_KEYS.forEach((key, slot) => {
       const phaserKey = this.input.keyboard?.addKey(key);
-      if (phaserKey) this.spellKeys.set(spell, phaserKey);
-    }
+      if (phaserKey) this.skillKeys[slot] = phaserKey;
+    });
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => this.sendAttack(pointer));
     room.onMessage("extracted", (result: ExtractionResult) => {
       this.room = undefined;
@@ -831,7 +843,9 @@ Subiu para o nível ${info.level}!` : "";
   private updateLabyrinth(room: Room<unknown, ServerState>, time: number) {
     if (!this.overlay || !this.telegraphs) return;
     if (this.pickupKey && Phaser.Input.Keyboard.JustDown(this.pickupKey)) room.send("pickup");
-    for (const [spell, key] of this.spellKeys) if (Phaser.Input.Keyboard.JustDown(key)) this.castSpell(room, spell);
+    this.skillKeys.forEach((key, slot) => {
+      if (Phaser.Input.Keyboard.JustDown(key)) this.castSkill(room, slot);
+    });
     if (room.state.mobs) this.syncMobs(room, room.state.mobs, time);
     if (room.state.loot) syncSprites(room.state.loot, this.lootSprites, () => this.createLootSprite());
     this.collectSwings(room, time);
@@ -899,10 +913,7 @@ Subiu para o nível ${info.level}!` : "";
         stash,
         bestiary,
         kills,
-        spells:
-          this.place === "labyrinth" && self.classId === "mago"
-            ? { lightningMs: self.lightningCooldownMs ?? 0, swampMs: self.swampCooldownMs ?? 0 }
-            : undefined,
+        skills: skillsOf(self).map((id) => ({ id, cooldownMs: id ? self.skillCooldowns?.get(id) ?? 0 : 0 })),
       },
       time,
     );
@@ -933,11 +944,13 @@ Subiu para o nível ${info.level}!` : "";
     for (const id of this.windupStartedAt.keys()) if (!preparing.has(id)) this.windupStartedAt.delete(id);
   }
 
-  // Magia do mago: só qual e o ponto do mouse vão para o servidor; ele decide se pode (classe, recarga) e onde cai.
-  private castSpell(room: Room<unknown, ServerState>, spell: SpellKind) {
-    if (room.state.players.get(room.sessionId)?.classId !== "mago") return;
+  // Tecla de habilidade: só o slot e o ponto do mouse vão para o servidor; ele decide o que está no slot, se pode
+  // (recarga) e onde cai. Slot vazio: nada a pedir.
+  private castSkill(room: Room<unknown, ServerState>, slot: number) {
+    const self = room.state.players.get(room.sessionId);
+    if (!self || !skillsOf(self)[slot]) return;
     const target = this.input.activePointer.positionToCamera(this.cameras.main) as Phaser.Math.Vector2;
-    room.send("spell", { spell, x: target.x, y: target.y });
+    room.send("skill", { slot, x: target.x, y: target.y });
   }
 
   // Quem anda com os pés numa poça ativa solta lama (só desenho; a lentidão é do servidor).
@@ -961,12 +974,10 @@ Subiu para o nível ${info.level}!` : "";
   }
 
   // Só a direção do clique vai para o servidor; ele decide se o golpe saiu e quem foi atingido.
+  // Com cajado, o clique não faz nada por enquanto (a Bola de Fogo é uma habilidade); o servidor também ignora.
   private sendAttack(pointer: Phaser.Input.Pointer) {
-    let self: Vec2 | undefined;
-    this.room?.state.players.forEach((player, sessionId) => {
-      if (sessionId === this.room?.sessionId) self = { x: player.x, y: player.y };
-    });
-    if (!this.room || !self || !pointer.leftButtonDown()) return;
+    const self = this.room?.state.players.get(this.room.sessionId);
+    if (!this.room || !self || !pointer.leftButtonDown() || isStaff(self.equipment?.get("weapon"))) return;
     const target = pointer.positionToCamera(this.cameras.main) as Phaser.Math.Vector2;
     this.room.send("attack", { angle: Math.atan2(target.y - self.y, target.x - self.x) });
   }

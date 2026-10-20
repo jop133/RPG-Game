@@ -2,25 +2,12 @@ import { LIGHTNING_SPELL, SPELL_CAST_RANGE, SPELL_FLATTEN, SWAMP_SPELL } from ".
 import { isSolid, type CollisionGrid } from "./collision";
 import type { Vec2 } from "./movement";
 
-// Magias do mago: Raio Celestial (área com aviso) e Pântano de Lama (zona que deixa lento). O cliente manda só qual
-// magia e o ponto do mouse; onde ela cai, quem é atingido e quem fica lento é decidido aqui e no servidor (regra 1).
+// Magias do mago no chão: Raio Celestial (área com aviso) e Pântano de Lama (zona que deixa lento). O cliente manda só
+// o slot da skill e o ponto do mouse (skills.ts); onde ela cai, quem é atingido e quem fica lento é decidido aqui e no
+// servidor (regra 1).
 
+// As magias que caem no chão (Raio e Pântano). A Bola de Fogo é um projétil (shared/src/projectile.ts).
 export type SpellKind = "lightning" | "swamp";
-export const SPELL_KINDS: readonly SpellKind[] = ["lightning", "swamp"];
-
-export interface SpellCast {
-  spell: SpellKind;
-  target: Vec2;
-}
-
-// Vem do cliente: só aceita { spell, x, y } com uma magia conhecida e números finitos.
-export function parseSpellCast(raw: unknown): SpellCast | undefined {
-  if (typeof raw !== "object" || raw === null) return undefined;
-  const { spell, x, y } = raw as Record<string, unknown>;
-  const kind = SPELL_KINDS.find((k) => k === spell);
-  if (!kind || typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y)) return undefined;
-  return { spell: kind, target: { x, y } };
-}
 
 // Onde a magia cai: o ponto do mouse, puxado para dentro de SPELL_CAST_RANGE se estiver mais longe. Em parede (ou fora
 // do mapa), não cai: undefined.

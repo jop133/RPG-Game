@@ -5,6 +5,8 @@ import {
   FIRST_KILL_XP,
   parseClassId,
   restoreEquipment,
+  restoreSkills,
+  type EquippedSkills,
   restoreInventory,
   restoreStash,
   type ClassId,
@@ -95,6 +97,11 @@ export const MIGRATIONS: string[] = [
   -- Equipamento do personagem (JSON: slot -> item). NULL = nunca gravado: recebe STARTING_EQUIPMENT (a espada), o que
   -- vale também para quem já existia antes do equipamento. Como o inventário: no labirinto, só gravado na extração.
   ALTER TABLE characters ADD COLUMN equipment TEXT;
+  `,
+  `
+  -- Habilidades equipadas nos slots Q e R (JSON: [skill ou null, skill ou null]). NULL = nunca gravado: recebe as
+  -- iniciais da classe (startingSkills). Gravado na hora em que muda, na cidade ou no labirinto.
+  ALTER TABLE characters ADD COLUMN skills TEXT;
   `,
 ];
 
@@ -202,6 +209,16 @@ export class Store {
       equipment: string | null;
     };
     return restoreEquipment(row.equipment === null ? null : (JSON.parse(row.equipment) as Equipment), classId);
+  }
+
+  // Sem nada gravado, as iniciais da classe (o mago com a Bola de Fogo e o Raio).
+  skills(characterId: number, classId?: ClassId): EquippedSkills {
+    const row = this.db.prepare("SELECT skills FROM characters WHERE id = ?").get(characterId) as { skills: string | null };
+    return restoreSkills(row.skills === null ? null : (JSON.parse(row.skills) as unknown), classId);
+  }
+
+  setSkills(characterId: number, skills: EquippedSkills) {
+    this.db.prepare("UPDATE characters SET skills = ? WHERE id = ?").run(JSON.stringify(skills), characterId);
   }
 
   setEquipment(characterId: number, equipment: Equipment) {
