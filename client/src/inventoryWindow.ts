@@ -3,6 +3,7 @@ import {
   INVENTORY_SLOTS,
   ITEMS,
   LEVEL_XP,
+  MAGIC_BOLT,
   equipSlotOf,
   playerStats,
   statsFrom,
@@ -35,6 +36,7 @@ import {
   size,
   type HudSlot,
   type Tooltip,
+  type TooltipContent,
 } from "./hudParts";
 import { classLabel } from "./registration";
 import { StatusScroll } from "./statusScroll";
@@ -433,7 +435,7 @@ export class InventoryWindow {
       setText(name, index === undefined ? "Passe o mouse sobre um item" : "Slot vazio");
       name.style.color = "";
       setText(rarity, "");
-      setText(text, index === undefined ? "Nome, raridade, efeito e como usar aparecem aqui." : "");
+      setInspectText(text, undefined, index === undefined ? "Nome, raridade, efeito e como usar aparecem aqui." : "");
       setText(hint, "");
       return;
     }
@@ -445,7 +447,7 @@ export class InventoryWindow {
     name.style.color = content.titleColor ?? "";
     setText(rarity, content.subtitle ?? "");
     rarity.style.color = content.titleColor ?? "";
-    setText(text, content.lines.join(" "));
+    setInspectText(text, content.tag, content.lines.join(" "));
     setText(hint, content.hint ?? "");
   }
 
@@ -487,7 +489,11 @@ export class InventoryWindow {
         return { title: `${name}: vazio`, lines: [], hint: "Arraste uma peça da mochila para cá" };
       }
       const itemStats = ITEMS[item as ItemId] as ItemStats;
-      const lines = slot === "weapon" ? [attack, "Golpe com o clique, na direção do mouse."] : [`${bonusText(itemStats.equip?.bonus ?? {})}.`];
+      // Cajado: o disparo leva o Dano Mágico de quem atira (base, cajado, equipamento e essências).
+      const staff = stats.attack.weaponType === "staff";
+      const shot = `Projétil Mágico  ·  Dano ${stats.magicDamage} (mágico)  ·  Alcance ${MAGIC_BOLT.range} px`;
+      const weaponLines = staff ? [shot, "Disparo com o clique, na direção do mouse."] : [attack, "Golpe com o clique, na direção do mouse."];
+      const lines = slot === "weapon" ? weaponLines : [`${bonusText(itemStats.equip?.bonus ?? {})}.`];
       const rarity = rarityStyle(itemStats.rarity);
       return { title: itemStats.name, titleColor: rarity.color, subtitle: `${name} (equipado)`, lines, hint: "Clique para guardar na mochila · arraste para um slot" };
     };
@@ -526,4 +532,20 @@ export class InventoryWindow {
     });
     return { frame, icon, lock };
   }
+}
+
+// Texto do quadro de inspeção: a etiqueta colorida (ex.: "Exclusivo: Mago") e as linhas da dica. Só refaz quando muda.
+function setInspectText(node: HTMLElement, tag: TooltipContent["tag"], lines: string) {
+  const key = `${tag?.text ?? ""}|${tag?.color ?? ""}|${lines}`;
+  if (node.dataset.key === key) return;
+  node.dataset.key = key;
+  node.replaceChildren();
+  if (tag) {
+    const span = document.createElement("span");
+    span.textContent = `${tag.text}. `;
+    span.style.color = tag.color;
+    span.style.fontWeight = "bold";
+    node.append(span);
+  }
+  node.append(lines);
 }

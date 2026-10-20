@@ -30,6 +30,13 @@ import {
   playerStats,
   viewportSize,
   weaponStats,
+  wrongClassNotice,
+  canEquip,
+  equipSlotOf,
+  parseClassId,
+  feetInside,
+  swampArea,
+  type SpellKind,
   DRAWN_BODY_LAYERS,
   type EquipSlot,
   type Equipment,
@@ -59,6 +66,7 @@ import {
   mobLungeOffset,
   newReaction,
   recoilOffset,
+  staffPose,
   startReaction,
   swingDuration,
   weaponPose,
@@ -68,9 +76,12 @@ import {
 } from "./juice";
 import { LightIndex, StaticCuller } from "./culling";
 import handSockets from "../../assets/characters/hand_sockets.json";
+import staffLook from "../../assets/weapons/cajado_arcano.json";
 import { Hud } from "./hud";
 import { Lighting, mergeNearby, phaseAt, type Light, type LightLook } from "./lighting";
 import { Particles } from "./particles";
+import { Bolts, FIREBALL_FPS, FIREBALL_KEY, type ProjectileView } from "./projectiles";
+import { MUD_FPS, MUD_KEY, SPELL_SHEETS, STRIKE_FPS, STRIKE_KEY, SpellEffects, type SpellView } from "./spells";
 import { openRegistration, type Registration } from "./registration";
 import cityMapUrl from "../../assets/maps/city.json?url";
 import labyrinthMapUrl from "../../assets/maps/dungeon_floor1.json?url";
@@ -84,6 +95,9 @@ interface PlayerView extends Vec2 {
   // Só no labirinto: a cidade não tem vida nem combate.
   hp?: number;
   maxHp?: number;
+  // Só o próprio mago, no labirinto: recarga que falta (ms) das magias.
+  lightningCooldownMs?: number;
+  swampCooldownMs?: number;
   attackSeq?: number;
   attackAngle?: number;
   // Só chegam para o próprio jogador; para os outros ficam undefined. Fome e extração, só no labirinto.
@@ -115,6 +129,10 @@ interface ServerState {
   mobs?: { forEach(callback: (mob: MobView, id: string) => void): void };
   loot?: { forEach(callback: (pile: Vec2, id: string) => void): void };
   exits?: { forEach(callback: (exit: Vec2, id: string) => void): void };
+  // Projéteis Mágicos em voo (só no labirinto).
+  projectiles?: { forEach(callback: (bolt: ProjectileView, id: string) => void): void };
+  // Magias do mago no chão (só no labirinto).
+  spells?: { forEach(callback: (spell: SpellView, id: string) => void): void };
 }
 
 // Cada lugar é uma sala do servidor com o seu mapa.
@@ -162,15 +180,45 @@ const MOB_URLS = Object.entries(
   import.meta.glob<string>("../../assets/mobs/*/*.png", { eager: true, query: "?url", import: "default" }),
 ).map(([path, url]) => ({ key: path.slice(path.indexOf("mobs/"), -".png".length), url }));
 const MOB_IDLE_URLS = MOB_URLS.filter(({ key }) => !key.includes("/walk-"));
+// Magias do mago (tools/assets/process_spells.py): "spells/<nome>". As tiras (SPELL_SHEETS) carregam em quadros; os
+// círculos rúnicos, como imagem.
+const SPELL_URLS = Object.entries(
+  import.meta.glob<string>("../../assets/spells/*.png", { eager: true, query: "?url", import: "default" }),
+).map(([path, url]) => ({ key: path.slice(path.indexOf("spells/"), -".png".length), url }));
+// Altura das magias no chão: acima das sombras, abaixo do anel das saídas, dos avisos e de todo mundo em pé.
+const SPELL_GROUND_DEPTH = 0.3;
+// Teclas das magias do mago (escolha do dono do projeto: 1 e 2 são a barra rápida, E é portal e portas).
+const SPELL_KEYS: Record<SpellKind, string> = { lightning: "Q", swamp: "R" };
 // Armas (tools/assets/weapons.py): 48x48, na horizontal apontando para a direita; chave "weapons/<arma>".
 const WEAPON_URLS = Object.entries(
   import.meta.glob<string>("../../assets/weapons/*.png", { eager: true, query: "?url", import: "default" }),
 ).map(([path, url]) => ({ key: path.slice(path.indexOf("weapons/"), -".png".length), url }));
-// A arma de todo mundo até a maestria de armas (passo 8).
+// Textura inicial da arma na mão; poseWeapon troca para a arma equipada (WEAPON_LOOKS).
 const WEAPON_KEY = "weapons/espada_ferro";
 // A espada gira em volta do punho (origem no cabo, perto da esquerda da imagem), preso à mão do personagem: o ponto
 // da mão de cada quadro vem de hand_sockets.json (tools/assets/process_ui.py), a partir dos pés do sprite.
 const WEAPON_ORIGIN = { x: 0.18, y: 0.5 };
+// Como cada arma fica na mão: a origem (o ponto de pega, em fração da imagem), para onde a arte aponta (a espada para
+// a direita; o cajado na diagonal da arte, cristal para cima e para a direita: o cliente desconta esse ângulo) e, no
+// cajado, a ponta do cristal (onde sai o clarão do disparo). Os do cajado vêm de tools/assets/process_staff.py.
+interface WeaponLook {
+  origin: { x: number; y: number };
+  artAngle: number;
+  tip?: { x: number; y: number };
+}
+const SWORD_LOOK: WeaponLook = { origin: WEAPON_ORIGIN, artAngle: 0 };
+const WEAPON_LOOKS: Record<string, WeaponLook> = {
+  espada_ferro: SWORD_LOOK,
+  cajado_arcano: {
+    origin: { x: staffLook.grip[0] ?? 0.35, y: staffLook.grip[1] ?? 0.64 },
+    artAngle: (staffLook.artAngleDegrees * Math.PI) / 180,
+    tip: { x: staffLook.tip[0] ?? 0.9, y: staffLook.tip[1] ?? 0.1 },
+  },
+};
+// Arma que dispara (cajado) em vez de golpear: sem varrida nem rastro de lâmina; o disparo é a canalização (staffPose).
+function isStaff(weapon: string | undefined): boolean {
+  return weapon !== undefined && weapon in ITEMS && weaponStats({ weapon: weapon as ItemId }).weaponType === "staff";
+}
 const WEAPON_REACH = 36; // do punho até a ponta, em px (para o rastro)
 // No golpe, o braço estica até WEAPON_ARM_EXTEND px na direção do ataque, no pico da varrida.
 const WEAPON_ARM_EXTEND = 3;
@@ -284,6 +332,9 @@ interface Avatar {
   armor: Map<EquipSlot, Phaser.GameObjects.Image>;
   swingAt: number;
   swingAngle: number;
+  // A arma na mão agora (id do item) e, com cajado, um disparo esperando o clarão na ponta do cristal.
+  weaponItem?: string;
+  castFlash: boolean;
 }
 
 // Inimigo: sprite do tipo, virado para onde andou (ou, preparando o golpe, para onde vai bater).
@@ -458,6 +509,14 @@ const SPIRAL_RATE = 12;
 const SPIRAL_COLORS: Record<string, number> = { portal: 0xe0aaff, saida: 0x80d8ff };
 // A luz do portal fica no meio da arte; a espiral nasce perto do pé dele.
 const SPIRAL_START_BELOW: Record<string, number> = { portal: 30, saida: 0 };
+// Onde fica, no mundo, um ponto da imagem da arma (em fração da imagem), com a posição, a rotação e a escala dela.
+function weaponPoint(image: Phaser.GameObjects.Image, point: { x: number; y: number }): Vec2 {
+  const lx = (point.x - image.originX) * image.width * image.scaleX;
+  const ly = (point.y - image.originY) * image.height * image.scaleY;
+  const cos = Math.cos(image.rotation);
+  const sin = Math.sin(image.rotation);
+  return { x: image.x + lx * cos - ly * sin, y: image.y + lx * sin + ly * cos };
+}
 // Tamanho do desenho do golpe: o alcance (da borda de quem bate) e o arco da arma na mão, ou do soco.
 function swingShape(weapon: string | undefined): { radius: number; halfArc: number } {
   const attack = weaponStats(weapon ? { weapon: weapon as ItemId } : {});
@@ -504,6 +563,11 @@ class WorldScene extends Phaser.Scene {
   private numbers?: FloatingNumbers;
   private shake = new ScreenShake();
   private particles?: Particles;
+  // Projéteis Mágicos: sprite, luz, rastro e explosão (o voo é do servidor).
+  private bolts?: Bolts;
+  // Magias do mago no chão (círculos, raio, poça) e as teclas delas.
+  private spellEffects?: SpellEffects;
+  private spellKeys = new Map<SpellKind, Phaser.Input.Keyboard.Key>();
   private lastOwnSwingAt = -Infinity;
 
   init(data: SceneData) {
@@ -520,6 +584,12 @@ class WorldScene extends Phaser.Scene {
     for (const { key, url } of [...WALK_URLS, ...MOB_WALK_URLS, ...ATTACK_URLS, ...ARMOR_WALK_URLS]) {
       if (!this.textures.exists(key)) this.load.spritesheet(key, url, { frameWidth: WALK_FRAME, frameHeight: WALK_FRAME });
     }
+    for (const { key, url } of SPELL_URLS) {
+      if (this.textures.exists(key)) continue;
+      const sheet = (SPELL_SHEETS as Record<string, { frameWidth: number; frameHeight: number }>)[key];
+      if (sheet) this.load.spritesheet(key, url, sheet);
+      else this.load.image(key, url);
+    }
   }
 
   create() {
@@ -530,6 +600,8 @@ class WorldScene extends Phaser.Scene {
     this.numbers = new FloatingNumbers(this, OVERLAY_DEPTH + 1);
     // Entre a camada de luz (LIGHT_DEPTH) e a vinheta (LIGHT_DEPTH + 0.1): brilham no escuro, a vinheta ainda os cobre.
     this.particles = new Particles(this, LIGHT_DEPTH + 0.05);
+    this.bolts = new Bolts(this, this.particles, LIGHT_DEPTH + 0.05);
+    this.spellEffects = new SpellEffects(this, this.particles, SPELL_GROUND_DEPTH, sortDepth, (amplitude) => this.shake.kick(amplitude));
     this.keys = this.input.keyboard?.addKeys({ up: "W", down: "S", left: "A", right: "D" }) as MoveKeys;
     // Teclas dos slots nos dois lugares: o personagem leva o inventário para a cidade. Clicar no slot do HUD faz o mesmo.
     SLOT_KEYS.forEach((key, i) => {
@@ -552,12 +624,35 @@ class WorldScene extends Phaser.Scene {
 
   // Clique num slot do HUD: o mesmo pedido da tecla do slot. Quem decide se dá para usar é o servidor.
   useSlot(slot: number) {
+    if (this.refusesEquip("use", { slot })) return;
     this.room?.send("use", { slot });
   }
 
-  // Cliques nas janelas dos prédios (vender, comprar, baú). Quem decide é o servidor.
+  // Cliques nas janelas dos prédios (vender, comprar, baú) e na de inventário. Quem decide é o servidor.
   send(type: string, message: unknown) {
+    if (this.refusesEquip(type, message)) return;
     this.room?.send(type, message);
+  }
+
+  // Equipar um item de outra classe (o cajado fora do mago): o servidor recusaria igual; aqui o aviso sai na hora e
+  // nada é enviado. Vale para usar o slot (tecla ou clique), soltar no slot de equipamento e trocar a peça equipada
+  // arrastando-a para cima do item.
+  private refusesEquip(type: string, message: unknown): boolean {
+    const room = this.room;
+    const self = room?.state.players.get(room.sessionId);
+    const request = (message ?? {}) as { slot?: unknown; to?: unknown };
+    const index = type === "use" || type === "equip" ? request.slot : type === "unequip" ? request.to : undefined;
+    if (!self || typeof index !== "number") return false;
+    let item: string | undefined;
+    self.inventory?.forEach((slot, i) => {
+      if (i === index && slot.count > 0) item = slot.item;
+    });
+    if (!item || !(item in ITEMS)) return false;
+    const target = equipSlotOf(item as ItemId);
+    if (!target || (type === "unequip" && target !== request.slot)) return false;
+    if (canEquip(item as ItemId, parseClassId(self.classId))) return false;
+    hud.notice(wrongClassNotice(item as ItemId));
+    return true;
   }
 
   private onResize(gameSize: Phaser.Structs.Size) {
@@ -594,6 +689,10 @@ class WorldScene extends Phaser.Scene {
     this.telegraphs = this.add.graphics().setDepth(TELEGRAPH_DEPTH);
     this.exitsLayer = this.add.graphics().setDepth(EXIT_DEPTH);
     this.pickupKey = this.input.keyboard?.addKey("F");
+    for (const [spell, key] of Object.entries(SPELL_KEYS) as [SpellKind, string][]) {
+      const phaserKey = this.input.keyboard?.addKey(key);
+      if (phaserKey) this.spellKeys.set(spell, phaserKey);
+    }
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => this.sendAttack(pointer));
     room.onMessage("extracted", (result: ExtractionResult) => {
       this.room = undefined;
@@ -625,7 +724,7 @@ Subiu para o nível ${info.level}!` : "";
     if (!room || !this.keys) return;
     this.sendInputIfChanged(room, this.keys);
     this.slotKeys.forEach((key, slot) => {
-      if (Phaser.Input.Keyboard.JustDown(key)) room.send("use", { slot });
+      if (Phaser.Input.Keyboard.JustDown(key)) this.useSlot(slot);
     });
     this.syncAvatars(room, time);
     this.updateHud(room, time);
@@ -669,7 +768,7 @@ Subiu para o nível ${info.level}!` : "";
       const phase = phaseAt(exit.x, exit.y);
       moving.push({ x: exit.x, y: exit.y, radius: EXIT_LIGHT_RADIUS, look: EXIT_LIGHT, phase, kind: "saida" });
     });
-    return [...fixed, ...moving];
+    return [...fixed, ...moving, ...(this.bolts?.lights() ?? []), ...(this.spellEffects?.lights() ?? [])];
   }
 
   private readMapLights(): Light[] {
@@ -732,9 +831,13 @@ Subiu para o nível ${info.level}!` : "";
   private updateLabyrinth(room: Room<unknown, ServerState>, time: number) {
     if (!this.overlay || !this.telegraphs) return;
     if (this.pickupKey && Phaser.Input.Keyboard.JustDown(this.pickupKey)) room.send("pickup");
+    for (const [spell, key] of this.spellKeys) if (Phaser.Input.Keyboard.JustDown(key)) this.castSpell(room, spell);
     if (room.state.mobs) this.syncMobs(room, room.state.mobs, time);
     if (room.state.loot) syncSprites(room.state.loot, this.lootSprites, () => this.createLootSprite());
     this.collectSwings(room, time);
+    this.bolts?.sync(room.state.projectiles, time, this.game.loop.delta);
+    this.spellEffects?.sync(room.state.spells, time);
+    this.stepInMud(room, time);
     this.drawOverlay(room, this.overlay, time);
     this.drawTelegraphs(room, this.telegraphs, time);
     if (this.exitsLayer) this.drawExits(room, this.exitsLayer);
@@ -796,6 +899,10 @@ Subiu para o nível ${info.level}!` : "";
         stash,
         bestiary,
         kills,
+        spells:
+          this.place === "labyrinth" && self.classId === "mago"
+            ? { lightningMs: self.lightningCooldownMs ?? 0, swampMs: self.swampCooldownMs ?? 0 }
+            : undefined,
       },
       time,
     );
@@ -826,6 +933,33 @@ Subiu para o nível ${info.level}!` : "";
     for (const id of this.windupStartedAt.keys()) if (!preparing.has(id)) this.windupStartedAt.delete(id);
   }
 
+  // Magia do mago: só qual e o ponto do mouse vão para o servidor; ele decide se pode (classe, recarga) e onde cai.
+  private castSpell(room: Room<unknown, ServerState>, spell: SpellKind) {
+    if (room.state.players.get(room.sessionId)?.classId !== "mago") return;
+    const target = this.input.activePointer.positionToCamera(this.cameras.main) as Phaser.Math.Vector2;
+    room.send("spell", { spell, x: target.x, y: target.y });
+  }
+
+  // Quem anda com os pés numa poça ativa solta lama (só desenho; a lentidão é do servidor).
+  private stepInMud(room: Room<unknown, ServerState>, time: number) {
+    const effects = this.spellEffects;
+    const swamps = effects?.activeSwamps().map(swampArea) ?? [];
+    if (!effects || swamps.length === 0) return;
+    const delta = this.game.loop.delta;
+    const step = (center: Vec2, half: number, lastMoveAt: number) => {
+      if (time - lastMoveAt > 120 || !swamps.some((swamp) => feetInside(swamp, center, half, 0))) return;
+      effects.mudStep({ x: center.x, y: center.y + half }, time, delta);
+    };
+    room.state.players.forEach((player, id) => {
+      const avatar = this.avatars.get(id);
+      if (avatar) step(player, PLAYER_SIZE / 2, avatar.lastMoveAt);
+    });
+    room.state.mobs?.forEach((mob, id) => {
+      const sprite = this.mobSprites.get(id);
+      if (sprite) step(mob, MOB_KINDS[mob.kind as MobKind].size / 2, sprite.lastMoveAt);
+    });
+  }
+
   // Só a direção do clique vai para o servidor; ele decide se o golpe saiu e quem foi atingido.
   private sendAttack(pointer: Phaser.Input.Pointer) {
     let self: Vec2 | undefined;
@@ -850,6 +984,10 @@ Subiu para o nível ${info.level}!` : "";
         avatar.swingAt = time;
         avatar.swingAngle = player.attackAngle ?? 0;
       }
+      if (isStaff(player.equipment?.get("weapon"))) {
+        if (avatar) avatar.castFlash = true;
+        return;
+      }
       const classId = player.classId ?? "";
       const seed = Math.floor(Math.random() * 1e9);
       const shape = swingShape(player.equipment?.get("weapon"));
@@ -863,7 +1001,7 @@ Subiu para o nível ${info.level}!` : "";
     for (const swing of this.swings) drawSwing(g, swing, time);
     for (const avatar of this.avatars.values()) {
       const pose = weaponPose(avatar.swingAt, avatar.swingAngle, time);
-      if (pose.visible && avatar.weapon.visible) drawBladeTrail(g, avatar.weapon.x, avatar.weapon.y, avatar.swingAngle, pose, WEAPON_REACH * pose.scale);
+      if (pose.visible && avatar.weapon.visible && !isStaff(avatar.weaponItem)) drawBladeTrail(g, avatar.weapon.x, avatar.weapon.y, avatar.swingAngle, pose, WEAPON_REACH * pose.scale);
     }
     // Barra de vida do jogador acima da cabeça do sprite.
     room.state.players.forEach((player) => {
@@ -947,6 +1085,11 @@ Subiu para o nível ${info.level}!` : "";
 
   // Uma animação por fita de caminhada, com a mesma chave da textura. As animações são do jogo todo: cria uma vez.
   private createWalkAnimations() {
+    // Magias: a bola de fogo e a lama em laço; o raio, uma vez.
+    for (const [key, frameRate, repeat] of [[FIREBALL_KEY, FIREBALL_FPS, -1], [MUD_KEY, MUD_FPS, -1], [STRIKE_KEY, STRIKE_FPS, 0]] as const) {
+      if (this.anims.exists(key) || !this.textures.exists(key)) continue;
+      this.anims.create({ key, frames: this.anims.generateFrameNumbers(key, {}), frameRate, repeat });
+    }
     for (const { key } of [...WALK_URLS, ...MOB_WALK_URLS]) {
       if (this.anims.exists(key)) continue;
       this.anims.create({ key, frames: this.anims.generateFrameNumbers(key, {}), frameRate: WALK_FPS, repeat: -1 });
@@ -1017,40 +1160,59 @@ Subiu para o nível ${info.level}!` : "";
   // WEAPON_ARM_EXTEND e a lâmina varre o arco (weaponPose). Atrás do corpo quando a mão está atrás; na frente, com o
   // punho do sprite redesenhado por cima do cabo (poseGrip), para a mão parecer fechada nele.
   // Desarmado: sem espada nem punho por cima (o golpe é um soco, só o impulso do corpo e o rastro da classe).
+  // Cajado: a mesma guarda, segurando na faixa de couro (WEAPON_LOOKS); no disparo, em vez da varrida, ele inclina para
+  // a mira e avança um pouco (staffPose), e sai o clarão na ponta do cristal.
   private poseWeapon(avatar: Avatar, classId: string | undefined, weapon: string | undefined, bodyDepth: number, time: number) {
     const key = `weapons/${weapon}`;
+    avatar.weaponItem = weapon;
     if (!weapon || !this.textures.exists(key)) {
       avatar.weapon.setVisible(false);
       avatar.grip.setVisible(false);
+      avatar.castFlash = false;
       return;
     }
-    if (avatar.weapon.texture.key !== key) avatar.weapon.setTexture(key);
+    const look = WEAPON_LOOKS[weapon] ?? SWORD_LOOK;
+    if (avatar.weapon.texture.key !== key) avatar.weapon.setTexture(key).setOrigin(look.origin.x, look.origin.y);
     const socket = this.handSocket(avatar, classId);
     const body = avatar.body;
     let x = body.x + socket.dx * body.scaleX;
     let y = body.y + socket.dy * body.scaleY;
-    const pose = weaponPose(avatar.swingAt, avatar.swingAngle, time);
     const guard = WEAPON_GUARD_BY_CLASS[classId ?? ""]?.[avatar.facing] ?? WEAPON_GUARD_DEGREES[avatar.facing] ?? -90;
     let angle = (guard * Math.PI) / 180 + this.guardSway(avatar, time);
     let scale = 1;
-    if (pose.visible) {
-      const reach = WEAPON_ARM_EXTEND * Math.sin(Math.PI * pose.p);
-      x += Math.cos(avatar.swingAngle) * reach;
-      y += Math.sin(avatar.swingAngle) * reach;
-      angle = pose.angle;
-      scale = pose.scale;
+    if (isStaff(weapon)) {
+      const cast = staffPose(avatar.swingAt, avatar.swingAngle, angle, time);
+      if (cast.visible) {
+        x += Math.cos(avatar.swingAngle) * cast.push;
+        y += Math.sin(avatar.swingAngle) * cast.push;
+        angle = cast.angle;
+      }
+    } else {
+      const pose = weaponPose(avatar.swingAt, avatar.swingAngle, time);
+      if (pose.visible) {
+        const reach = WEAPON_ARM_EXTEND * Math.sin(Math.PI * pose.p);
+        x += Math.cos(avatar.swingAngle) * reach;
+        y += Math.sin(avatar.swingAngle) * reach;
+        angle = pose.angle;
+        scale = pose.scale;
+      }
     }
     avatar.weapon
       .setVisible(true)
       .setPosition(x, y)
-      .setRotation(angle)
+      .setRotation(angle - look.artAngle)
       .setScale(scale)
       .setDepth(bodyDepth + (socket.behindBody ? -0.05 : 0.05));
     this.poseGrip(avatar, socket, bodyDepth);
+    if (avatar.castFlash) {
+      avatar.castFlash = false;
+      if (look.tip) {
+        const tip = weaponPoint(avatar.weapon, look.tip);
+        this.bolts?.flash(tip.x, tip.y, time);
+      }
+    }
   }
 
-  // O punho por cima do cabo: cópia do sprite no mesmo quadro, lugar, escala e cor, recortada num quadrado em volta
-  // da mão (coordenadas do quadro: pés em largura/2 e altura * origem y).
   // A armadura equipada veste o sprite: cada peça do corpo é uma camada no mesmo quadro, lugar, escala e cor do corpo,
   // logo acima dele (bota, calça, peitoral; o elmo está desligado, ver DRAWN_BODY_LAYERS) e abaixo da espada na frente e do punho. Sem a peça, ou sem a arte
   // dela para este quadro (golpe desenhado, no futuro), a camada some.
@@ -1080,6 +1242,8 @@ Subiu para o nível ${info.level}!` : "";
     });
   }
 
+  // O punho por cima do cabo: cópia do sprite no mesmo quadro, lugar, escala e cor, recortada num quadrado em volta
+  // da mão (coordenadas do quadro: pés em largura/2 e altura * origem y).
   private poseGrip(avatar: Avatar, socket: HandSocket, bodyDepth: number) {
     const { body, grip } = avatar;
     grip.setVisible(!socket.behindBody);
@@ -1187,6 +1351,7 @@ Subiu para o nível ${info.level}!` : "";
       armor: new Map(),
       swingAt: -Infinity,
       swingAngle: 0,
+      castFlash: false,
     };
   }
 

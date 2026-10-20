@@ -35,6 +35,9 @@ export const PlayerState = schema(
     essences: t.array("string").view(OWNER_TAG),
     // Moedas da linhagem, só para o HUD: no labirinto não se ganha nem se gasta moeda.
     coins: t.number().view(OWNER_TAG),
+    // Recarga que falta (ms) das magias do mago (Raio no Q, Pântano no R), para o HUD. 0 = pronta.
+    lightningCooldownMs: t.number().view(OWNER_TAG),
+    swampCooldownMs: t.number().view(OWNER_TAG),
   },
   "PlayerState",
 );
@@ -56,6 +59,19 @@ export type LootState = SchemaType<typeof LootState>;
 export const ExitState = schema({ x: t.number(), y: t.number() }, "ExitState");
 export type ExitState = SchemaType<typeof ExitState>;
 
+// Projétil Mágico em voo (MAGIC_BOLT). angle: para onde voa (o cliente gira o desenho). done: bateu ou acabou o
+// alcance; fica um tick parado no ponto do impacto, para o cliente desenhar a explosão ali, e sai.
+export const ProjectileState = schema(
+  { x: t.number(), y: t.number(), angle: t.number(), done: t.boolean() },
+  "ProjectileState",
+);
+export type ProjectileState = SchemaType<typeof ProjectileState>;
+
+// Magia lançada no chão: kind "lightning" (fases "warn" → "strike") ou "swamp" ("cast" → "active"). O cliente desenha
+// cada fase; os tempos são os de LIGHTNING_SPELL e SWAMP_SPELL.
+export const SpellState = schema({ kind: t.string(), x: t.number(), y: t.number(), phase: t.string() }, "SpellState");
+export type SpellState = SchemaType<typeof SpellState>;
+
 // `.view()`: cada cliente só recebe o que o servidor adicionou à visão dele (regra 5).
 export const GameState = schema(
   {
@@ -63,6 +79,8 @@ export const GameState = schema(
     mobs: t.map(MobState).view(),
     loot: t.map(LootState).view(),
     exits: t.map(ExitState).view(),
+    projectiles: t.map(ProjectileState).view(),
+    spells: t.map(SpellState).view(),
   },
   "GameState",
 );

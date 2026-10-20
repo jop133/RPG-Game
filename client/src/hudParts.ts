@@ -1,4 +1,18 @@
-import { ITEMS, type EquipSlot, type EssenceEffect, type ItemId, type ItemStats, type Rarity, type StatBonus, type WeaponStats } from "shared";
+import {
+  CLASS_NAMES,
+  ITEMS,
+  MAGIC_BOLT,
+  canEquip,
+  parseClassId,
+  type ClassId,
+  type EquipSlot,
+  type EssenceEffect,
+  type ItemId,
+  type ItemStats,
+  type Rarity,
+  type StatBonus,
+  type WeaponStats,
+} from "shared";
 
 // Peças comuns do HUD (hud.ts e inventoryWindow.ts): arte, montagem de elementos, slot clicável e dica (tooltip).
 
@@ -96,6 +110,8 @@ export interface TooltipContent {
   title: string;
   titleColor?: string;
   subtitle?: string;
+  // Etiqueta colorida logo abaixo do subtítulo (ex.: "Exclusivo: Mago").
+  tag?: { text: string; color: string };
   lines: string[];
   hint?: string;
 }
@@ -126,6 +142,11 @@ export class Tooltip {
     title.textContent = content.title;
     if (content.titleColor) title.style.color = content.titleColor;
     if (content.subtitle) el("div", "hud-tooltip-subtitle", this.box).textContent = content.subtitle;
+    if (content.tag) {
+      const tag = el("div", "hud-tooltip-tag", this.box);
+      tag.textContent = content.tag.text;
+      tag.style.color = content.tag.color;
+    }
     for (const line of content.lines) el("div", "hud-tooltip-line", this.box).textContent = line;
     if (content.hint) el("div", "hud-tooltip-hint", this.box).textContent = content.hint;
     this.box.hidden = false;
@@ -174,9 +195,27 @@ export function rarityStyle(rarity: Rarity): { name: string; color: string } {
   return { name: RARITY_NAMES[rarity], color: RARITY_COLORS[rarity] };
 }
 
-// Dano, alcance e arco de um golpe, numa linha.
+// Dano, alcance e arco de um golpe, numa linha. Cajado: o disparo (o dano é o Dano Mágico de quem atira).
 export function attackText(attack: WeaponStats): string {
+  if (attack.weaponType === "staff") return `Projétil Mágico  ·  Dano Mágico  ·  Alcance ${MAGIC_BOLT.range} px`;
   return `Dano ${attack.damage}  ·  Alcance ${attack.range} px  ·  Arco ${attack.arcDegrees}°`;
+}
+
+// A classe de quem está jogando (o HUD avisa ao mudar): a etiqueta de item exclusivo fica azul para quem pode
+// equipá-lo e vermelha para os outros.
+let viewerClass: ClassId | undefined;
+export function setViewerClass(classId: string) {
+  viewerClass = parseClassId(classId);
+}
+const EXCLUSIVE_OK = "#7fc8ff";
+const EXCLUSIVE_DENIED = "#ff6b5b";
+
+// "Exclusivo: Mago", se o item é de poucas classes.
+function exclusiveTag(equip: ItemStats["equip"], itemId: ItemId): TooltipContent["tag"] {
+  const allowed = equip?.allowedClasses;
+  if (!allowed) return undefined;
+  const color = canEquip(itemId, viewerClass) ? EXCLUSIVE_OK : EXCLUSIVE_DENIED;
+  return { text: `Exclusivo: ${allowed.map((id) => CLASS_NAMES[id]).join(", ")}`, color };
 }
 
 // key: tecla do slot (o clique usa o item; arma: equipa). hint: o que o clique faz em outro lugar (ex.: guardar no baú).
@@ -203,8 +242,9 @@ export function itemTooltip(itemId: string, count: number, key?: string, hint?: 
     title: stats.name,
     titleColor: rarity.color,
     subtitle: rarity.name,
+    tag: exclusiveTag(equip, itemId as ItemId),
     lines,
-    hint: hint ?? (equip && key ? `Clique ou pressione [${key}] para equipar` : usable && key ? `Clique ou pressione [${key}] para usar` : undefined),
+    hint: hint ?? (equip && key && canEquip(itemId as ItemId, viewerClass) ? `Clique ou pressione [${key}] para equipar` : usable && key ? `Clique ou pressione [${key}] para usar` : undefined),
   };
 }
 

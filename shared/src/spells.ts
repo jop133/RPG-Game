@@ -1,0 +1,62 @@
+import { LIGHTNING_SPELL, SPELL_CAST_RANGE, SPELL_FLATTEN, SWAMP_SPELL } from "./balance";
+import { isSolid, type CollisionGrid } from "./collision";
+import type { Vec2 } from "./movement";
+
+// Magias do mago: Raio Celestial (área com aviso) e Pântano de Lama (zona que deixa lento). O cliente manda só qual
+// magia e o ponto do mouse; onde ela cai, quem é atingido e quem fica lento é decidido aqui e no servidor (regra 1).
+
+export type SpellKind = "lightning" | "swamp";
+export const SPELL_KINDS: readonly SpellKind[] = ["lightning", "swamp"];
+
+export interface SpellCast {
+  spell: SpellKind;
+  target: Vec2;
+}
+
+// Vem do cliente: só aceita { spell, x, y } com uma magia conhecida e números finitos.
+export function parseSpellCast(raw: unknown): SpellCast | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const { spell, x, y } = raw as Record<string, unknown>;
+  const kind = SPELL_KINDS.find((k) => k === spell);
+  if (!kind || typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y)) return undefined;
+  return { spell: kind, target: { x, y } };
+}
+
+// Onde a magia cai: o ponto do mouse, puxado para dentro de SPELL_CAST_RANGE se estiver mais longe. Em parede (ou fora
+// do mapa), não cai: undefined.
+export function spellTarget(caster: Vec2, target: Vec2, grid: CollisionGrid): Vec2 | undefined {
+  const dx = target.x - caster.x;
+  const dy = target.y - caster.y;
+  const distance = Math.hypot(dx, dy);
+  const k = distance > SPELL_CAST_RANGE ? SPELL_CAST_RANGE / distance : 1;
+  const point = { x: caster.x + dx * k, y: caster.y + dy * k };
+  if (isSolid(grid, Math.floor(point.x / grid.tileSize), Math.floor(point.y / grid.tileSize))) return undefined;
+  return point;
+}
+
+// Elipse no chão: centro e semieixos.
+export interface GroundEllipse extends Vec2 {
+  radiusX: number;
+  radiusY: number;
+}
+
+export function lightningArea(at: Vec2): GroundEllipse {
+  return { x: at.x, y: at.y, radiusX: LIGHTNING_SPELL.radiusX, radiusY: LIGHTNING_SPELL.radiusX * SPELL_FLATTEN };
+}
+
+export function swampArea(at: Vec2): GroundEllipse {
+  return { x: at.x, y: at.y, radiusX: SWAMP_SPELL.radiusX, radiusY: SWAMP_SPELL.radiusY };
+}
+
+// Os pés de alguém (centro + `half` para baixo) dentro da elipse, com uma folga (`margin`, achatada na vertical como o
+// chão): o raio acerta quem encosta na área (folga = o tamanho dele); a lama só prende quem pisa nela (folga 0).
+export function feetInside(area: GroundEllipse, center: Vec2, half: number, margin = half): boolean {
+  const dx = (center.x - area.x) / (area.radiusX + margin);
+  const dy = (center.y + half - area.y) / (area.radiusY + margin * SPELL_FLATTEN);
+  return dx * dx + dy * dy <= 1;
+}
+
+// Fator de velocidade de alguém: SWAMP_SPELL.slow se os pés estão em alguma poça ativa que não é dele, senão 1.
+export function swampSlow(center: Vec2, half: number, id: string, swamps: readonly (GroundEllipse & { owner: string })[]): number {
+  return swamps.some((swamp) => swamp.owner !== id && feetInside(swamp, center, half, 0)) ? SWAMP_SPELL.slow : 1;
+}

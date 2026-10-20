@@ -196,6 +196,14 @@ function stepRecover(mob: ThinkingMob, mind: Extract<MobMind, { mode: "recover" 
   };
 }
 
+// Atingido de longe (Projétil Mágico): o mob que estava vagando ou voltando para casa sai atrás de quem atirou, rumo
+// ao ponto de onde veio o tiro (lastSeen), mesmo sem tê-lo notado; se não o enxergar no caminho, desiste como em
+// qualquer perseguição (MOB_LOSE_TRACK_MS). Quem já está perseguindo, preparando ou recuperando segue como está.
+export function provoke(mind: MobMind, targetId: string, from: Vec2): MobMind {
+  if (mind.mode !== "wander" && mind.mode !== "return") return mind;
+  return { mode: "chase", targetId, lastSeen: { x: from.x, y: from.y }, lostMs: 0, path: [], sinceRepathMs: PATH_RECALC_MS };
+}
+
 function stepReturning(
   mob: ThinkingMob,
   path: Vec2[],

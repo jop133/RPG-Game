@@ -7,6 +7,8 @@ import {
   parseSlotIndex,
   parseUnequip,
   unequip,
+  wrongClassNotice,
+  type ClassId,
   type EquipOutcome,
   type Equipment,
   type Inventory,
@@ -24,13 +26,14 @@ export type GearAction = "move" | "equip" | "unequip";
 // muda nada).
 export type GearResult = { kind: "changed"; gear: Gear } | { kind: "refused"; notice: string } | { kind: "ignored" };
 
-const REFUSALS: Record<Exclude<EquipOutcome["kind"], "done" | "nothing">, string> = {
+const REFUSALS: Record<Exclude<EquipOutcome["kind"], "done" | "nothing" | "wrongClass">, string> = {
   notEquippable: "Isso não se equipa.",
   noSpace: "Mochila cheia: não há onde guardar.",
 };
 
-// A mensagem vem do cliente: os parsers recusam o que não for slot válido (regra 1). As regras são as de shared.
-export function applyGearAction(action: GearAction, message: unknown, gear: Gear): GearResult {
+// A mensagem vem do cliente: os parsers recusam o que não for slot válido (regra 1). As regras são as de shared,
+// com a classe do personagem (item de outra classe é recusado com aviso).
+export function applyGearAction(action: GearAction, message: unknown, gear: Gear, classId?: ClassId): GearResult {
   if (action === "move") {
     const move = parseMoveSlots(message, INVENTORY_SLOTS);
     const inventory = move && moveSlot(gear.inventory, move.from, move.to);
@@ -38,10 +41,11 @@ export function applyGearAction(action: GearAction, message: unknown, gear: Gear
   }
   if (action === "equip") {
     const slot = parseSlotIndex(message);
-    return slot === undefined ? { kind: "ignored" } : fromOutcome(equipFromSlot(gear.inventory, gear.equipment, slot));
+    return slot === undefined ? { kind: "ignored" } : fromOutcome(equipFromSlot(gear.inventory, gear.equipment, slot, classId));
   }
   const request = parseUnequip(message, INVENTORY_SLOTS);
-  return request ? fromOutcome(unequip(gear.inventory, gear.equipment, request.from, request.to)) : { kind: "ignored" };
+  return request ? fromOutcome(unequip(gear.inventory, gear.equipment, request.from, request.to, classId))
+    : { kind: "ignored" };
 }
 
 // Usar (tecla ou clique) um item equipável é equipá-lo.
@@ -54,5 +58,6 @@ export function isEquippableSlot(inventory: Inventory, message: unknown): boolea
 function fromOutcome(outcome: EquipOutcome): GearResult {
   if (outcome.kind === "done") return { kind: "changed", gear: { inventory: outcome.inventory, equipment: outcome.equipment } };
   if (outcome.kind === "nothing") return { kind: "ignored" };
+  if (outcome.kind === "wrongClass") return { kind: "refused", notice: wrongClassNotice(outcome.item) };
   return { kind: "refused", notice: REFUSALS[outcome.kind] };
 }

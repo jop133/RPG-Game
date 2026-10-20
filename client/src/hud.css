@@ -752,6 +752,11 @@
   margin-bottom: calc(2px * var(--s));
 }
 
+.hud-tooltip-tag {
+  font-weight: bold;
+  margin-bottom: calc(2px * var(--s));
+}
+
 .hud-tooltip-hint {
   margin-top: calc(3px * var(--s));
   color: #ffd98a;
@@ -1172,4 +1177,42 @@
   font-style: italic;
   line-height: 1.25;
   color: #6a4a30;
+}
+
+/* ---- magias do mago (Q e R), à esquerda da barra rápida (hud.ts, SPELL_BUTTONS) ---- */
+.hud-spell {
+  background-size: 100% 100%;
+  image-rendering: pixelated;
+  pointer-events: auto;
+  overflow: hidden;
+}
+
+.hud-spell-icon {
+  position: absolute;
+  inset: 6px;
+  width: calc(100% - 12px);
+  height: calc(100% - 12px);
+  image-rendering: pixelated;
+}
+
+.hud-spell-shade {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: 4px;
+  height: 0;
+  max-height: calc(100% - 8px);
+  background: rgba(8, 6, 12, 0.72);
+}
+
+.hud-spell-time {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 18px;
+  color: #ffe9a8;
+  text-shadow: 0 0 3px #000, 1px 1px 0 #000;
 }

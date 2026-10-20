@@ -133,7 +133,7 @@ export class CityRoom extends Room<{ state: CityState }> {
     for (let i = 0; i < INVENTORY_SLOTS; i++) player.inventory.push(new ItemSlotState({ item: "", count: 0 }));
     for (let i = 0; i < STASH_SLOTS; i++) player.stash.push(new ItemSlotState({ item: "", count: 0 }));
     this.setInventory(client.sessionId, player, store.inventory(record.characterId));
-    this.setEquipment(client.sessionId, player, store.equipment(record.characterId));
+    this.setEquipment(client.sessionId, player, store.equipment(record.characterId, record.classId));
     mirror(player.stash, lineage.stash);
     this.state.players.set(client.sessionId, player);
     client.view = new StateView();
@@ -182,7 +182,7 @@ export class CityRoom extends Room<{ state: CityState }> {
     const inventory = this.inventories.get(sessionId);
     const equipment = this.equipment.get(sessionId);
     if (!player || !record || !inventory || !equipment) return;
-    const result = applyGearAction(action, message, { inventory, equipment });
+    const result = applyGearAction(action, message, { inventory, equipment }, record.classId);
     if (result.kind === "refused") this.notify(sessionId, result.notice);
     if (result.kind !== "changed") return;
     store.saveGear(record.characterId, result.gear.inventory, result.gear.equipment);

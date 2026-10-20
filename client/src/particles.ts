@@ -3,12 +3,13 @@ import Phaser from "phaser";
 // Partículas (só desenho). Quadradinhos de 1 pixel de textura ampliados, nítidos como o resto da arte:
 // - gotas de impacto: saltam do mob atingido e caem (sangue escuro; ácido verde no slime);
 // - esporos: pontinhos ciano subindo devagar perto de cristais, minério e cogumelos;
-// - espiral: faíscas roxas subindo em volta dos portais.
+// - espiral: faíscas roxas subindo em volta dos portais;
+// - faíscas: voam em linha reta, freando e apagando (rastro e explosão do Projétil Mágico).
 // Esporos e espiral brilham (soma de cor) por cima da camada de luz: aparecem mesmo no escuro.
 
 const PIXEL_KEY = "pixel";
 
-type Motion = "drop" | "drift" | "spiral";
+type Motion = "drop" | "drift" | "spiral" | "spark";
 
 interface Particle {
   image: Phaser.GameObjects.Image;
@@ -28,6 +29,8 @@ const DROP_GRAVITY = 420; // px/s²
 const DROP_COUNT = { min: 5, max: 10 };
 const SPIRAL_TURNS_PER_SECOND = 0.9;
 const SPIRAL_RISE = 38; // px/s
+// Faíscas: perdem esta fração da velocidade por segundo.
+const SPARK_DRAG = 3;
 // Limite de partículas vivas: se muita coisa acontecer junto, as novas esperam vaga.
 const MAX_PARTICLES = 400;
 
@@ -84,6 +87,21 @@ export class Particles {
     particle.radius = radius;
   }
 
+  // Uma faísca que brilha no escuro, saindo de (x, y) com velocidade (vx, vy) px/s.
+  spark(x: number, y: number, color: number, vx: number, vy: number, life: number, time: number) {
+    this.add(x, y, color, Phaser.Math.Between(1, 2), this.glowDepth, true, { motion: "spark", life, vx, vy, time });
+  }
+
+  // Explosão: faíscas em todas as direções a partir de (x, y).
+  explode(x: number, y: number, colors: readonly number[], time: number) {
+    for (let i = 0; i < 16; i++) {
+      const angle = (i / 16) * Math.PI * 2 + Phaser.Math.FloatBetween(-0.2, 0.2);
+      const speed = Phaser.Math.FloatBetween(50, 150);
+      const color = colors[i % colors.length] ?? 0xffffff;
+      this.spark(x, y, color, Math.cos(angle) * speed, Math.sin(angle) * speed, Phaser.Math.Between(220, 420), time);
+    }
+  }
+
   update(time: number, deltaMs: number) {
     const dt = deltaMs / 1000;
     this.items = this.items.filter((p) => {
@@ -102,6 +120,13 @@ export class Particles {
         p.image.x += (p.vx + Math.sin((time + p.born) / 400) * 4) * dt;
         p.image.y += p.vy * dt;
         p.image.setAlpha(Math.sin(Math.PI * t)); // acende e apaga devagar
+      } else if (p.motion === "spark") {
+        const keep = Math.max(0, 1 - SPARK_DRAG * dt);
+        p.vx *= keep;
+        p.vy *= keep;
+        p.image.x += p.vx * dt;
+        p.image.y += p.vy * dt;
+        p.image.setAlpha(1 - t);
       } else {
         // Espiral: dá voltas, sobe e abre um pouco o raio.
         p.angle += SPIRAL_TURNS_PER_SECOND * Math.PI * 2 * dt;

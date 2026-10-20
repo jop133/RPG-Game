@@ -196,11 +196,12 @@ export class Store {
     this.db.prepare("UPDATE characters SET inventory = ? WHERE id = ?").run(JSON.stringify(inventory), characterId);
   }
 
-  equipment(characterId: number): Equipment {
+  // Sem nada gravado, o equipamento inicial da classe (o mago com o cajado).
+  equipment(characterId: number, classId?: ClassId): Equipment {
     const row = this.db.prepare("SELECT equipment FROM characters WHERE id = ?").get(characterId) as {
       equipment: string | null;
     };
-    return restoreEquipment(row.equipment === null ? null : (JSON.parse(row.equipment) as Equipment));
+    return restoreEquipment(row.equipment === null ? null : (JSON.parse(row.equipment) as Equipment), classId);
   }
 
   setEquipment(characterId: number, equipment: Equipment) {

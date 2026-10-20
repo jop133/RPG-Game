@@ -2,6 +2,8 @@
 // habilidades e números próprios entram no passo 10 (Classes e vilas).
 export const CLASS_IDS = ["mago", "elfo", "barbaro", "homem_fera"] as const;
 export type ClassId = (typeof CLASS_IDS)[number];
+// Nome de cada classe nos avisos do servidor (o cliente tem os da ficha de classe, em registration.ts).
+export const CLASS_NAMES: Record<ClassId, string> = { mago: "Mago", elfo: "Elfo", barbaro: "Bárbaro", homem_fera: "Homem Fera" };
 
 // Erro da entrada quando o personagem ainda não tem classe (primeiro da linhagem ou herdeiro):
 // o cliente mostra a ficha de classe e entra de novo mandando a escolhida.

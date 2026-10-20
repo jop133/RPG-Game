@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { areaAt } from "./areas";
 import { MOB_LOSE_TRACK_MS, MOB_WAKE_RADIUS, PATH_RECALC_MS, PLAYER_SIZE } from "./balance";
 import { type CollisionGrid, boxFits } from "./collision";
-import { type MobTarget, type MobWorld, type ThinkingMob, isDormant, stepMob } from "./mobAi";
+import { type MobMind, type MobTarget, type MobWorld, type ThinkingMob, isDormant, provoke, stepMob } from "./mobAi";
 import type { Vec2 } from "./movement";
 import { startIdle } from "./wander";
 
@@ -238,3 +238,21 @@ describe("isDormant (hibernação de mob longe de todos)", () => {
   });
 });
 
+
+describe("provoke (atingido de longe)", () => {
+  const shooter = { x: 300, y: 80 };
+
+  it("vagando: sai atrás de quem atirou, rumo ao ponto do tiro, com o caminho a calcular", () => {
+    const mind = provoke({ mode: "wander", wander: startIdle(() => 0.5) }, "p1", shooter);
+    expect(mind).toEqual({ mode: "chase", targetId: "p1", lastSeen: shooter, lostMs: 0, path: [], sinceRepathMs: PATH_RECALC_MS });
+  });
+
+  it("voltando para casa: também", () => {
+    expect(provoke({ mode: "return", path: [] }, "p1", shooter).mode).toBe("chase");
+  });
+
+  it("já ocupado com outro alvo: não muda", () => {
+    const busy: MobMind = { mode: "windup", targetId: "p2", angle: 0, remainingMs: 100 };
+    expect(provoke(busy, "p1", shooter)).toBe(busy);
+  });
+});

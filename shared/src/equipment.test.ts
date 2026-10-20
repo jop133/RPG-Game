@@ -2,14 +2,17 @@ import { describe, expect, it } from "vitest";
 import { BASE_STATS, INVENTORY_SLOTS, ITEMS, STARTING_EQUIPMENT, UNARMED_ATTACK } from "./balance";
 import { playerStats } from "./stats";
 import {
+  canEquip,
   equipFromSlot,
   equipmentToPile,
   moveSlot,
   parseMoveSlots,
   parseUnequip,
   restoreEquipment,
+  startingEquipment,
   unequip,
   weaponStats,
+  wrongClassNotice,
   type Equipment,
 } from "./equipment";
 import { addItems, emptyInventory, type Inventory, type ItemStack } from "./inventory";
@@ -163,5 +166,51 @@ describe("os 8 slots", () => {
   it("o conjunto inteiro de ferro dá 9% de Defesa", () => {
     const stats = playerStats([], { helm: "elmo_ferro", chest: "peitoral_ferro", pants: "calca_ferro", boots: "bota_ferro" });
     expect(stats.defensePercent).toBe(9);
+  });
+});
+
+describe("Cajado Arcano (só o mago)", () => {
+  const STAFF = "cajado_arcano" as const;
+
+  it("o mago entra com o cajado; as outras classes, com a espada", () => {
+    expect(startingEquipment("mago")).toEqual({ weapon: STAFF });
+    expect(startingEquipment("barbaro")).toEqual(STARTING_EQUIPMENT);
+    expect(startingEquipment(undefined)).toEqual(STARTING_EQUIPMENT);
+    expect(restoreEquipment(null, "mago")).toEqual({ weapon: STAFF });
+    expect(restoreEquipment(null, "elfo")).toEqual(STARTING_EQUIPMENT);
+  });
+
+  it("equipamento já gravado continua o mesmo, mesmo no mago", () => {
+    expect(restoreEquipment({ weapon: SWORD }, "mago")).toEqual({ weapon: SWORD });
+  });
+
+  it("só o mago equipa", () => {
+    expect(canEquip(STAFF, "mago")).toBe(true);
+    for (const classId of ["barbaro", "elfo", "homem_fera"] as const) expect(canEquip(STAFF, classId)).toBe(false);
+    expect(canEquip(STAFF, undefined)).toBe(false);
+    expect(canEquip(SWORD, "barbaro")).toBe(true);
+  });
+
+  it("outra classe é recusada e nada muda", () => {
+    const inventory = bag({ 2: { item: STAFF, count: 1 } });
+    expect(equipFromSlot(inventory, { weapon: SWORD }, 2, "barbaro")).toEqual({ kind: "wrongClass", item: STAFF });
+    expect(equipFromSlot(inventory, { weapon: SWORD }, 2, "mago")).toMatchObject({ kind: "done", equipment: { weapon: STAFF } });
+  });
+
+  it("trocar a arma arrastando o cajado para o slot também é recusado", () => {
+    const inventory = bag({ 2: { item: STAFF, count: 1 } });
+    expect(unequip(inventory, { weapon: SWORD }, "weapon", 2, "elfo")).toEqual({ kind: "wrongClass", item: STAFF });
+  });
+
+  it("aviso com a classe e o nome do item", () => {
+    expect(wrongClassNotice(STAFF)).toBe("Apenas o Mago pode empunhar o Cajado Arcano!");
+  });
+
+  it("dispara em vez de golpear e soma Dano Mágico e Mana", () => {
+    const stats = playerStats([], { weapon: STAFF });
+    expect(stats.attack.weaponType).toBe("staff");
+    expect(stats.magicDamage).toBe(BASE_STATS.magicDamage + 14);
+    expect(stats.maxMana).toBe(BASE_STATS.maxMana + 25);
+    expect(stats.physicalDamage).toBe(0);
   });
 });

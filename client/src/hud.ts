@@ -1,8 +1,22 @@
-import { HUNGER_MAX, INVENTORY_SLOTS, ITEMS, LEVEL_XP, levelProgress, type BuildingId, type EquipSlot, type ItemId, type StationId } from "shared";
+import {
+  HUNGER_MAX,
+  INVENTORY_SLOTS,
+  ITEMS,
+  LEVEL_XP,
+  LIGHTNING_SPELL,
+  SWAMP_SPELL,
+  levelProgress,
+  type BuildingId,
+  type EquipSlot,
+  type ItemId,
+  type StationId,
+} from "shared";
 import layout from "../../assets/ui/hud/layout.json";
 import { ForgeWindow, GuildWindow, InnWindow, type CityWindow, type Send } from "./cityWindows";
 import "./hud.css";
-import { ART, ICONS, SlotView, Tooltip, el, essenceEffectText, frameName, image, place, rarityStyle, setText, size, type HudSlot } from "./hudParts";
+import { ART, ICONS, SlotView, Tooltip, el, essenceEffectText, frameName, image, place, rarityStyle, setText, setViewerClass, size, type HudSlot } from "./hudParts";
+import runeLightningUrl from "../../assets/spells/rune_circle_lightning.png?url";
+import runeSwampUrl from "../../assets/spells/rune_circle_swamp.png?url";
 import { InventoryWindow } from "./inventoryWindow";
 
 // HUD em HTML, por cima do jogo (como a ficha de registro): a arte dos kits de interface ampliada por um fator
@@ -34,7 +48,20 @@ export interface HudView {
   stash?: readonly (HudSlot | undefined)[];
   bestiary?: readonly string[];
   kills?: readonly string[];
+  // Só o mago no labirinto: quanto falta (ms) da recarga de cada magia. Sem isto, os botões das magias somem.
+  spells?: { lightningMs: number; swampMs: number };
 }
+
+// Botões das magias do mago, à esquerda da barra rápida (como a mochila à direita): ícone (o círculo rúnico), tecla e
+// a recarga escurecendo de cima para baixo, com os segundos que faltam.
+const SPELL_BUTTON = 52;
+const SPELL_GAP = 8;
+const SPELL_BUTTONS = [
+  { id: "lightning", key: "Q", name: "Raio Celestial", total: LIGHTNING_SPELL.cooldownMs, icon: runeLightningUrl,
+    lines: ["Um círculo rúnico avisa no chão; o raio cai nele e fere todos ali.", "Mira no mouse."] },
+  { id: "swamp", key: "R", name: "Pântano de Lama", total: SWAMP_SPELL.cooldownMs, icon: runeSwampUrl,
+    lines: [`Uma poça de lama por ${SWAMP_SPELL.durationMs / 1000} s: monstros e outros jogadores andam devagar nela.`, "Mira no mouse."] },
+] as const;
 
 const DOCK_SLOTS = 6;
 const DOCK_FRAME = 48;
@@ -187,6 +214,9 @@ export class Hud {
   private readonly notices: HTMLDivElement;
   private readonly hintText: HTMLDivElement;
   private readonly dockSlots: SlotView[] = [];
+  private readonly spellBar: HTMLDivElement;
+  private readonly spellShades: HTMLDivElement[] = [];
+  private readonly spellTimes: HTMLSpanElement[] = [];
   // A barra rápida some com a mochila aberta: os mesmos slots estão no cinturão da janela.
   private readonly dockbar: HTMLDivElement;
   private readonly shownWidths = new Map<string, string>();
@@ -253,6 +283,20 @@ export class Hud {
     el("span", "hud-bag-key", bag).textContent = "I";
     el("span", "hud-bag-label", bag).textContent = "Mochila";
     bag.addEventListener("click", () => this.toggleWindow());
+    this.spellBar = place(el("div", "hud-abs hud-spellbar", dockbar), -(SPELL_BUTTON + SPELL_GAP) * SPELL_BUTTONS.length, 0);
+    this.spellBar.hidden = true;
+    SPELL_BUTTONS.forEach((spell, i) => {
+      const top = (d.h * DOCK_SCALE - SPELL_BUTTON) / 2;
+      const button = place(el("div", "hud-abs hud-spell", this.spellBar), i * (SPELL_BUTTON + SPELL_GAP), top, SPELL_BUTTON, SPELL_BUTTON);
+      button.style.backgroundImage = `url(${ART.get("slot_epic")})`;
+      const icon = el("img", "hud-spell-icon", button);
+      icon.src = spell.icon;
+      icon.alt = "";
+      this.spellShades.push(el("div", "hud-spell-shade", button));
+      this.spellTimes.push(el("span", "hud-spell-time", button));
+      el("span", "hud-bag-key", button).textContent = spell.key;
+      this.tooltip.attach(button, () => ({ title: spell.name, subtitle: `Recarga ${spell.total / 1000} s`, lines: [...spell.lines], hint: `Pressione [${spell.key}]` }));
+    });
     this.tooltip.attach(bag, () => ({ title: "Mochila", lines: ["Inventário, essências e equipamento."], hint: "Clique ou pressione [I]" }));
 
     this.window = new InventoryWindow(this.root, this.tooltip, onUse, send, () => this.closeWindow());
@@ -353,6 +397,7 @@ export class Hud {
     this.lastTime = time;
     if (view.classId !== this.classId) {
       this.classId = view.classId;
+      setViewerClass(view.classId);
       this.portrait.src = ART.get(`portrait-${view.classId}`) ?? ART.get("portrait-mago") ?? "";
     }
     setText(this.nameText, view.name);
@@ -386,9 +431,23 @@ export class Hud {
       const slot = view.inventory[i];
       this.dockSlots[i]?.set(slot && slot.count > 0 ? slot : undefined);
     }
+    this.updateSpells(view.spells);
     // A janela aberta acompanha na hora (comer, pegar loot, absorver essência); fechada, não gasta nada.
     if (this.window.open) this.window.update(view);
     if (this.openStation) this.buildings[STATION_WINDOWS[this.openStation][0]].update(view);
+  }
+
+  // Recarga das magias: a sombra cobre a fração que falta, e os segundos aparecem enquanto não está pronta.
+  private updateSpells(spells: HudView["spells"]) {
+    this.spellBar.hidden = !spells;
+    if (!spells) return;
+    SPELL_BUTTONS.forEach((spell, i) => {
+      const left = spell.id === "lightning" ? spells.lightningMs : spells.swampMs;
+      const shade = this.spellShades[i];
+      if (shade) shade.style.height = `${Math.min(100, (100 * left) / spell.total)}%`;
+      const time = this.spellTimes[i];
+      if (time) setText(time, left > 0 ? `${Math.ceil(left / 1000)}` : "");
+    });
   }
 
   toggleWindow() {

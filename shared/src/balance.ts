@@ -1,4 +1,5 @@
 import type { AreaConfig } from "./areas";
+import type { ClassId } from "./classes";
 import type { Equipment } from "./equipment";
 import type { ForgeItem } from "./forge";
 import type { ItemStats } from "./inventory";
@@ -29,7 +30,8 @@ export const STARVATION_DAMAGE_PER_SECOND = 2;
 // Efeitos de essências iguais se somam (StatBonus, em stats.ts). speedPercent: % de velocidade; physicalDamage: dano
 // físico a mais no golpe; maxHp: vida máxima a mais.
 // equip: o item se equipa no slot dado; arma (weapon) troca o golpe: dano, alcance e arco (como UNARMED_ATTACK);
-// bonus: o que a peça soma aos status (StatBonus), enquanto equipada.
+// weaponType "staff": em vez do golpe, dispara um Projétil Mágico (MAGIC_BOLT) com o Dano Mágico de quem atira;
+// bonus: o que a peça soma aos status (StatBonus), enquanto equipada; allowedClasses: só essas classes equipam.
 // O rato saiu do 1º andar (a essência de velocidade agora é do lobo), mas os itens dele ficam: há personagens com eles.
 export const ITEMS = {
   racao: { name: "Ração", rarity: "common", maxStack: 5, food: 40 },
@@ -47,6 +49,18 @@ export const ITEMS = {
     rarity: "common",
     maxStack: 1,
     equip: { slot: "weapon", weapon: { damage: 10, range: 40, arcDegrees: 100 } },
+  },
+  // Arma do mago: dispara o projétil, então dano, alcance e arco do golpe ficam zerados (não há golpe).
+  cajado_arcano: {
+    name: "Cajado Arcano",
+    rarity: "rare",
+    maxStack: 1,
+    equip: {
+      slot: "weapon",
+      weapon: { damage: 0, range: 0, arcDegrees: 0, weaponType: "staff" },
+      allowedClasses: ["mago"],
+      bonus: { magicDamage: 14, maxMana: 25 },
+    },
   },
   // Conjunto de ferro (Forja): números provisórios, para ajustar jogando. Defesa e Velocidade em %.
   elmo_ferro: { name: "Elmo de Ferro", rarity: "common", maxStack: 1, equip: { slot: "helm", look: "iron", bonus: { maxHp: 15, defensePercent: 2 } } },
@@ -92,6 +106,7 @@ export const BUY_PRICES: Partial<Record<ItemId, number>> = { racao: 10 };
 // projeto, para testar o equipamento); os preços de verdade vêm com o balanceamento da economia.
 export const FORGE_PRICES: Partial<Record<ItemId, number>> = {
   espada_ferro: 0,
+  cajado_arcano: 0,
   elmo_ferro: 0,
   peitoral_ferro: 0,
   calca_ferro: 0,
@@ -168,8 +183,27 @@ export const CITY_INTERACT_RADIUS = 48;
 export const UNARMED_ATTACK = { damage: 4, range: 28, arcDegrees: 90 };
 // Tempo mínimo entre dois golpes, com ou sem arma.
 export const PLAYER_ATTACK_COOLDOWN_MS = 500;
-// Com o que o personagem entra equipado na primeira vez (o novo e os que existiam antes do equipamento).
+// Com o que o personagem entra equipado na primeira vez (o novo e os que existiam antes do equipamento). O mago entra
+// com o Cajado Arcano no lugar da espada (STARTING_EQUIPMENT_BY_CLASS); quem já tinha equipamento gravado fica com ele.
 export const STARTING_EQUIPMENT: Equipment = { weapon: "espada_ferro" };
+export const STARTING_EQUIPMENT_BY_CLASS: Partial<Record<ClassId, Equipment>> = { mago: { weapon: "cajado_arcano" } };
+
+// Projétil Mágico do cajado: sai SPAWN_OFFSET px à frente de quem atira (a ponta do cajado), voa a SPEED px/s em linha
+// reta e some ao bater numa parede, acertar alguém (mob ou outro jogador: fogo amigo, como o golpe) ou passar de
+// RANGE px. RADIUS é o tamanho dele para acertar. Carrega luz (regra 4): o que está a LIGHT_RADIUS px dele é enviado.
+export const MAGIC_BOLT = { speed: 420, range: 340, spawnOffset: 20, radius: 5, lightRadius: 64 };
+
+// Magias do mago (Q e R, só no labirinto): a mira é o ponto do mouse, até CAST_RANGE px de quem lança (mais longe, o
+// ponto é puxado para dentro do alcance). Limitadas só pela recarga; a Mana ainda não é gasta. As áreas são elipses no
+// chão (a vista é 3/4: um círculo no chão aparece achatado, SPELL_FLATTEN), testadas nos pés de cada um.
+export const SPELL_CAST_RANGE = 320;
+export const SPELL_FLATTEN = 0.55;
+// Raio Celestial (Q): o círculo avisa por WARN_MS; aí o raio cai, com BASE_DAMAGE + o Dano Mágico de quem lançou, em
+// todos dentro da elipse (fogo amigo, menos quem lançou). O círculo e o raio carregam luz (regra 4).
+export const LIGHTNING_SPELL = { warnMs: 400, strikeMs: 280, radiusX: 46, baseDamage: 10, cooldownMs: 4000, lightRadius: 110 };
+// Pântano de Lama (R): o círculo de terra gira por CAST_MS; aí a poça fica DURATION_MS. Dentro dela, mobs e os outros
+// jogadores (quem lançou não) andam a SLOW da velocidade. radiusX/radiusY: a elipse da poça na arte (spells.json).
+export const SWAMP_SPELL = { castMs: 350, durationMs: 5000, radiusX: 61, radiusY: 24, slow: 0.45, cooldownMs: 10000 };
 
 // Ticks de simulação do servidor por segundo.
 export const TICK_RATE = 20;

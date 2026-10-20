@@ -270,6 +270,21 @@ export function weaponPose(startMs: number, angle: number, time: number): { visi
   return { visible: true, angle: angle - WEAPON_SWEEP + 2 * WEAPON_SWEEP * e, scale: 1 + WEAPON_POP * Math.sin(Math.PI * p), p };
 }
 
+// Disparo do cajado (canalização, no lugar da varrida da espada): em STAFF_CAST_MS o cajado inclina da guarda até
+// STAFF_TILT do caminho para a mira e volta, e avança até STAFF_PUSH_PX na direção do disparo, com o cabo na mão.
+export const STAFF_CAST_MS = 160;
+const STAFF_TILT = 0.7;
+const STAFF_PUSH_PX = 5;
+
+export function staffPose(startMs: number, aim: number, guard: number, time: number): { visible: boolean; angle: number; push: number } {
+  const p = (time - startMs) / STAFF_CAST_MS;
+  if (p < 0 || p >= 1) return { visible: false, angle: guard, push: 0 };
+  const k = Math.sin(Math.PI * easeOutCubic(p));
+  // O caminho mais curto da guarda até a mira (nunca a volta longa pelo outro lado).
+  const turn = Math.atan2(Math.sin(aim - guard), Math.cos(aim - guard));
+  return { visible: true, angle: guard + turn * STAFF_TILT * k, push: STAFF_PUSH_PX * k };
+}
+
 // Impulso do corpo no golpe: deslocamento e escala do sprite (a posição de verdade continua a do servidor).
 export function lungeOffset(startMs: number, angle: number, time: number): { x: number; y: number; sx: number; sy: number } {
   const t = time - startMs;

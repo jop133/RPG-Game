@@ -220,3 +220,36 @@ Desenha as armas em pixel art em `assets/weapons/<arma>.png` (48x48, fundo trans
 a direita, cabo em x 6-14 e ponta em x 44, y 24). O cliente prende o punho à mão do personagem (origem 0,18 x 0,5, no ponto de `hand_sockets.json`) e gira a
 arma em volta dele.
 
+### Cajado Arcano e Projétil Mágico
+
+```bash
+tools/assets/.venv/Scripts/python.exe -I tools/assets/process_staff.py
+```
+
+Recorta `assets/ui/cajado1.png` (arte do dono do projeto, fora do git): cajado à esquerda, projétil à direita, cada metade
+cortada a 10 px da linha vertical do meio (achada como a coluna mais opaca perto do centro). Tira o quase preto que é
+fundo (ligado ao transparente) e os bolsões pretos fechados entre as garras e o cristal; as partículas soltas ficam.
+Reduz por média de área com alfa binário. Gera `assets/weapons/cajado_arcano.png` (maior lado 44 px, na diagonal da
+arte), `assets/weapons/projetil_magico.png` (28 px de largura, voando para a direita), o ícone
+`assets/ui/hud/items/cajado_arcano.png` (48x48) e `assets/weapons/cajado_arcano.json`: o ponto de pega (na faixa de
+couro, a 38% da haste a partir da ponteira), a ponta do cristal (sem as partículas: o maior pedaço ligado) e o ângulo da
+arte. O cliente usa o JSON para a origem, para descontar o ângulo da arte na rotação e para o clarão do disparo.
+Conferência ampliada em `tools/assets/build/staff_preview.png`. (O projétil ciano ficou sem uso: o cliente desenha o
+disparo do cajado como a Bola de Fogo, abaixo.)
+
+### Magias do mago
+
+```bash
+tools/assets/.venv/Scripts/python.exe -I tools/assets/process_spells.py
+```
+
+Recorta `assets/tilesets/novos tilesets/magias1.png` (arte do dono do projeto, fora do git; é um .png de 2752x1536, então
+as faixas e os quadros são achados pelas linhas e colunas vazias, não por coordenadas fixas). Luminosos (bola de fogo,
+círculo do raio, raio): o quase preto sai e o alfa sobe suave com o brilho. Opacos (círculo de terra, lama): só sai o
+escuro ligado à borda (flood-fill), e o buraco do meio do círculo de terra sai por um flood-fill a partir do centro.
+Cada tira fica numa escala só, com cada quadro posto pelo seu ponto de referência (a maior escala em que nada é
+cortado): `fireball_sheet.png` (4 x 64x64, a frente da cabeça em 56, 32), `rune_circle_lightning.png` e
+`rune_circle_swamp.png` (96x96, centro em 48, 48), `lightning_strike_sheet.png` (4 x 64x128, o impacto em 32, 118),
+`mud_swamp_sheet.png` (4 x 128x64, o centro da elipse da poça no mesmo ponto). Grava também `assets/spells/spells.json`
+(centro e semieixos da poça no quadro) e a conferência `tools/assets/build/spells_preview.png`.
+

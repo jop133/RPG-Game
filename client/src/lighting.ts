@@ -31,7 +31,8 @@ export interface Light {
   kind?: string;
 }
 
-const LIGHT_KEY = "light";
+// Também serve de brilho solto (ADD): o preto do fundo soma zero (ver Bolts, em projectiles.ts).
+export const LIGHT_KEY = "light";
 const LIGHT_TEXTURE = 256;
 // O degradê termina em 120 de 128 px: preto puro antes da borda da textura.
 const LIGHT_EDGE = 120;

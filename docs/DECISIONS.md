@@ -1183,6 +1183,46 @@ Slot vazio usa a moldura comum.
 
 ---
 
+## 2026-10 — Magias do mago: Bola de Fogo, Raio Celestial e Pântano de Lama
+
+**Pedido do dono do projeto:** as 3 magias do mago com a arte de `magias1`: a Bola de Fogo como ataque do cajado, o Raio Celestial em área (aviso de 400 ms, depois o raio) e o Pântano de Lama (zona de 5 s que deixa lento), no ponto do mouse.
+
+**Decisões (perguntadas ao dono do projeto):**
+- **Teclas Q (Raio) e R (Pântano).** O pedido dizia 1/Q e 2/E, mas 1 e 2 são os atalhos da barra rápida e E é a tecla de portal e portas.
+- **Só recarga** (Raio 4 s, Pântano 10 s), mostrada no HUD em dois botões à esquerda da barra rápida. A Mana continua sem gasto; vira recurso num passo próprio.
+- **A Bola de Fogo substitui o visual do Projétil Mágico:** o mesmo projétil no servidor (dano, alcance, luz real), desenhado como a bola de fogo animada (18 fps, origem 0,82 x 0,5), com luz laranja (#ff7b00), brasas no rastro e na explosão, e clarão laranja na ponta do cajado.
+- **A lama freia mobs e os outros jogadores** (coerente com o fogo amigo); quem lançou anda normal na própria poça.
+
+**Como ficou:**
+- `shared/src/spells.ts`: `parseSpellCast` (só `{ spell, x, y }` válido), `spellTarget` (o ponto do mouse puxado até `SPELL_CAST_RANGE`, 320 px; em parede não cai), áreas como elipses no chão (achatadas por `SPELL_FLATTEN`, 0,55, como o desenho), `feetInside` (pés de cada um, com folga do tamanho dele para o raio e sem folga para a lama), `swampSlow`. Números em `LIGHTNING_SPELL` e `SWAMP_SPELL` (`balance.ts`).
+- Servidor: mensagem `spell`, só para a classe mago, fora da recarga. A magia é uma entidade no estado (`state.spells`: tipo, lugar, fase), replicada a quem está no raio de visão. Raio: "warn" (400 ms) → "strike" (aplica 10 + Dano Mágico de quem lançou em todos com os pés na área, menos quem lançou; mob atingido vai atrás dele) → some em 280 ms; carrega luz (regra 4) no aviso e na queda. Pântano: "cast" (350 ms) → "active" (5 s): quem pisa anda a 0,45 da velocidade (mobs pelo passo de sempre com a velocidade reduzida). Recarga que falta vai para o HUD do dono (`lightningCooldownMs`, `swampCooldownMs`).
+- Cliente (`client/src/spells.ts`): círculos girando num container achatado na altura do chão (abaixo de todos em pé), luz amarela pulsando, os 4 quadros do raio cravados no centro com clarão e tremor de tela, a poça a 8 fps com fade de entrada e saída, lama nos pés de quem anda dentro dela.
+
+**Escolhas minhas (avise se quiser diferente):** alcance de 320 px para as duas magias; dano do Raio = 10 + Dano Mágico (sem o cajado, o mago ainda faz 10); área do Raio = o círculo desenhado (raio 46 px, achatado), a do Pântano = a elipse da poça na arte (61 x 24 px); o raio na tira tem 74 px de altura (é o maior que cabe em 64 de largura sem cortar as faíscas do 3º quadro); a poça é vista por quem está no raio de visão mesmo no escuro (é mágica do jogador; não revela mobs).
+
+**Limites conhecidos:** a lentidão nos mobs e o Raio acertando um mob não foram vistos ponta a ponta (as regras são as mesmas testadas nos jogadores).
+
+## 2026-10 — Cajado Arcano: arma do mago que dispara o Projétil Mágico
+
+**Pedido do dono do projeto:** o Cajado Arcano como arma exclusiva do mago, encaixado na mão como a espada, disparando projéteis mágicos de verdade, com luz própria; o mago começa com ele; as outras classes não equipam.
+
+**Decisões (perguntadas ao dono do projeto):**
+- **O projétil é uma entidade no estado** (`state.projectiles`: x, y, ângulo, `done`), movida a cada tick pelo servidor e replicada só a quem está no raio de visão, como os mobs. Alternativa recusada: só eventos de "disparou"/"acabou" com o cliente desenhando o voo (canal novo fora do estado, filtro por raio à mão).
+- **A luz é real (regra 4):** cada projétil é um portador de luz no servidor (`MAGIC_BOLT.lightRadius`, 64 px): mobs e pilhas por onde ele passa passam a ser enviados. O cliente desenha a mesma luz. Alternativa recusada: luz só desenhada, que iluminaria lugares sem mostrar o que há neles.
+- **Dano Mágico:** o cajado dá +14 Dano Mágico e +25 Mana Máx. (o pedido dizia "+14 Dano"); o projétil causa o Dano Mágico de quem atirou, guardado no disparo, e no jogador atingido passa pela Resistência Mágica. Dano Mágico deixa de ser um status sem uso.
+
+**Como ficou:**
+- `shared`: `EquipStats.allowedClasses` e `WeaponStats.weaponType` (`"staff"` dispara em vez de golpear), `canEquip`, `wrongClassNotice` ("Apenas o Mago pode empunhar o Cajado Arcano!"), `startingEquipment(classId)` (o mago entra com o cajado: `STARTING_EQUIPMENT_BY_CLASS`), `equipFromSlot`/`unequip` recusam item de outra classe (`wrongClass`). Voo puro em `shared/src/projectile.ts` (`launchProjectile`, `stepProjectile`): passos de até 4 px, para antes da parede, acerta o alvo mais próximo do caminho, acaba no alcance (contado do centro de quem atirou). `provoke` (mobAi): o mob atingido de longe que estava vagando sai atrás de quem atirou, rumo ao ponto do tiro. Números em `MAGIC_BOLT` (420 px/s, alcance 340, nasce a 20 px, raio 5, luz 64).
+- Servidor: o ataque com cajado chama `fireBolt` em vez do golpe; acerta mobs e outros jogadores (fogo amigo, como o golpe), nunca quem atirou. Projétil parado fica 3 ticks no estado no ponto do impacto (`done`): o que acerta na hora do disparo (fora do tick) também chega ao cliente, para a explosão.
+- Cliente: cajado na mão pelo ponto de pega medido na arte (`cajado_arcano.json`, ~0,35 x 0,64, perto do pedido), descontando o ângulo da arte (-48°); mesmas guardas do mago nas 8 direções. Disparo: sem varrida nem rastro de lâmina; o cajado inclina 70% do caminho até a mira e avança 5 px em 160 ms, com um clarão ciano (#00e5ff) na ponta do cristal. Voo em `client/src/projectiles.ts`: sprite girado para o ângulo, extrapolado entre ticks, luz ciano, rastro de faíscas azuis e douradas, explosão ciano no impacto. Item de outra classe: o cliente avisa na hora e não envia nada (o servidor recusa igual). Dica do item com "Exclusivo: Mago" em azul para o mago e em vermelho para as outras classes, sem o "clique para equipar" para quem não pode.
+
+**Escolhas minhas (avise se quiser diferente):**
+- Personagem que já tinha equipamento gravado continua com ele (um mago antigo segue com a espada e pega o cajado de graça na Forja); só personagem novo, ou nunca gravado, entra com o cajado.
+- O cajado é raro (moldura azul), 0 moedas na Forja como o resto.
+- Caminhos do pedido que não existem no projeto foram trocados pelos de verdade: itens em `balance.ts` (não há `items.ts`/`models.ts`), `ClassId` (não `CharacterClass`), arte em `assets/` (não `client/public/assets/`), ícone 48x48 como os outros (não 64x64). `cajado1` é `.png` já com fundo transparente.
+
+**Limites conhecidos:** a mana ainda não é gasta (o disparo só tem a recarga do golpe). Fogo amigo do projétil não foi testado ponta a ponta (a regra é a mesma do golpe). Com a câmera ampliada (só nos testes), a camada de luz desalinha de todas as luzes, não só do projétil: o jogo roda com zoom 1.
+
 ## 2026-10 — 8 slots de equipamento, conjunto de ferro na Forja e armadura vestida no personagem
 
 **Pedido do dono do projeto:** 8 slots (adicionando Calça e Amuleto), um conjunto inicial de peças compráveis na Forja, todos vendo a armadura uns dos outros, e Elmo, Peitoral, Calça e Bota mudando a aparência do personagem em todas as direções, parado, andando e atacando.
