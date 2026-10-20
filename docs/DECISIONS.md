@@ -1183,6 +1183,23 @@ Slot vazio usa a moldura comum.
 
 ---
 
+## 2026-10 — Interface dark fantasy: placas [E], portal, janelas das lojas e avisos
+
+**Pedido do dono do projeto:** toda caixa de texto em ferro negro rebitado, bronze e couro envelhecido: placa de interação com a tecla [E] em relevo; confirmação ao entrar no portal; janelas das lojas em painel duplo (balcão ou baú à esquerda, mochila à direita) com o banner do NPC, as moedas e o fechar; cartões de item com moldura de raridade; avisos em placa gótica.
+
+**Como ficou:**
+- `client/src/plates.ts`: `InteractionPlate` (tecla 30x30, título e subtítulo, cantos de bronze, entra com fade e sobe; o portal tem o subtítulo roxo), `Toasts` (placa com a divisória "─── ◆ ───" e o ícone do tipo; o tipo é deduzido do texto do servidor: moedas, XP, recusa, zona) e `PortalModal`.
+- **Portal em dois passos:** o primeiro [E] abre a confirmação, o segundo (ou o botão "Adentrar o Labirinto") manda `enterPortal`; [Esc] ou o botão "Recuar" fecha, e afastar-se do portal também. O servidor não mudou: a confirmação é só desenho.
+- **Os selos do portal mostram com o que se entra**, não o estado da cidade: a cidade não tem fome nem dano, e a run começa com vida e fome cheias. Por isso Vida mostra a vida máxima e Fome mostra 100% (nunca âmbar na prática); Mochila mostra os slots ocupados e quantas rações vão junto.
+- `client/src/cityWindows.ts` virou **uma janela só** (`StationWindow`) com uma página por móvel (balcão e bigorna da Forja, balcão e bestiário da Guilda, balcão e baú da Estalagem), no lugar das 3 janelas com abas. Mesmo painel duplo (`inv_panel_wide`), mesmo banner (brasão 64 px na moldura lendária, nome e título do NPC, fala), placa de moedas e fechar [X / Esc]. Com ela aberta, a barra rápida some e o fundo escurece. As mensagens ao servidor são as mesmas de antes.
+- Mochila à direita com 12 slots grandes: clicar vende 1 no balcão da Guilda e guarda a pilha no baú; nos outros balcões só mostra (comparar).
+- Cartão de item: ícone 40 px na moldura da raridade, nome na cor dela, etiquetas (raridade, slot, "Exclusivo: Mago"), bônus em verde, preço com moeda, botões de metal chanfrado empilhados. Sem moedas ou materiais: botão apagado e o que falta em vermelho, junto do texto (na coluna do preço, o texto longo espremia o nome).
+- O **Bestiário** reaproveita a página antiga (cards dos mobs e o Rank), só escalada para caber no couro do painel novo.
+- As **receitas da bigorna seguem vitrine**: "Forjar" sempre apagado, com os materiais e o que falta.
+- Os avisos ficam na frente das janelas (z-index acima delas) e, com uma janela de prédio ou o portal aberto, sobem para a borda de cima (sobre o banner do NPC) em vez de cobrir os cartões. Não pegam clique.
+
+---
+
 ## 2026-10 — Spawns táticos e os efeitos hostis das 4 zonas
 
 **Pedido do dono do projeto:** um mapa vivo sem enxame (grupos por setor com posto, vida em repouso, coleira, teto de perseguidores, respawn fora da tela) e um efeito hostil por zona: Breu Abissal (goblins), Miasma Ácido e lodo (slimes), Frio Cortante e Frenesi de Sangue (lobos), Radiação Arcana e Ressonância Fragilizadora com descarga dos cristais e estilhaços (gnomos).

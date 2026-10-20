@@ -89,6 +89,7 @@ import { LightIndex, StaticCuller } from "./culling";
 import handSockets from "../../assets/characters/hand_sockets.json";
 import staffLook from "../../assets/weapons/cajado_arcano.json";
 import { Hud } from "./hud";
+import type { Prompt } from "./plates";
 import { Lighting, mergeNearby, phaseAt, type Light, type LightLook } from "./lighting";
 import { Particles } from "./particles";
 import { Bolts, FIREBALL_FPS, FIREBALL_KEY, type ProjectileView } from "./projectiles";
@@ -460,20 +461,22 @@ const EXIT_LIGHT: LightLook = { color: 0x40c4ff, intensity: 1, effect: "pulse" }
 // Portal de saída ativo: a mesma arte do portal da cidade, puxada para o azul da extração.
 const EXIT_PORTAL_KEY = "city/portal";
 // Dica de cada ponto de interação da cidade (portas da rua, portas de dentro e móveis).
-const INTERACTION_HINTS: Record<InteractionId, string> = {
-  guild: "[E] Entrar no Salão da Guilda",
-  inn: "[E] Entrar na Estalagem",
-  blacksmith: "[E] Entrar na Forja do Ferreiro",
-  "guild-exit": "[E] Sair para a Cidade",
-  "inn-exit": "[E] Sair para a Cidade",
-  "blacksmith-exit": "[E] Sair para a Cidade",
-  "guild-counter": "[E] Mercador da Guilda (Vender Loot)",
-  "guild-bestiary": "[E] Consultar Bestiário & Rank",
-  "inn-counter": "[E] Comprar Ração & Suprimentos",
-  "inn-chest": `[E] Baú Persistente da Linhagem (${STASH_SLOTS} Slots)`,
-  "blacksmith-counter": "[E] Comprar Armas & Equipamentos",
-  "blacksmith-anvil": "[E] Forja & Craft",
+// Placa de interação de cada porta e móvel (tecla E): o título da ação e um subtítulo curto.
+const INTERACTION_PROMPTS: Record<InteractionId, Prompt> = {
+  guild: { key: "E", title: "Entrar no Salão da Guilda", subtitle: "Venda de loot, bestiário e rank" },
+  inn: { key: "E", title: "Entrar na Estalagem", subtitle: "Comida e o Baú da Linhagem" },
+  blacksmith: { key: "E", title: "Entrar na Forja", subtitle: "Armas e armaduras do ferreiro" },
+  "guild-exit": { key: "E", title: "Sair", subtitle: "Voltar para a praça" },
+  "inn-exit": { key: "E", title: "Sair", subtitle: "Voltar para a praça" },
+  "blacksmith-exit": { key: "E", title: "Sair", subtitle: "Voltar para a praça" },
+  "guild-counter": { key: "E", title: "Falar com o Intendente", subtitle: "Vender o loot extraído" },
+  "guild-bestiary": { key: "E", title: "Consultar o Bestiário", subtitle: "Feras abatidas e o rank da linhagem" },
+  "inn-counter": { key: "E", title: "Comprar suprimentos", subtitle: "Rações para a fome no labirinto" },
+  "inn-chest": { key: "E", title: "Abrir o Baú da Linhagem", subtitle: `${STASH_SLOTS} slots que o herdeiro herda` },
+  "blacksmith-counter": { key: "E", title: "Comprar", subtitle: "Armas e armaduras do ferreiro" },
+  "blacksmith-anvil": { key: "E", title: "Forja", subtitle: "Receitas com materiais da caverna" },
 };
+const PORTAL_PROMPT: Prompt = { key: "E", title: "Entrar no Portal", subtitle: "O Labirinto aguarda além do véu", arcane: true };
 // Troca de lugar pela porta: escurece, o servidor muda o jogador de lugar e clareia. Sem resposta (fora da porta,
 // no servidor), clareia depois de DOOR_TIMEOUT_MS.
 const DOOR_FADE_MS = 120;
@@ -619,7 +622,7 @@ class WorldScene extends Phaser.Scene {
   private skillKeys: Phaser.Input.Keyboard.Key[] = [];
   // [E] no labirinto: acender tocha dos goblins; a dica fica até se afastar.
   private torchKey?: Phaser.Input.Keyboard.Key;
-  private torchHint = "";
+  private torchPrompt: Prompt | undefined;
   // Zonas hostis: os efeitos, as áreas do mapa (qual zona), as artes das tochas dos goblins, o fator de luz suave de
   // cada jogador (1 = normal) e o escuro suave do ambiente (0 a 1).
   private zoneFx?: ZoneEffects;
@@ -870,9 +873,13 @@ Subiu para o nível ${info.level}!` : "";
     const spot = atPortal ? undefined : interactionAt(self, this.interactions);
     if (hud.station && hud.station !== spot) hud.closeBuilding();
     const open = spot !== undefined && hud.station === spot;
-    hud.hint(atPortal ? "[E] Entrar no labirinto" : spot && !open ? INTERACTION_HINTS[spot] : "");
+    // Afastou-se do portal com a confirmação aberta: ela fecha.
+    if (!atPortal && hud.portalOpen) hud.closePortal();
+    hud.prompt(atPortal ? PORTAL_PROMPT : spot && !open ? INTERACTION_PROMPTS[spot] : undefined);
     if (!this.portalKey || !Phaser.Input.Keyboard.JustDown(this.portalKey)) return;
-    if (atPortal) room.send("enterPortal");
+    // No portal: o primeiro E abre a confirmação; o segundo (ou o botão dela) entra.
+    if (atPortal && hud.portalOpen) room.send("enterPortal");
+    else if (atPortal) hud.openPortal();
     else if (spot && isStationId(spot)) hud.toggleStation(spot);
     else if (spot && this.doorAskedAt === undefined) {
       this.doorAskedAt = time;
@@ -985,7 +992,9 @@ Subiu para o nível ${info.level}!` : "";
     );
     if (this.place !== "labyrinth") return;
     const extractMs = self.extractMs ?? 0;
-    hud.hint(extractMs > 0 ? `Extraindo… ${((EXTRACT_MS - extractMs) / 1000).toFixed(1)} s` : this.torchHint);
+    hud.prompt(
+      extractMs > 0 ? { title: "Extraindo…", subtitle: `${((EXTRACT_MS - extractMs) / 1000).toFixed(1)} s — fique no portal` } : this.torchPrompt,
+    );
   }
 
   private drawTelegraphs(room: Room<unknown, ServerState>, g: Phaser.GameObjects.Graphics, time: number) {
@@ -1035,7 +1044,7 @@ Subiu para o nível ${info.level}!` : "";
       if (!lit && !art.image.isTinted) art.image.setTint(UNLIT_TORCH_TINT);
     }
     const near = torchInReach(self, torches, TORCH.interactRadius);
-    this.torchHint = near ? "[E] Acender tocha" : "";
+    this.torchPrompt = near ? { key: "E", title: "Acender tocha", subtitle: "Luz para todos até o fim da run" } : undefined;
     if (near && this.torchKey && Phaser.Input.Keyboard.JustDown(this.torchKey)) room.send("lightTorch");
     // Breu e frio, com transição suave.
     const k = Math.min(1, delta / ZONE_FADE_MS);

@@ -6,13 +6,13 @@ import {
   SKILLS,
   type SkillId,
   levelProgress,
-  type BuildingId,
   type EquipSlot,
   type ItemId,
   type StationId,
 } from "shared";
 import layout from "../../assets/ui/hud/layout.json";
-import { ForgeWindow, GuildWindow, InnWindow, type CityWindow, type Send } from "./cityWindows";
+import { StationWindow, type Send } from "./cityWindows";
+import { InteractionPlate, PortalModal, Toasts, type NoticeKind, type Prompt } from "./plates";
 import "./hud.css";
 import { ART, ICONS, SlotView, Tooltip, el, essenceEffectText, frameName, image, place, rarityStyle, setText, setViewerClass, size, type HudSlot } from "./hudParts";
 import { EMPTY_SKILL_ICON, SKILL_ICONS, SKILL_KEY_LABELS } from "./skillArt";
@@ -113,22 +113,11 @@ const BAG_ICON = [
   "................",
 ];
 const BAG_COLORS: Record<string, string> = { d: "#5a3a22", b: "#2a1a10", L: "#8a5a32", F: "#6b4224", g: "#e2b341", s: "#5a3a22" };
-const NOTICE_MS = 2500;
-const MAX_NOTICES = 3;
 const HUNGER_ALERT = 0.2;
 // Barra fantasma: depois de levar dano, a parte perdida fica clara por GHOST_HOLD_MS e então escorre.
 const GHOST_HOLD_MS = 350;
 const GHOST_SPEED = 0.6; // fração da barra por segundo
 const WINDOW_KEYS = new Set(["KeyI", "Tab", "KeyB"]);
-// Janela e aba de cada móvel dos prédios.
-const STATION_WINDOWS: Record<StationId, [BuildingId, string]> = {
-  "guild-counter": ["guild", "merchant"],
-  "guild-bestiary": ["guild", "bestiary"],
-  "inn-counter": ["inn", "tavern"],
-  "inn-chest": ["inn", "stash"],
-  "blacksmith-counter": ["blacksmith", "catalog"],
-  "blacksmith-anvil": ["blacksmith", "recipes"],
-};
 
 // Escala inteira das janelas: a tela tem pelo menos ~960x540 pixels de HUD (1 em 1366x768, 2 em 1920x1080, 3 em 4K).
 function hudScale(): number {
@@ -197,9 +186,13 @@ export class Hud {
   private readonly root = el("div", "hud");
   private readonly tooltip: Tooltip;
   private readonly window: InventoryWindow;
-  // Janelas dos prédios da cidade (E na porta). No máximo uma janela aberta por vez, contando a de inventário.
-  private readonly buildings: Record<BuildingId, CityWindow>;
-  private openStation: StationId | undefined;
+  // Janela dos móveis dos prédios da cidade (E no balcão, no baú...). No máximo uma janela aberta por vez, contando a de
+  // inventário; com ela aberta, a barra rápida some (a mochila está na janela).
+  private readonly stations: StationWindow;
+  // Confirmação do portal da cidade.
+  private readonly portal: PortalModal;
+  private portalView: HudView | undefined;
+  private lastZone: string | undefined;
   private readonly portrait: HTMLImageElement;
   private readonly fills = new Map<string, HTMLDivElement>();
   private readonly ghost: HTMLDivElement;
@@ -215,8 +208,8 @@ export class Hud {
   private shownEssences = "";
   private essenceView: { level: number; essences: readonly string[] } = { level: 1, essences: [] };
   private readonly coinText: HTMLSpanElement;
-  private readonly notices: HTMLDivElement;
-  private readonly hintText: HTMLDivElement;
+  private readonly toasts: Toasts;
+  private readonly plate: InteractionPlate;
   private readonly mpText: HTMLSpanElement;
   private readonly zoneBanner: HTMLDivElement;
   private readonly zoneName: HTMLDivElement;
@@ -276,8 +269,7 @@ export class Hud {
     this.zoneName = el("div", "hud-zone-name", this.zoneBanner);
     this.zoneEffect = el("div", "hud-zone-effect", this.zoneBanner);
     this.zoneBanner.hidden = true;
-    this.hintText = el("div", "hud-hint", top);
-    this.notices = el("div", "hud-notices", top);
+    this.toasts = new Toasts(el("div", "hud-notices", top));
 
     // Embaixo, no centro: barra rápida com os slots 1 a 6 (o dock da arte em 1,5x) e o botão da mochila ao lado.
     const d = layout.hotbar_dock;
@@ -318,11 +310,17 @@ export class Hud {
     this.tooltip.attach(bag, () => ({ title: "Mochila", lines: ["Inventário, essências e equipamento."], hint: "Clique ou pressione [I]" }));
 
     this.window = new InventoryWindow(this.root, this.tooltip, onUse, send, () => this.closeWindow());
-    this.buildings = {
-      guild: new GuildWindow(this.root, this.tooltip, send),
-      inn: new InnWindow(this.root, this.tooltip, send),
-      blacksmith: new ForgeWindow(this.root, this.tooltip, send),
-    };
+    this.stations = new StationWindow(this.root, this.tooltip, send, () => this.closeBuilding());
+    this.portal = new PortalModal(
+      this.root,
+      () => {
+        this.closePortal();
+        send("enterPortal", undefined);
+      },
+      () => this.closePortal(),
+    );
+    // Placa de interação de proximidade, embaixo no centro, logo acima da barra rápida.
+    this.plate = new InteractionPlate(el("div", "hud-prompt-dock", this.root));
 
     window.addEventListener("resize", () => this.applyScale());
     window.addEventListener("keydown", (event) => this.onKey(event));
@@ -391,23 +389,47 @@ export class Hud {
     this.root.hidden = true;
     this.closeWindow();
     this.closeBuilding();
+    this.closePortal();
     this.tooltip.hide();
-    this.hint("");
+    this.prompt(undefined);
   }
 
-  // Aviso temporário (primeira morte, slot de essência cheio...). Os mais antigos saem se acumular.
-  notice(text: string) {
-    const node = el("div", "hud-notice", this.notices);
-    node.textContent = text;
-    while (this.notices.children.length > MAX_NOTICES) this.notices.firstElementChild?.remove();
-    window.setTimeout(() => node.classList.add("hud-fading"), NOTICE_MS - 400);
-    window.setTimeout(() => node.remove(), NOTICE_MS);
+  // Aviso temporário (primeira morte, mochila cheia, zona nova...): placa gótica no centro-superior. Sem tipo, ele é
+  // deduzido do texto (avisos do servidor). Os mais antigos saem se acumular.
+  notice(text: string, kind?: NoticeKind) {
+    this.toasts.show(text, kind);
   }
 
-  // Dica fixa no topo enquanto valer (portal, contagem da extração). Texto vazio esconde.
-  hint(text: string) {
-    setText(this.hintText, text);
-    this.hintText.hidden = text === "";
+  // Placa de interação enquanto valer (portal, portas, balcões, tocha, contagem da extração). Sem nada, esconde.
+  prompt(prompt: Prompt | undefined) {
+    this.plate.set(this.stations.open || this.portal.open ? undefined : prompt);
+  }
+
+  // Confirmação do portal da cidade ([E] no portal). [E] de novo (ou o botão) entra; [Esc] recua.
+  openPortal() {
+    this.closeWindow();
+    this.closeBuilding();
+    if (this.portalView) this.portal.update(this.portalView);
+    this.portal.setOpen(true);
+    this.dockbar.hidden = true;
+    this.syncModal();
+  }
+
+  closePortal() {
+    if (!this.portal.open) return;
+    this.portal.setOpen(false);
+    this.dockbar.hidden = false;
+    this.syncModal();
+  }
+
+  // Com uma janela de prédio ou a do portal aberta, os avisos sobem para a borda de cima (sobre o banner do NPC) em vez
+  // de cobrir os cartões e os botões.
+  private syncModal() {
+    this.root.classList.toggle("hud-modal-open", this.stations.open || this.portal.open);
+  }
+
+  get portalOpen(): boolean {
+    return this.portal.open;
   }
 
   update(view: HudView, time: number) {
@@ -443,6 +465,12 @@ export class Hud {
     this.setWidth("mp", this.fills.get("mp"), maxMana > 0 ? Math.max(0, mana) / maxMana : 0);
     setText(this.mpText, `${Math.floor(Math.max(0, mana))} / ${maxMana}`);
     const banner = view.zone ? ZONE_BANNERS[view.zone] : undefined;
+    // Entrou numa zona hostil: além do indicador fixo, um aviso.
+    if (view.zone !== this.lastZone) {
+      this.lastZone = view.zone;
+      if (banner) this.notice(`${banner.name}
+${banner.effect}`, "zone");
+    }
     this.zoneBanner.hidden = !banner;
     if (banner) {
       setText(this.zoneName, banner.name);
@@ -462,7 +490,8 @@ export class Hud {
     this.updateSkills(view.skills);
     // A janela aberta acompanha na hora (comer, pegar loot, absorver essência); fechada, não gasta nada.
     if (this.window.open) this.window.update(view);
-    if (this.openStation) this.buildings[STATION_WINDOWS[this.openStation][0]].update(view);
+    if (this.stations.open) this.stations.update(view);
+    this.portalView = view;
   }
 
   // Ícone de cada slot e a recarga: a sombra cobre a fração que falta, e os segundos aparecem enquanto não está pronta.
@@ -496,25 +525,26 @@ export class Hud {
 
   // Qual móvel está com a janela aberta (a cena a fecha quando o jogador se afasta dele).
   get station(): StationId | undefined {
-    return this.openStation;
+    return this.stations.current;
   }
 
   // E num móvel: abre a janela dele, na aba dele, ou fecha se já estava aberta.
   toggleStation(id: StationId) {
-    if (this.openStation === id) return this.closeBuilding();
-    this.closeBuilding();
+    if (this.stations.current === id) return this.closeBuilding();
     this.closeWindow();
-    const [building, tab] = STATION_WINDOWS[id];
-    this.buildings[building].show(tab);
-    this.buildings[building].root.hidden = false;
-    this.openStation = id;
+    this.closePortal();
+    this.stations.show(id);
+    this.dockbar.hidden = true;
+    this.plate.set(undefined);
+    this.syncModal();
   }
 
   closeBuilding() {
-    if (!this.openStation) return;
-    this.buildings[STATION_WINDOWS[this.openStation][0]].root.hidden = true;
-    this.openStation = undefined;
+    if (!this.stations.open) return;
+    this.stations.hide();
+    this.dockbar.hidden = this.window.open;
     this.tooltip.hide();
+    this.syncModal();
   }
 
   // I, Tab ou B abrem e fecham a janela; Esc fecha. Não mexe nas teclas do jogo (WASD e slots seguem valendo).
@@ -527,6 +557,7 @@ export class Hud {
     } else if (event.code === "Escape") {
       this.closeWindow();
       this.closeBuilding();
+      this.closePortal();
       this.tooltip.hide();
     }
   }
