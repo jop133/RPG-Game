@@ -49,19 +49,30 @@ describe("efeitos contínuos", () => {
     expect(tickMana(50, 100, "gnomo", 1000)).toBeCloseTo(50 + MANA_REGEN_PER_SECOND * g.manaRegenFactor - g.manaDrainPerSecond);
     expect(tickMana(99.5, 100, undefined, 1000)).toBe(100);
     expect(tickMana(0.1, 100, "gnomo", 1000)).toBe(0);
+    // No labirinto a regeneração vale LABYRINTH_REGEN_FACTOR (passado de fora).
+    expect(tickMana(50, 100, undefined, 1000, 0.5)).toBeCloseTo(50 + MANA_REGEN_PER_SECOND * 0.5);
   });
 });
 
 describe("goblins", () => {
-  it("olhos: só quem já está caçando e entre 3 e 8 tiles", () => {
+  it("olhos: só quem já está caçando e a até 6 tiles", () => {
     const me = { x: 0, y: 0 };
     const eyes = goblinEyes(me, [
       { x: 50, y: 0, hunting: true },
       { x: 150, y: 0, hunting: true },
       { x: 150, y: 10, hunting: false },
-      { x: 400, y: 0, hunting: true },
+      { x: 250, y: 0, hunting: true },
     ]);
-    expect(eyes).toEqual([{ x: 150, y: 0 }]);
+    expect(eyes).toEqual([{ x: 50, y: 0 }, { x: 150, y: 0 }]);
+  });
+
+  it("olhos: atrás de parede não aparecem", () => {
+    // Corredor de cima e de baixo separados por uma parede (linha do meio), tiles de 32 px.
+    const rows = ["......", "######", "......"];
+    const grid = { width: 6, height: 3, tileSize: 32, solid: rows.join("").split("").map((c) => c === "#") };
+    const me = { x: 16, y: 16 };
+    const eyes = goblinEyes(me, [{ x: 112, y: 16, hunting: true }, { x: 48, y: 80, hunting: true }], grid);
+    expect(eyes).toEqual([{ x: 112, y: 16 }]);
   });
 
   it("tocha: a apagada mais perto ao alcance", () => {

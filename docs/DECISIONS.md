@@ -1183,6 +1183,30 @@ Slot vazio usa a moldura comum.
 
 ---
 
+## 2026-10 — Breu absoluto com linha de visão, mais dificuldade e portais com canalização
+
+**Pedido do dono do projeto:** a escuridão mostrava o contorno das paredes e corredores atrás de muros; o jogo estava fácil e chegava-se ao portal sem tomar dano.
+
+**Decisões (perguntadas ao dono do projeto):**
+- **Linha de visão no cliente e no servidor** (regra 4): a mesma regra pura (`lightReach` em `shared/src/light.ts`) decide o desenho e o que é enviado. Mob, pilha, outro jogador e olho de goblin atrás de parede não chegam ao cliente.
+- **Nenhuma luz atravessa parede**, nem as do mapa (cristais, tochas, portais). Resolve a limitação antiga da luz de cristal mostrando mob no túnel do lado.
+- **Canalização completa abre o portal para o grupo** por `EXIT_CHANNEL.openMs` (12 s); quem estiver no anel extrai na hora.
+- **Portal inativo continua aceso**, num roxo fraco (`EXIT_IDLE_LIGHT_RADIUS`); canalizando ou aberto, a luz forte.
+
+**Como ficou:**
+- `lightReach(grid, from, to)`: fração do segmento até a primeira parede (Amanatides & Woo, como `hasLineOfSight`), mas o tile de onde a luz sai não bloqueia (tochas, minério e braseiros ficam dentro do tile da parede: todas as luzes do mapa saem da parede em 1 tile). `staticLitMap` e `isLit` recebem a grade; a luz fixa da run leva 2,8 ms para recalcular.
+- Cliente (`lighting.ts`, só no labirinto): ambiente preto puro; cada luz é um leque de raios até a primeira parede, desenhado em triângulos com a cor do degradê em cada vértice (o mesmo degradê da mancha); por cima, a sombra da vista de quem joga (preto opaco além da primeira parede, borda suave de 12 px). A luz e a vista entram um pouco na parede (10 px; para cima até 40 px: na vista 3/4 a face do muro ao norte e a cabeça de quem encosta nele ficam no tile de cima). Leques das luzes paradas ficam guardados. Custo: 0,6 a 1,5 ms por quadro.
+- Luz do jogador 240 → 120 px; nos goblins `lightFactor` 0,25 → 2/3 (80 px, como pedido: **mais claro que antes** nessa zona, 60 px). Olhos: até 6 tiles e sem parede no meio.
+- Dificuldade (`balance.ts`): goblin 15 → 26 de dano e `chaseSpeedFactor` 1,15; lobo 10 → 20 e, em frenesi, golpe em 60% do tempo (`FRENZY.attackTimeFactor`); lodo 3/s e 50% da velocidade; descarga dos cristais 20; sangramento 4/s por 5 s. `STAGGER`: golpe de mob deixa o jogador a 60% da velocidade por 250 ms. `LABYRINTH_REGEN_FACTOR` 0,5 na regeneração de Vida e de Mana.
+- Portal (`EXIT_CHANNEL`): [E] no anel de um portal inativo, parado, começa a canalizar 7 s (`stepChannel`); andar ou levar qualquer dano (inclusive fome e lodo) interrompe e zera. Ao começar, `alarm` (mobAi) manda todo mob a até 640 px correr para o portal caçando quem canaliza: sem coleira, sem desistir no caminho e fora do teto de perseguidores. `PlayerState.channelMs` (público: a barra aparece em cima de quem canaliza) e `ExitState.phase`/`openMs`. Sai a contagem de 5 s parado (`EXTRACT_MS`, `extractMs`).
+- Cliente: placa "[E] Ativar Portal", contagem da canalização, "Portal aberto! x s"; portal roxo apagado, azul pulsando canalizando; faíscas e tremor ao ativar e ao abrir. Sem som: o jogo não tem áudio.
+
+**Escolhas minhas (avise se quiser diferente):** objetos sólidos (obeliscos, pilares, cristais grandes) também tapam a vista e a luz; a sombra das luzes fixas sobre o chão visível tem borda dura (só a da vista é suave); "fogueiras" do pedido não existem no jogo.
+
+**Achado no teste e corrigido:** a confirmação do portal da cidade ficava aberta dentro do labirinto quando se entrava pelo segundo [E] (só o botão a fechava).
+
+---
+
 ## 2026-10 — Interface dark fantasy: placas [E], portal, janelas das lojas e avisos
 
 **Pedido do dono do projeto:** toda caixa de texto em ferro negro rebitado, bronze e couro envelhecido: placa de interação com a tecla [E] em relevo; confirmação ao entrar no portal; janelas das lojas em painel duplo (balcão ou baú à esquerda, mochila à direita) com o banner do NPC, as moedas e o fechar; cartões de item com moldura de raridade; avisos em placa gótica.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { EXIT_RADIUS, EXTRACT_MS } from "./balance";
-import { isInsideExit, pickActiveExits, stepExtraction } from "./extraction";
+import { EXIT_CHANNEL, EXIT_RADIUS } from "./balance";
+import { alarmedMobs, exitIndexAt, isInsideExit, pickActiveExits, stepChannel } from "./extraction";
 
 const candidates = [
   { x: 1, y: 1 },
@@ -44,22 +44,38 @@ describe("isInsideExit", () => {
   });
 });
 
-describe("stepExtraction", () => {
-  it("dentro do portal, a contagem soma", () => {
-    expect(stepExtraction(1000, true, 50)).toEqual({ progressMs: 1050, done: false });
+describe("exitIndexAt", () => {
+  it("diz em qual portal o ponto está, ou -1", () => {
+    const exits = [{ x: 0, y: 0 }, { x: 500, y: 0 }];
+    expect(exitIndexAt({ x: 505, y: 3 }, exits)).toBe(1);
+    expect(exitIndexAt({ x: 250, y: 0 }, exits)).toBe(-1);
+  });
+});
+
+describe("stepChannel", () => {
+  it("parado e sem dano, a canalização soma", () => {
+    expect(stepChannel(1000, false, 50)).toEqual({ elapsedMs: 1050, done: false, interrupted: false });
   });
 
-  it("saiu do portal: zera", () => {
-    expect(stepExtraction(EXTRACT_MS - 50, false, 50)).toEqual({ progressMs: 0, done: false });
+  it("andou ou levou dano: interrompe e zera", () => {
+    expect(stepChannel(EXIT_CHANNEL.channelMs - 50, true, 50)).toEqual({ elapsedMs: 0, done: false, interrupted: true });
   });
 
-  it("completa exatamente em EXTRACT_MS de ticks seguidos dentro", () => {
-    let state = { progressMs: 0, done: false };
+  it("completa exatamente em channelMs de ticks seguidos", () => {
+    let state = { elapsedMs: 0, done: false, interrupted: false };
     let ticks = 0;
     while (!state.done) {
-      state = stepExtraction(state.progressMs, true, 50);
+      state = stepChannel(state.elapsedMs, false, 50);
       ticks++;
     }
-    expect(ticks * 50).toBe(EXTRACT_MS);
+    expect(ticks * 50).toBe(EXIT_CHANNEL.channelMs);
+  });
+});
+
+describe("alarmedMobs", () => {
+  it("só os mobs dentro do raio do alarme", () => {
+    const r = EXIT_CHANNEL.alertRadius;
+    const mobs: [string, { x: number; y: number }][] = [["perto", { x: r - 1, y: 0 }], ["longe", { x: r + 1, y: 0 }]];
+    expect(alarmedMobs({ x: 0, y: 0 }, mobs)).toEqual(["perto"]);
   });
 });

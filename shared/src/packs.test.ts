@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { IDLE, LEASH, MOB_SPAWN_SAFE_RADIUS, PACKS, PATH_RECALC_MS } from "./balance";
 import type { CollisionGrid } from "./collision";
-import { type MobWorld, type ThinkingMob, stepMob } from "./mobAi";
+import { type MobMind, type MobWorld, type ThinkingMob, alarm, stepMob } from "./mobAi";
 import type { Vec2 } from "./movement";
 import { idlePlanFor, patrolAxis, planPacks, roamPoint } from "./packs";
 
@@ -122,6 +122,37 @@ describe("mob de grupo (com posto)", () => {
     const after = stepMob(next, world({ p: { x: far.x + 20, y: far.y } }), 100, Math.random);
     expect(after.mind.mode).toBe("return");
     expect(distance(after.position, next.position)).toBeCloseTo(stats.speed * 0.1 * LEASH.returnSpeed, 0);
+  });
+
+  it("alarme do portal: corre para lá sem coleira e não desiste no caminho", () => {
+    const portal = center(30, 5);
+    // Repousando no posto; o jogador que canaliza está longe demais para ser visto.
+    let mob: ThinkingMob = { position: home, mind: alarm({ mode: "idle", path: [], waitMs: 1000, leg: 0 }, "p", portal) };
+    expect(mob.mind).toMatchObject({ mode: "chase", targetId: "p", alert: true });
+    const players = { p: { x: portal.x, y: portal.y + 2000 } };
+    // Passa da coleira (25 tiles do posto, a coleira é de 15) sem voltar, e chega ao portal.
+    for (let i = 0; i < 120 && distance(mob.position, portal) > TILE; i++) {
+      mob = stepMob(mob, world(players), 100, Math.random);
+      expect(mob.mind.mode).toBe("chase");
+    }
+    expect(distance(mob.position, portal)).toBeLessThanOrEqual(TILE);
+    // Lá, sem ver ninguém, desiste depois do tempo de sempre e volta ao posto.
+    for (let i = 0; i < 40 && mob.mind.mode === "chase"; i++) mob = stepMob(mob, world(players), 100, Math.random);
+    expect(mob.mind.mode).toBe("return");
+  });
+
+  it("alarme no meio de um golpe: termina o golpe e segue alertado", () => {
+    const busy: MobMind = { mode: "windup", targetId: "q", angle: 0, remainingMs: 100 };
+    expect(alarm(busy, "p", center(30, 5))).toEqual({ ...busy, alert: true });
+  });
+
+  it("chaseSpeedFactor: perseguindo, anda mais rápido", () => {
+    const fast = { ...stats, chaseSpeedFactor: 1.5 };
+    const at = center(5, 5);
+    const target = { x: at.x + 300, y: at.y };
+    const mob: ThinkingMob = { position: at, mind: { mode: "chase", targetId: "p", lastSeen: target, lostMs: 0, path: [], sinceRepathMs: PATH_RECALC_MS } };
+    const next = stepMob(mob, world({ p: target }, { stats: fast }), 100, Math.random);
+    expect(distance(next.position, at)).toBeCloseTo(fast.speed * 0.1 * 1.5, 0);
   });
 
   it("volta ao posto e repousa", () => {

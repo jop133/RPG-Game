@@ -13,14 +13,16 @@ import { type WanderState, startIdle, stepWander } from "./wander";
 // wander: o mob solto (sem posto) vagando pela área. idle: o mob de grupo (com posto) levando a vida em volta do posto
 // (path até o ponto da vez; waitMs parado nele; leg: qual ponta da patrulha é a próxima).
 // return: voltando; immuneMs > 0 = voltando pela coleira, sem notar ninguém.
+// alert: atende ao alarme de um portal (alarm): sem coleira, e só desiste depois de chegar aonde foi chamado (ou onde
+// viu o alvo por último). Passa pelo golpe (windup, recover) e só acaba quando ele desiste.
 export type MobMind =
   | { mode: "wander"; wander: WanderState }
   | { mode: "idle"; path: Vec2[]; waitMs: number; leg: number }
   // sinceRepathMs: tempo desde o último A* da perseguição (o recálculo é limitado a um a cada PATH_RECALC_MS).
-  | { mode: "chase"; targetId: string; lastSeen: Vec2; lostMs: number; path: Vec2[]; sinceRepathMs: number }
+  | { mode: "chase"; targetId: string; lastSeen: Vec2; lostMs: number; path: Vec2[]; sinceRepathMs: number; alert?: boolean }
   | { mode: "return"; path: Vec2[]; immuneMs?: number }
-  | { mode: "windup"; targetId: string; angle: number; remainingMs: number }
-  | { mode: "recover"; targetId: string; remainingMs: number };
+  | { mode: "windup"; targetId: string; angle: number; remainingMs: number; alert?: boolean }
+  | { mode: "recover"; targetId: string; remainingMs: number; alert?: boolean };
 
 export interface ThinkingMob {
   position: Vec2;
@@ -199,12 +201,14 @@ function stepChasing(
 ): ThinkingMob {
   const target = world.players.get(mind.targetId);
   if (!target) return { position: mob.position, mind: giveUp(mob.position, world, random) };
-  // Coleira: longe demais do posto, desiste e volta depressa, sem notar ninguém por um tempo.
-  if (world.post && distance(mob.position, world.post.home) > LEASH.radius) {
+  // Coleira: longe demais do posto, desiste e volta depressa, sem notar ninguém por um tempo. Atendendo a um alarme, não.
+  if (!mind.alert && world.post && distance(mob.position, world.post.home) > LEASH.radius) {
     return { position: mob.position, mind: returnToPost(mob.position, world.post, world.grid, LEASH.immuneMs) };
   }
   const visible = sees(world.grid, mob.position, target, VIEW_RADIUS);
-  const lostMs = visible ? 0 : mind.lostMs + dtMs;
+  // Atendendo a um alarme, o caminho até o portal pode ser longo: só conta o tempo sem ver o alvo depois de chegar.
+  const enRoute = mind.alert === true && !sameTile(world.grid, mob.position, mind.lastSeen);
+  const lostMs = visible || enRoute ? 0 : mind.lostMs + dtMs;
   if (lostMs >= MOB_LOSE_TRACK_MS) return { position: mob.position, mind: giveUp(mob.position, world, random) };
   const lastSeen = visible ? target : mind.lastSeen;
 
@@ -214,12 +218,15 @@ function stepChasing(
     const angle = Math.atan2(target.y - mob.position.y, target.x - mob.position.x);
     return {
       position: mob.position,
-      mind: { mode: "windup", targetId: mind.targetId, angle, remainingMs: world.stats.windupMs },
+      mind: { mode: "windup", targetId: mind.targetId, angle, remainingMs: world.stats.windupMs, alert: mind.alert },
     };
   }
   const since = mind.sinceRepathMs + dtMs;
   const route = pathTo(world.grid, mob.position, lastSeen, mind.path, since);
-  const moved = followPath(mob.position, route.path, lastSeen, world, dtMs);
+  // Perseguindo, alguns tipos correm mais (chaseSpeedFactor).
+  const factor = world.stats.chaseSpeedFactor ?? 1;
+  const runner = factor === 1 ? world : { ...world, stats: { ...world.stats, speed: world.stats.speed * factor } };
+  const moved = followPath(mob.position, route.path, lastSeen, runner, dtMs);
   // Terminou de andar o caminho neste tick: o próximo recalcula na hora. Um A* que devolveu [] (já está no ponto mais
   // perto de um alvo fora de alcance) não conta: aí espera o intervalo, em vez de rodar de novo a cada tick.
   const ranOut = route.path.length > 0 && moved.path.length === 0;
@@ -233,7 +240,7 @@ function stepWindup(mob: ThinkingMob, mind: Extract<MobMind, { mode: "windup" }>
   if (remainingMs > 0) return { position: mob.position, mind: { ...mind, remainingMs } };
   return {
     position: mob.position,
-    mind: { mode: "recover", targetId: mind.targetId, remainingMs: world.stats.recoverMs },
+    mind: { mode: "recover", targetId: mind.targetId, remainingMs: world.stats.recoverMs, alert: mind.alert },
     strike: mind.angle,
   };
 }
@@ -245,7 +252,7 @@ function stepRecover(mob: ThinkingMob, mind: Extract<MobMind, { mode: "recover" 
   return {
     position: mob.position,
     // Sem caminho ainda: o intervalo já vencido, para calcular no primeiro tick.
-    mind: { mode: "chase", targetId: mind.targetId, lastSeen: mob.position, lostMs: 0, path: [], sinceRepathMs: PATH_RECALC_MS },
+    mind: { mode: "chase", targetId: mind.targetId, lastSeen: mob.position, lostMs: 0, path: [], sinceRepathMs: PATH_RECALC_MS, alert: mind.alert },
   };
 }
 
@@ -257,6 +264,14 @@ export function provoke(mind: MobMind, targetId: string, from: Vec2): MobMind {
   // Voltando pela coleira: imune, não se deixa puxar de novo.
   if (mind.mode === "return" && (mind.immuneMs ?? 0) > 0) return mind;
   return { mode: "chase", targetId, lastSeen: { x: from.x, y: from.y }, lostMs: 0, path: [], sinceRepathMs: PATH_RECALC_MS };
+}
+
+// Alarme de um portal (canalização): o mob larga o que fazia (vagando, em repouso, voltando, até pela coleira, ou
+// perseguindo outro) e corre para `at`, caçando `targetId` (quem canaliza), sem coleira (ver `alert`). No meio de um
+// golpe (preparando ou recuperando), termina o golpe primeiro e segue o alvo que já tinha.
+export function alarm(mind: MobMind, targetId: string, at: Vec2): MobMind {
+  if (mind.mode === "windup" || mind.mode === "recover") return { ...mind, alert: true };
+  return { mode: "chase", targetId, lastSeen: { x: at.x, y: at.y }, lostMs: 0, path: [], sinceRepathMs: PATH_RECALC_MS, alert: true };
 }
 
 function stepReturning(

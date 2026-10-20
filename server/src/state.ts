@@ -26,8 +26,8 @@ export const PlayerState = schema(
     attackAngle: t.number(),
     hunger: t.number().view(OWNER_TAG),
     inventory: t.array(ItemSlotState).view(OWNER_TAG),
-    // Quanto já ficou no portal (ms). Só o dono vê a própria contagem.
-    extractMs: t.number().view(OWNER_TAG),
+    // Canalização de portal em curso (ms; 0 = nenhuma). Pública: todos veem a barra em cima de quem canaliza.
+    channelMs: t.number(),
     // Progressão do personagem (vem do banco). Nível = número de slots de essência.
     xp: t.number().view(OWNER_TAG),
     level: t.number().view(OWNER_TAG),
@@ -65,8 +65,9 @@ export type MobState = SchemaType<typeof MobState>;
 export const LootState = schema({ x: t.number(), y: t.number() }, "LootState");
 export type LootState = SchemaType<typeof LootState>;
 
-// Portal de saída ativo nesta run. Passa pelo filtro de visão: é preciso explorar para achar.
-export const ExitState = schema({ x: t.number(), y: t.number() }, "ExitState");
+// Portal de saída desta run. Passa pelo filtro de visão: é preciso explorar para achar. phase: ExitPhase ("idle",
+// "channel", "open"); openMs: quanto falta para fechar, aberto (de 100 em 100 ms).
+export const ExitState = schema({ x: t.number(), y: t.number(), phase: t.string(), openMs: t.number() }, "ExitState");
 export type ExitState = SchemaType<typeof ExitState>;
 
 // Projétil Mágico em voo (MAGIC_BOLT). angle: para onde voa (o cliente gira o desenho). done: bateu ou acabou o

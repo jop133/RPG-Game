@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { VIEW_HYSTERESIS } from "./balance";
-import { isLit, lightRadius, staticLitMap } from "./light";
+import type { CollisionGrid } from "./collision";
+import { isLit, lightRadius, lightReach, lightReaches, staticLitMap } from "./light";
 
 describe("staticLitMap", () => {
   it("acende os tiles cujo centro está dentro do raio, e só eles", () => {
@@ -59,5 +60,66 @@ describe("lightRadius", () => {
     expect(lightRadius("tocha")).toBeGreaterThan(0);
     expect(lightRadius("lanterna-magica")).toBeUndefined();
     expect(lightRadius("toString")).toBeUndefined();
+  });
+});
+
+// Grade de teste: "#" é parede, "." é chão; tiles de 32 px.
+function gridOf(rows: string[]): CollisionGrid {
+  return { width: rows[0]?.length ?? 0, height: rows.length, tileSize: 32, solid: rows.join("").split("").map((c) => c === "#") };
+}
+
+// Centro do tile (col, row).
+const at = (col: number, row: number) => ({ x: col * 32 + 16, y: row * 32 + 16 });
+
+describe("lightReach", () => {
+  // Dois corredores paralelos separados por uma parede de 1 tile (a linha do meio).
+  const corridors = gridOf(["......", "######", "......"]);
+
+  it("sem parede no caminho, chega inteira", () => {
+    expect(lightReach(corridors, at(0, 0), at(5, 0))).toBe(1);
+    expect(lightReaches(corridors, at(0, 0), at(5, 0))).toBe(true);
+  });
+
+  it("para na borda da primeira parede: o corredor do outro lado fica escuro", () => {
+    // De (2,0) para (2,2): entra na parede em y = 32, a 16 px dos 64 px do segmento.
+    expect(lightReach(corridors, at(2, 0), at(2, 2))).toBeCloseTo(0.25);
+    expect(lightReaches(corridors, at(2, 0), at(4, 2))).toBe(false);
+  });
+
+  it("o tile de onde a luz sai não a bloqueia (tocha dentro da parede)", () => {
+    const torch = at(2, 1);
+    expect(lightReaches(corridors, torch, at(2, 0))).toBe(true);
+    expect(lightReaches(corridors, torch, at(2, 2))).toBe(true);
+    // Mas a parede vizinha bloqueia: a tocha não ilumina através do resto do muro.
+    const thick = gridOf(["......", "######", "######", "......"]);
+    expect(lightReaches(thick, at(2, 1), at(2, 3))).toBe(false);
+  });
+
+  it("não passa espremida pela quina entre duas paredes", () => {
+    // Na diagonal, exato pela quina entre (1,0) e (0,1), as duas paredes: não passa.
+    expect(lightReaches(gridOf([".#", "#."]), at(0, 0), at(1, 1))).toBe(false);
+    // Com só uma das duas, também não (a mesma regra do pathfinding).
+    expect(lightReaches(gridOf([".#", ".."]), at(0, 0), at(1, 1))).toBe(false);
+    expect(lightReaches(gridOf(["..", ".."]), at(0, 0), at(1, 1))).toBe(true);
+  });
+});
+
+describe("luz cortada por parede", () => {
+  const corridors = gridOf(["......", "######", "......"]);
+
+  it("staticLitMap com a grade não acende o corredor atrás da parede", () => {
+    const lit = staticLitMap([{ ...at(2, 0), radius: 100 }], 6, 3, 32, corridors);
+    expect(lit.cells[0 * 6 + 2]).toBe(true);
+    expect(lit.cells[2 * 6 + 2]).toBe(false);
+    // Sem a grade, como antes: o círculo atravessa.
+    expect(staticLitMap([{ ...at(2, 0), radius: 100 }], 6, 3, 32).cells[2 * 6 + 2]).toBe(true);
+  });
+
+  it("isLit com a grade: a luz do jogador não alcança quem está do outro lado", () => {
+    const dark = staticLitMap([], 6, 3, 32);
+    const player = { ...at(2, 0), radius: 120 };
+    expect(isLit(at(3, 0), dark, [player], false, corridors)).toBe(true);
+    expect(isLit(at(2, 2), dark, [player], false, corridors)).toBe(false);
+    expect(isLit(at(2, 2), dark, [player], false)).toBe(true);
   });
 });

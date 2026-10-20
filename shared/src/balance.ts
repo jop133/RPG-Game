@@ -169,8 +169,11 @@ export const FORGE_RECIPES: readonly ForgeItem[] = [
 export const EXITS_ACTIVE = 4;
 // Raio do portal, em pixels, contado do centro: o centro do jogador precisa estar dentro.
 export const EXIT_RADIUS = 28;
-// Tempo parado dentro do portal para extrair. Sair do portal zera; levar dano não.
-export const EXTRACT_MS = 5000;
+// Portal de saída: começa inativo (luz fraca, EXIT_IDLE_LIGHT_RADIUS). [E] dentro dele começa a canalização: CHANNEL_MS
+// parado e sem levar dano (andar ou levar qualquer dano interrompe e zera). Ao começar, o portal dá o alarme: todo mob
+// a até ALERT_RADIUS px corre para ele (sem coleira, sem teto de perseguidores). Completa, o portal fica aberto por
+// OPEN_MS para o grupo: quem estiver dentro (EXIT_RADIUS) extrai na hora. Depois fecha e é preciso canalizar de novo.
+export const EXIT_CHANNEL = { channelMs: 7000, alertRadius: 640, openMs: 12000 };
 
 // Cidade: raio do portal para o labirinto, contado do centro. Dentro dele, a tecla E leva ao labirinto.
 export const CITY_PORTAL_RADIUS = 28;
@@ -226,8 +229,11 @@ export const VIEW_HYSTERESIS = 32;
 // de algum jogador (cada um carrega luz até PLAYER_LIGHT_RADIUS), dentro do raio de uma luz do mapa ou de uma saída
 // ativa. Jogadores e saídas brilham: continuam sendo vistos até VIEW_RADIUS. O cliente desenha a escuridão com estes
 // mesmos raios, então a máscara escura só cobre o mapa, que todo mundo já tem. Na cidade a luz é só desenho.
-export const PLAYER_LIGHT_RADIUS = 240;
+// A parede corta toda luz e a vista (lightReach): o que está atrás dela não é enviado, mesmo perto.
+export const PLAYER_LIGHT_RADIUS = 120;
+// Saída canalizando ou aberta; inativa, só um farol fraco.
 export const EXIT_LIGHT_RADIUS = 200;
+export const EXIT_IDLE_LIGHT_RADIUS = 96;
 
 // Status base de todo personagem (os 12 de stats.ts), antes da classe (passo 10), do equipamento e das essências. O
 // Dano Físico vem da arma (ou do soco). Bases neutras onde ainda não há fonte de bônus: o jogo joga como antes.
@@ -292,7 +298,7 @@ export const MOB_KINDS = {
     aggroRadius: 256,
     reach: 8,
     windupMs: 450,
-    attackDamage: 10,
+    attackDamage: 20,
     attackReach: 26,
     attackArcDegrees: 80,
     recoverMs: 700,
@@ -324,11 +330,13 @@ export const MOB_KINDS = {
   goblin: {
     size: 22,
     speed: 70,
+    // Perseguindo, anda 15% mais rápido.
+    chaseSpeedFactor: 1.15,
     maxHp: 40,
     aggroRadius: 224,
     reach: 12,
     windupMs: 800,
-    attackDamage: 15,
+    attackDamage: 26,
     attackReach: 32,
     attackArcDegrees: 100,
     recoverMs: 900,
@@ -399,14 +407,15 @@ export const IDLE = {
 
 // ---------------------------------------------------------------- zonas hostis (efeitos em quem está nelas)
 
-// Breu dos Goblins: a luz de cada um cai a LIGHT_FACTOR (e com ela o que o servidor envia, regra 4); goblins que
-// notaram o jogador a EYES px dele aparecem só como dois olhos no escuro.
+// Breu dos Goblins: a luz de cada um cai a LIGHT_FACTOR (120 -> 80 px; e com ela o que o servidor envia, regra 4);
+// goblins que notaram o jogador, a até EYES.max px dele, sem parede no meio e fora do que ele recebe, aparecem só como
+// dois olhos no escuro.
 // Miasma dos Slimes: toda cura recebida (regeneração) vale HEAL_FACTOR.
 // Frio dos Lobos: a fome cai HUNGER_FACTOR x mais rápido.
 // Radiação dos Gnomos: drena MANA_DRAIN de Mana por segundo, a regeneração de Mana vale MANA_REGEN_FACTOR e todo dano
 // recebido vale DAMAGE_TAKEN_FACTOR.
 export const ZONE_EFFECTS = {
-  goblin: { lightFactor: 0.25, eyes: { min: 96, max: 256 } },
+  goblin: { lightFactor: 2 / 3, eyes: { min: 0, max: 192 } },
   slime: { healFactor: 0.7 },
   lobo: { hungerFactor: 1.75 },
   gnomo: { manaDrainPerSecond: 1.5, manaRegenFactor: 0.2, damageTakenFactor: 1.25 },
@@ -418,14 +427,22 @@ export const MANA_REGEN_PER_SECOND = 2;
 export const TORCH = { interactRadius: 56, lightRadius: 180 };
 // Poças de lodo ácido (as do mapa e as que um slime deixa ao morrer, por SLIME_DEATH_MS): quem pisa (os pés a até
 // RADIUS px do centro) anda a SLOW da velocidade e perde DAMAGE_PER_SECOND de vida por segundo.
-export const ACID = { radius: 30, slow: 0.6, damagePerSecond: 2, slimeDeathMs: 6000 };
+export const ACID = { radius: 30, slow: 0.5, damagePerSecond: 3, slimeDeathMs: 6000 };
 // Frenesi de Sangue: jogador na zona dos lobos com vida abaixo de HP_FRACTION da máxima enlouquece os lobos a até
-// RADIUS px dele: velocidade x SPEED_FACTOR e raio de aggro x AGGRO_FACTOR.
-export const FRENZY = { hpFraction: 0.35, radius: 384, speedFactor: 1.25, aggroFactor: 1.4 };
+// RADIUS px dele: velocidade x SPEED_FACTOR, raio de aggro x AGGRO_FACTOR e o golpe (preparo e recuperação) em
+// ATTACK_TIME_FACTOR do tempo.
+export const FRENZY = { hpFraction: 0.35, radius: 384, speedFactor: 1.25, aggroFactor: 1.4, attackTimeFactor: 0.6 };
 // Descarga dos cristais (os cristais médios da zona dos gnomos): a cada PERIOD_MS, carrega por CHARGE_MS (anel no chão) e
 // dispara: quem estiver a até RADIUS px leva DAMAGE (mágico) e é empurrado KNOCKBACK px para fora.
-export const CRYSTAL_PULSE = { periodMs: 6000, chargeMs: 800, radius: 96, damage: 12, knockback: 28 };
+export const CRYSTAL_PULSE = { periodMs: 6000, chargeMs: 800, radius: 96, damage: 20, knockback: 28 };
 // Estilhaços de cristal no chão da zona dos gnomos: COUNT por run, a pelo menos MIN_SPACING px entre si; quem passa
 // andando por cima (os pés a até RADIUS px) quebra o estilhaço, leva DAMAGE e sangra (BLEED).
 export const SHARDS = { count: 70, radius: 12, damage: 6, minSpacing: 96 };
-export const BLEED = { damagePerSecond: 3, durationMs: 4000 };
+export const BLEED = { damagePerSecond: 4, durationMs: 5000 };
+
+// ---------------------------------------------------------------- atrito no labirinto
+
+// Golpe de mob que acerta o jogador: ele anda a SLOW da velocidade por DURATION_MS (não dá para ignorar a luta e fugir).
+export const STAGGER = { slow: 0.6, durationMs: 250 };
+// No labirinto, a regeneração de Vida e a de Mana valem isto (a ração e o resto viram necessidade).
+export const LABYRINTH_REGEN_FACTOR = 0.5;

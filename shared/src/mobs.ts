@@ -14,6 +14,8 @@ export interface MobStats {
   attackReach: number;
   attackArcDegrees: number;
   recoverMs: number;
+  // Velocidade x isto enquanto persegue (sem o campo, a mesma).
+  chaseSpeedFactor?: number;
 }
 
 export interface MobSpawn {

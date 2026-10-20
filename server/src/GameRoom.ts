@@ -2,8 +2,19 @@ import { StateView } from "@colyseus/schema";
 import { CloseCode, Room, type Client } from "colyseus";
 import {
   AREAS,
+  EXIT_CHANNEL,
+  EXIT_IDLE_LIGHT_RADIUS,
   EXIT_LIGHT_RADIUS,
   EXITS_ACTIVE,
+  LABYRINTH_REGEN_FACTOR,
+  STAGGER,
+  VIEW_HYSTERESIS,
+  VIEW_RADIUS,
+  alarm,
+  alarmedMobs,
+  exitIndexAt,
+  lightReaches,
+  stepChannel,
   MOB_SPAWN_SAFE_RADIUS,
   ACID,
   BLEED,
@@ -53,7 +64,6 @@ import {
   isInArc,
   isInSwing,
   inventoryToPile,
-  isInsideExit,
   isLit,
   isOffCooldown,
   feetInside,
@@ -86,7 +96,6 @@ import {
   startIdle,
   staticLitMap,
   starvationDamage,
-  stepExtraction,
   isDormant,
   safeSpawnCells,
   stepMob,
@@ -213,7 +222,12 @@ export class GameRoom extends Room<{ state: GameState }> {
   private activeExits: Vec2[] = [];
   // Luz fixa desta run: luzes do mapa e saídas ativas (regra 4). Calculada ao abrir as saídas.
   private lit: LitMap = staticLitMap([], 0, 0, 1);
-  private extractProgress = new Map<string, number>();
+  // Canalização de portal em curso, por jogador: qual saída, onde ele estava (andar interrompe), quando começou (dano
+  // depois disso interrompe) e quanto já foi. E até quando cada saída aberta fica aberta.
+  private channels = new Map<string, { exitId: string; at: Vec2; startedAt: number; elapsedMs: number }>();
+  private exitOpenUntil = new Map<string, number>();
+  // Stagger: até quando cada um anda mais devagar depois de levar golpe de mob.
+  private staggerUntil = new Map<string, number>();
   // Quem é cada sessão no banco.
   private characters = new Map<string, CharacterRecord>();
   // Essências absorvidas e os status que resultam delas e da arma (velocidade, dano, vida máxima, golpe).
@@ -262,6 +276,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     }
     this.onMessage("pickup", (client) => this.handlePickup(client.sessionId));
     this.onMessage("lightTorch", (client) => this.handleLightTorch(client.sessionId));
+    this.onMessage("channelExit", (client) => this.handleChannel(client.sessionId));
     this.spawnMobs();
     this.openExits();
     this.placeHazards();
@@ -295,7 +310,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       zone: "",
       bleeding: false,
       hunger: HUNGER_MAX,
-      extractMs: 0,
+      channelMs: 0,
       xp,
       level: levelForXp(xp),
       coins: store.coins(record.lineageId),
@@ -340,7 +355,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.bleedMs.delete(sessionId);
     this.inventories.delete(sessionId);
     this.equipment.delete(sessionId);
-    this.extractProgress.delete(sessionId);
+    this.staggerUntil.delete(sessionId);
+    if (this.channels.has(sessionId)) this.endChannel(sessionId);
     const record = this.characters.get(sessionId);
     if (record) release(record);
     this.characters.delete(sessionId);
@@ -350,22 +366,107 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   private openExits() {
     this.activeExits = pickActiveExits(level.exitCandidates, EXITS_ACTIVE, Math.random);
-    this.activeExits.forEach((exit, i) => this.state.exits.set(`exit-${i + 1}`, new ExitState(exit)));
+    this.activeExits.forEach((exit, i) => this.state.exits.set(`exit-${i + 1}`, new ExitState({ ...exit, phase: "idle", openMs: 0 })));
     this.rebuildLitMap();
   }
 
-  // Só conta para quem está conectado: um corpo largado num portal não extrai sozinho.
-  private updateExtraction(dtMs: number) {
-    const done: string[] = [];
-    this.state.players.forEach((player, sessionId) => {
-      const connected = this.clients.getById(sessionId) !== undefined;
-      const inside = connected && isInsideExit(player, this.activeExits);
-      const step = stepExtraction(this.extractProgress.get(sessionId) ?? 0, inside, dtMs);
-      this.extractProgress.set(sessionId, step.progressMs);
-      player.extractMs = step.progressMs;
-      if (step.done) done.push(sessionId);
-    });
-    for (const sessionId of done) this.extractPlayer(sessionId);
+  // [E] dentro de um portal inativo: começa a canalização (EXIT_CHANNEL) e dá o alarme: os mobs perto correm para lá.
+  // Andando, não começa (parar é parte do custo). Um portal canalizando ou aberto não aceita outra.
+  private handleChannel(sessionId: string) {
+    const player = this.state.players.get(sessionId);
+    if (!player || this.channels.has(sessionId)) return;
+    const index = exitIndexAt(player, this.activeExits);
+    const exitId = `exit-${index + 1}`;
+    const exit = this.state.exits.get(exitId);
+    if (index < 0 || !exit || exit.phase !== "idle") return;
+    const input = this.moveInputs.get(sessionId) ?? NO_INPUT;
+    if (input.up || input.down || input.left || input.right) {
+      this.notify(sessionId, "Pare de andar para canalizar o portal.");
+      return;
+    }
+    this.channels.set(sessionId, { exitId, at: { x: player.x, y: player.y }, startedAt: this.clock.currentTime, elapsedMs: 0 });
+    exit.phase = "channel";
+    const mobs: [string, MobState][] = [];
+    this.state.mobs.forEach((mob, id) => mobs.push([id, mob]));
+    for (const id of alarmedMobs(exit, mobs)) {
+      const brain = this.mobBrains.get(id);
+      if (brain) brain.mind = alarm(brain.mind, sessionId, exit);
+    }
+    this.notify(sessionId, "O portal desperta... e o labirinto ouviu. Não se mexa!");
+    this.rebuildLitMap();
+  }
+
+  // Cada tick: canalizações (parado e sem dano somam; senão, interrompe) e portais abertos (quem está dentro extrai na
+  // hora; vencido o tempo, o portal fecha). Só conta para quem está conectado: um corpo largado não extrai sozinho.
+  private updateExits(dtMs: number) {
+    const now = this.clock.currentTime;
+    for (const [sessionId, channel] of this.channels) {
+      const player = this.state.players.get(sessionId);
+      if (!player || !this.clients.getById(sessionId)) {
+        this.endChannel(sessionId);
+        continue;
+      }
+      const input = this.moveInputs.get(sessionId) ?? NO_INPUT;
+      const moved = input.up || input.down || input.left || input.right || Math.hypot(player.x - channel.at.x, player.y - channel.at.y) > 1;
+      const hurt = (this.lastHurtMs.get(sessionId) ?? -Infinity) >= channel.startedAt;
+      const step = stepChannel(channel.elapsedMs, moved || hurt, dtMs);
+      if (step.interrupted) {
+        this.endChannel(sessionId);
+        this.notify(sessionId, hurt ? "Canalização interrompida: você foi ferido!" : "Canalização interrompida: você se mexeu.");
+        continue;
+      }
+      channel.elapsedMs = step.elapsedMs;
+      player.channelMs = step.elapsedMs;
+      if (step.done) this.openExit(sessionId, channel.exitId, now);
+    }
+    const leaving = new Set<string>();
+    for (const [exitId, until] of this.exitOpenUntil) {
+      const exit = this.state.exits.get(exitId);
+      if (!exit) continue;
+      if (now >= until) {
+        exit.phase = "idle";
+        exit.openMs = 0;
+        this.exitOpenUntil.delete(exitId);
+        this.rebuildLitMap();
+        continue;
+      }
+      const openMs = Math.ceil((until - now) / 100) * 100;
+      if (exit.openMs !== openMs) exit.openMs = openMs;
+      this.state.players.forEach((player, sessionId) => {
+        if (this.clients.getById(sessionId) && exitIndexAt(player, [exit]) === 0) leaving.add(sessionId);
+      });
+    }
+    for (const sessionId of leaving) this.extractPlayer(sessionId);
+  }
+
+  // Canalização completa: o portal abre para o grupo por EXIT_CHANNEL.openMs.
+  private openExit(sessionId: string, exitId: string, now: number) {
+    this.channels.delete(sessionId);
+    const player = this.state.players.get(sessionId);
+    if (player) player.channelMs = 0;
+    const exit = this.state.exits.get(exitId);
+    if (!exit) return;
+    exit.phase = "open";
+    exit.openMs = EXIT_CHANNEL.openMs;
+    this.exitOpenUntil.set(exitId, now + EXIT_CHANNEL.openMs);
+    this.broadcast("notice", { text: `Um portal se abriu! ${EXIT_CHANNEL.openMs / 1000} s para extrair.` });
+    this.rebuildLitMap();
+  }
+
+  // Fim da canalização sem abrir (interrompida, ou quem canalizava saiu): o portal volta a inativo.
+  private endChannel(sessionId: string) {
+    const channel = this.channels.get(sessionId);
+    this.channels.delete(sessionId);
+    const player = this.state.players.get(sessionId);
+    if (player) player.channelMs = 0;
+    const exit = channel && this.state.exits.get(channel.exitId);
+    if (exit?.phase !== "channel") return;
+    exit.phase = "idle";
+    this.rebuildLitMap();
+  }
+
+  private notify(sessionId: string, text: string) {
+    this.clients.getById(sessionId)?.send("notice", { text });
   }
 
   // Extraiu: sai da sala levando tudo o que carregava, que fica gravado no personagem. Ninguém deixa pilha ao extrair.
@@ -830,7 +931,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.moveBolts(dtMs);
     this.tickSpells(dtMs);
     this.resolveDeaths();
-    this.updateExtraction(dtMs);
+    this.updateExits(dtMs);
     this.updateViews();
   }
 
@@ -854,7 +955,18 @@ export class GameRoom extends Room<{ state: GameState }> {
       const frenzy = brain.kind === "lobo" && wolfFrenzy(mob, hurt);
       if (mob.frenzy !== frenzy) mob.frenzy = frenzy;
       const boost = frenzy ? FRENZY.speedFactor : 1;
-      const stats = slow === 1 && !frenzy ? kind : { ...kind, speed: kind.speed * slow * boost, aggroRadius: kind.aggroRadius * (frenzy ? FRENZY.aggroFactor : 1) };
+      // Em frenesi, o lobo também golpeia mais rápido (preparo e recuperação mais curtos).
+      const attackTime = frenzy ? FRENZY.attackTimeFactor : 1;
+      const stats =
+        slow === 1 && !frenzy
+          ? kind
+          : {
+              ...kind,
+              speed: kind.speed * slow * boost,
+              aggroRadius: kind.aggroRadius * (frenzy ? FRENZY.aggroFactor : 1),
+              windupMs: kind.windupMs * attackTime,
+              recoverMs: kind.recoverMs * attackTime,
+            };
       const thinking = { position: { x: mob.x, y: mob.y }, mind: brain.mind };
       // Longe de todos e só vagando: hiberna neste tick (nem pensa nem se move). Acorda bem antes de alguém chegar.
       if (isDormant(thinking, players)) return;
@@ -876,6 +988,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     for (const [id, brain] of this.mobBrains) {
       const mind = brain.mind;
       if (mind.mode !== "chase" && mind.mode !== "windup" && mind.mode !== "recover") continue;
+      // Quem atende ao alarme de um portal não conta para o teto nem é mandado de volta.
+      if (mind.alert) continue;
       const mob = this.state.mobs.get(id);
       const target = this.state.players.get(mind.targetId);
       if (mob && target) chasers.push({ id, targetId: mind.targetId, distance: Math.hypot(mob.x - target.x, mob.y - target.y) });
@@ -900,6 +1014,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.state.players.forEach((player, sessionId) => {
       if (!isInArc(origin, angle, arc, player, PLAYER_SIZE / 2)) return;
       this.damagePlayer(sessionId, player, stats.attackDamage, { kind: "mob", mob: kind }, "physical");
+      this.staggerUntil.set(sessionId, this.clock.currentTime + STAGGER.durationMs);
     });
   }
 
@@ -913,27 +1028,31 @@ export class GameRoom extends Room<{ state: GameState }> {
     });
   }
 
-  // Regeneração: vida que volta com o tempo, só depois de REGEN_DELAY_MS sem levar dano.
+  // Regeneração: vida que volta com o tempo, só depois de REGEN_DELAY_MS sem levar dano. No labirinto (esta sala), a
+  // de Vida e a de Mana valem LABYRINTH_REGEN_FACTOR.
   private regeneratePlayers(dtMs: number) {
     const now = this.clock.currentTime;
     this.state.players.forEach((player, sessionId) => {
       const sinceHurt = now - (this.lastHurtMs.get(sessionId) ?? -Infinity);
       // No miasma dos slimes, a cura vale menos.
       const healed = regenerate(player.hp, this.statsOf(sessionId), dtMs, sinceHurt) - player.hp;
-      if (healed > 0) player.hp += zoneHeal(healed, this.zones.get(sessionId));
+      if (healed > 0) player.hp += zoneHeal(healed * LABYRINTH_REGEN_FACTOR, this.zones.get(sessionId));
       // Mana: regenera; na zona dos gnomos, drena.
       const stats = this.statsOf(sessionId);
       if (player.maxMana !== stats.maxMana) player.maxMana = stats.maxMana;
-      player.mana = tickMana(player.mana, stats.maxMana, this.zones.get(sessionId), dtMs);
+      player.mana = tickMana(player.mana, stats.maxMana, this.zones.get(sessionId), dtMs, LABYRINTH_REGEN_FACTOR);
     });
   }
 
   private movePlayers(dtMs: number) {
     const swamps = this.activeSwamps();
+    const now = this.clock.currentTime;
     this.state.players.forEach((player, sessionId) => {
-      // Na lama de um Pântano de outro jogador, anda mais devagar (na própria lama, não); numa poça ácida, também.
+      // Na lama de um Pântano de outro jogador, anda mais devagar (na própria lama, não); numa poça ácida, também; e logo
+      // depois de levar golpe de mob (stagger).
       const acid = inAcid(player, PLAYER_SIZE / 2, this.acidPools()) ? ACID.slow : 1;
-      const speed = (this.stats.get(sessionId)?.speed ?? PLAYER_SPEED) * swampSlow(player, PLAYER_SIZE / 2, sessionId, swamps) * acid;
+      const stagger = now < (this.staggerUntil.get(sessionId) ?? 0) ? STAGGER.slow : 1;
+      const speed = (this.stats.get(sessionId)?.speed ?? PLAYER_SPEED) * swampSlow(player, PLAYER_SIZE / 2, sessionId, swamps) * acid * stagger;
       const delta = movementDelta(this.moveInputs.get(sessionId) ?? NO_INPUT, dtMs, speed);
       const next = moveWithCollision(level.grid, player, delta, PLAYER_SIZE / 2);
       player.x = next.x;
@@ -942,8 +1061,9 @@ export class GameRoom extends Room<{ state: GameState }> {
   }
 
   // O próprio jogador entra na visão no onJoin e nunca sai; aqui só os outros e os mobs.
-  // Jogadores, saídas e projéteis brilham: são vistos até o raio de visão. Mobs e pilhas só se estiverem na luz
-  // (regra 4); a luz de cada jogador vai até a Percepção dele, e cada projétil carrega a sua (MAGIC_BOLT.lightRadius).
+  // Saídas e projéteis brilham: são vistos até o raio de visão. Os outros jogadores, só sem parede no meio. Mobs e pilhas
+  // só se estiverem na luz e sem parede no meio (regra 4); a luz de cada jogador vai até a Percepção dele, cada projétil
+  // carrega a sua (MAGIC_BOLT.lightRadius), e nenhuma luz atravessa parede.
   private updateViews() {
     const carriers: LightCarrier[] = [];
     // No breu dos goblins, a luz de quem está lá cai (e com ela o que é enviado).
@@ -954,16 +1074,20 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.state.spells.forEach((spell) => {
       if (spell.kind === "lightning") carriers.push({ x: spell.x, y: spell.y, radius: LIGHTNING_SPELL.lightRadius });
     });
-    const lit = (entity: MobState | LootState, view: StateView) => isLit(entity, this.lit, carriers, view.has(entity));
+    const grid = level.grid;
+    const lit = (entity: MobState | LootState, view: StateView) => isLit(entity, this.lit, carriers, view.has(entity), grid);
+    const reach = VIEW_RADIUS + VIEW_HYSTERESIS;
     for (const client of this.clients) {
       const view = client.view;
       const self = this.state.players.get(client.sessionId);
       if (!view || !self) continue;
+      // Linha de visão de quem olha: perto (o raio de visão decide o resto) e sem parede no meio.
+      const inSight = (e: Vec2) => Math.hypot(e.x - self.x, e.y - self.y) <= reach && lightReaches(grid, self, e);
       this.state.players.forEach((other, sessionId) => {
-        if (sessionId !== client.sessionId) updateVisibility(view, self, other);
+        if (sessionId !== client.sessionId) updateVisibility(view, self, other, inSight(other));
       });
-      this.state.mobs.forEach((mob) => updateVisibility(view, self, mob, lit(mob, view)));
-      this.state.loot.forEach((pile) => updateVisibility(view, self, pile, lit(pile, view)));
+      this.state.mobs.forEach((mob) => updateVisibility(view, self, mob, inSight(mob) && lit(mob, view)));
+      this.state.loot.forEach((pile) => updateVisibility(view, self, pile, inSight(pile) && lit(pile, view)));
       this.state.exits.forEach((exit) => updateVisibility(view, self, exit));
       this.state.projectiles.forEach((bolt) => updateVisibility(view, self, bolt));
       this.state.spells.forEach((spell) => updateVisibility(view, self, spell));
@@ -973,7 +1097,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     }
   }
 
-  // Breu dos goblins: os goblins que caçam este jogador, entre 3 e 8 tiles e fora do que ele recebe, viram só olhos.
+  // Breu dos goblins: os goblins que caçam este jogador, a até 6 tiles, sem parede no meio e fora do que ele recebe,
+  // viram só olhos.
   private updateEyes(sessionId: string, self: PlayerState, view: StateView) {
     const hunters: (Vec2 & { hunting: boolean })[] = [];
     if (this.zones.get(sessionId) === "goblin") {
@@ -983,7 +1108,7 @@ export class GameRoom extends Room<{ state: GameState }> {
         hunters.push({ x: mob.x, y: mob.y, hunting: mind.targetId === sessionId });
       });
     }
-    const flat = goblinEyes(self, hunters).flatMap((e) => [Math.round(e.x), Math.round(e.y)]);
+    const flat = goblinEyes(self, hunters, level.grid).flatMap((e) => [Math.round(e.x), Math.round(e.y)]);
     if (flat.length === self.eyes.length && flat.every((v, i) => self.eyes[i] === v)) return;
     self.eyes.splice(0, self.eyes.length);
     for (const v of flat) self.eyes.push(v);
@@ -1091,14 +1216,18 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.damagePlayer(sessionId, player, amount, { kind: "hazard", hazard }, type);
   }
 
-  // A luz fixa da run: as do mapa, as saídas ativas e as tochas acesas dos goblins.
+  // A luz fixa da run: as do mapa, as saídas (fracas inativas, fortes canalizando ou abertas) e as tochas acesas dos
+  // goblins. Nenhuma atravessa parede.
   private rebuildLitMap() {
-    const exitLights = this.activeExits.map((exit) => ({ ...exit, radius: EXIT_LIGHT_RADIUS }));
+    const exitLights: LightSource[] = [];
+    this.state.exits.forEach((exit) =>
+      exitLights.push({ x: exit.x, y: exit.y, radius: exit.phase === "idle" ? EXIT_IDLE_LIGHT_RADIUS : EXIT_LIGHT_RADIUS }),
+    );
     const torchLights: LightSource[] = [];
     this.state.torches.forEach((t) => {
       if (t.lit) torchLights.push({ x: t.x, y: t.y, radius: TORCH.lightRadius });
     });
     const { width, height, tileSize } = level.grid;
-    this.lit = staticLitMap([...level.lights, ...exitLights, ...torchLights], width, height, tileSize);
+    this.lit = staticLitMap([...level.lights, ...exitLights, ...torchLights], width, height, tileSize, level.grid);
   }
 }

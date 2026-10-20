@@ -1,4 +1,4 @@
-import { EXIT_RADIUS, EXTRACT_MS } from "./balance";
+import { EXIT_CHANNEL, EXIT_RADIUS } from "./balance";
 import type { ItemStack } from "./inventory";
 import type { Vec2 } from "./movement";
 
@@ -22,9 +22,25 @@ export function isInsideExit(position: Vec2, exits: readonly Vec2[]): boolean {
   return exits.some((exit) => Math.hypot(exit.x - position.x, exit.y - position.y) <= EXIT_RADIUS);
 }
 
-// Um tick da contagem de extração: dentro do portal soma, fora zera. `done` quando completa EXTRACT_MS.
-export function stepExtraction(progressMs: number, inside: boolean, dtMs: number): { progressMs: number; done: boolean } {
-  if (!inside) return { progressMs: 0, done: false };
-  const next = Math.min(EXTRACT_MS, progressMs + dtMs);
-  return { progressMs: next, done: next >= EXTRACT_MS };
+// O portal em que o ponto está (o índice em `exits`), ou -1.
+export function exitIndexAt(position: Vec2, exits: readonly Vec2[]): number {
+  return exits.findIndex((exit) => Math.hypot(exit.x - position.x, exit.y - position.y) <= EXIT_RADIUS);
+}
+
+// Fase de um portal de saída (EXIT_CHANNEL): inativo; alguém canalizando; aberto para o grupo.
+export type ExitPhase = "idle" | "channel" | "open";
+
+// Um tick da canalização: parado e sem levar dano, soma; `disturbed` (andou ou levou dano) interrompe e zera. `done`
+// quando completa EXIT_CHANNEL.channelMs.
+export function stepChannel(elapsedMs: number, disturbed: boolean, dtMs: number): { elapsedMs: number; done: boolean; interrupted: boolean } {
+  if (disturbed) return { elapsedMs: 0, done: false, interrupted: true };
+  const next = Math.min(EXIT_CHANNEL.channelMs, elapsedMs + dtMs);
+  return { elapsedMs: next, done: next >= EXIT_CHANNEL.channelMs, interrupted: false };
+}
+
+// Quem atende ao alarme de um portal: os mobs a até EXIT_CHANNEL.alertRadius dele.
+export function alarmedMobs<T extends Vec2>(portal: Vec2, mobs: Iterable<[string, T]>): string[] {
+  const out: string[] = [];
+  for (const [id, mob] of mobs) if (Math.hypot(mob.x - portal.x, mob.y - portal.y) <= EXIT_CHANNEL.alertRadius) out.push(id);
+  return out;
 }

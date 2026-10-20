@@ -7,7 +7,13 @@ import {
   GID_MASK,
   STASH_SLOTS,
   EXIT_RADIUS,
-  EXTRACT_MS,
+  EXIT_CHANNEL,
+  EXIT_IDLE_LIGHT_RADIUS,
+  FRENZY,
+  exitIndexAt,
+  lightReaches,
+  parseCollisionGrid,
+  type CollisionGrid,
   ITEMS,
   MOB_KINDS,
   EXIT_LIGHT_RADIUS,
@@ -121,9 +127,10 @@ interface PlayerView extends Vec2 {
   bleeding?: boolean;
   attackSeq?: number;
   attackAngle?: number;
-  // Só chegam para o próprio jogador; para os outros ficam undefined. Fome e extração, só no labirinto.
+  // Só chega para o próprio jogador; para os outros fica undefined. Só no labirinto.
   hunger?: number;
-  extractMs?: number;
+  // Público, no labirinto: canalização de portal em curso (ms; 0 = nenhuma). A barra aparece em cima de quem canaliza.
+  channelMs?: number;
   xp?: number;
   level?: number;
   // Moedas da linhagem; o baú, só na cidade.
@@ -143,6 +150,11 @@ interface MobView extends Vec2 {
   // Lobo em Frenesi de Sangue.
   frenzy?: boolean;
 }
+// Portal de saída: fase ("idle", "channel" ou "open") e, aberto, quanto falta para fechar (ms).
+interface ExitView extends Vec2 {
+  phase?: string;
+  openMs?: number;
+}
 // O formato da cidade (server/src/state.ts, CityState) é o do labirinto sem mobs, pilhas e saídas.
 interface ServerState {
   players: {
@@ -151,7 +163,7 @@ interface ServerState {
   };
   mobs?: { forEach(callback: (mob: MobView, id: string) => void): void };
   loot?: { forEach(callback: (pile: Vec2, id: string) => void): void };
-  exits?: { forEach(callback: (exit: Vec2, id: string) => void): void };
+  exits?: { forEach(callback: (exit: ExitView, id: string) => void): void };
   // Projéteis Mágicos em voo (só no labirinto).
   projectiles?: { forEach(callback: (bolt: ProjectileView, id: string) => void): void };
   // Magias do mago no chão (só no labirinto).
@@ -213,11 +225,11 @@ const SPELL_URLS = Object.entries(
 ).map(([path, url]) => ({ key: path.slice(path.indexOf("spells/"), -".png".length), url }));
 // Altura das magias no chão: acima das sombras, abaixo do anel das saídas, dos avisos e de todo mundo em pé.
 const SPELL_GROUND_DEPTH = 0.3;
-// Zonas hostis no cliente. Breu dos goblins: o ambiente vai para quase preto (opacidade ~0,96) e a luz de quem está lá
-// encolhe junto com a do servidor (ZONE_EFFECTS.goblin.lightFactor), numa transição de ZONE_FADE_MS. Frio dos lobos:
-// vinheta azul-gelo, mais forte. Tocha apagada: a arte escurecida. Slime parado pulsa; lobo em frenesi fica vermelho.
+// Zonas hostis no cliente. Breu dos goblins: a luz de quem está lá encolhe junto com a do servidor
+// (ZONE_EFFECTS.goblin.lightFactor), numa transição de ZONE_FADE_MS (o ambiente já é preto no labirinto todo). Frio
+// dos lobos: vinheta azul-gelo, mais forte. Tocha apagada: a arte escurecida. Slime parado pulsa; lobo em frenesi fica
+// vermelho.
 const ZONE_FADE_MS = 1200;
-const GOBLIN_AMBIENT = 0x060709;
 const FROST_TINT = 0x8fc8ff;
 const FROST_VIGNETTE_ALPHA = 0.5;
 const UNLIT_TORCH_TINT = 0x2e2a26;
@@ -429,7 +441,8 @@ const MOB_NAMES: Record<MobKind, string> = { lobo: "um lobo", gnomo: "um gnomo",
 // Luz de cada lugar (só desenho; ver client/src/lighting.ts). Ambiente = a escuridão onde não chega luz.
 // Cidade: noite azulada, clara o bastante para ver a cidade. Labirinto: caverna escura; cada jogador carrega luz
 // (PLAYER_LIGHT_RADIUS).
-const AMBIENT: Record<Place, number> = { city: 0x2d3248, labyrinth: 0x0c101a };
+// No labirinto, preto puro: sem luz, não se vê nem o contorno das paredes.
+const AMBIENT: Record<Place, number> = { city: 0x2d3248, labyrinth: 0x000000 };
 const VIGNETTE_ALPHA: Record<Place, number> = { city: 0.55, labyrinth: 0.7 };
 // Dentro dos prédios (regiões com o id do prédio): âmbar claro (~80% de claridade) em toda a sala, para nenhum canto
 // ficar apagado; as velas, lanternas e braseiros somam por cima. Fora das paredes o chão é vazio preto (continua preto).
@@ -458,6 +471,12 @@ const LIGHT_LOOKS: Record<LightKind, LightLook> = {
 };
 const PLAYER_LIGHT: LightLook = { color: 0xfff0dc, intensity: 1, effect: "steady" };
 const EXIT_LIGHT: LightLook = { color: 0x40c4ff, intensity: 1, effect: "pulse" };
+// Portal inativo: um farol roxo fraco (EXIT_IDLE_LIGHT_RADIUS). Canalizando, a luz forte pulsa rápido.
+const EXIT_IDLE_LIGHT: LightLook = { color: 0x8a5cd8, intensity: 0.45, effect: "pulse" };
+const EXIT_IDLE_TINT = 0x6a4a9a;
+const EXIT_IDLE_COLOR = 0x8a5cd8;
+// Barra da canalização em cima de quem canaliza, acima do nome (texto de 12 px sobre a barra de vida).
+const CHANNEL_BAR = { width: 44, height: 5, gap: 22, color: 0x40c4ff, back: 0x0b1020 };
 // Portal de saída ativo: a mesma arte do portal da cidade, puxada para o azul da extração.
 const EXIT_PORTAL_KEY = "city/portal";
 // Dica de cada ponto de interação da cidade (portas da rua, portas de dentro e móveis).
@@ -629,8 +648,12 @@ class WorldScene extends Phaser.Scene {
   private areas: Area[] = [];
   private torchArt: { image: Phaser.GameObjects.Image; x: number; y: number }[] = [];
   private lightFactors = new Map<string, number>();
-  private darkness = 0;
   private frost = 0;
+  // Labirinto: a grade de paredes (corta a luz e a vista, só desenho; quem decide é o servidor), a fase de cada portal
+  // da última vez (para o efeito de ativação) e se há tocha apagada ao alcance do [E].
+  private grid?: CollisionGrid;
+  private exitPhases = new Map<string, string>();
+  private nearTorch = false;
   private lastOwnSwingAt = -Infinity;
 
   init(data: SceneData) {
@@ -749,6 +772,11 @@ class WorldScene extends Phaser.Scene {
   }
 
   private createLabyrinth(room: Room<unknown, ServerState>) {
+    const data = (this.cache.tilemap.get(this.place) as { data?: TiledMap } | undefined)?.data;
+    if (data) {
+      this.grid = parseCollisionGrid(data);
+      this.lighting?.setOccluder(this.grid);
+    }
     this.overlay = this.add.graphics().setDepth(OVERLAY_DEPTH);
     this.telegraphs = this.add.graphics().setDepth(TELEGRAPH_DEPTH);
     this.exitsLayer = this.add.graphics().setDepth(EXIT_DEPTH);
@@ -796,18 +824,21 @@ Subiu para o nível ${info.level}!` : "";
     if (this.place === "city") this.updateCity(room, time);
     else this.updateLabyrinth(room, time);
     const lights = this.currentLights(room);
-    this.lighting?.draw(lights, time);
-    this.emitAmbient(lights, time, delta);
+    const viewer = this.place === "labyrinth" ? room.state.players.get(room.sessionId) : undefined;
+    this.lighting?.draw(lights, time, viewer);
+    this.emitAmbient(lights, time, delta, viewer);
   }
 
   // Esporos perto do que brilha e espiral nos portais, só para luzes na tela. Cada luz solta, em média,
   // a taxa do tipo por segundo (sorteio a cada quadro).
-  private emitAmbient(lights: readonly Light[], time: number, delta: number) {
+  // No labirinto, só as luzes que quem joga enxerga (sem parede no meio): esporo não flutua no breu atrás do muro.
+  private emitAmbient(lights: readonly Light[], time: number, delta: number, viewer?: Vec2) {
     if (!this.particles) return;
     const view = this.cameras.main.worldView;
     const dt = delta / 1000;
     for (const light of lights) {
       if (!light.kind || !view.contains(light.x, light.y)) continue;
+      if (viewer && this.grid && !lightReaches(this.grid, light, viewer)) continue;
       const spores = SPORE_RATE[light.kind];
       if (spores && Math.random() < spores * dt) {
         const spread = light.radius * 0.35;
@@ -841,9 +872,12 @@ Subiu para o nível ${info.level}!` : "";
     room.state.players.forEach((player, id) => {
       moving.push({ x: player.x, y: player.y, radius: this.playerLightRadius(id, player, delta), look: PLAYER_LIGHT, phase: 0 });
     });
+    // Portal inativo: farol fraco; canalizando ou aberto, a luz forte (os mesmos raios do servidor).
     room.state.exits?.forEach((exit) => {
       const phase = phaseAt(exit.x, exit.y);
-      moving.push({ x: exit.x, y: exit.y, radius: EXIT_LIGHT_RADIUS, look: EXIT_LIGHT, phase, kind: "saida" });
+      const idle = exit.phase !== "channel" && exit.phase !== "open";
+      const look = idle ? EXIT_IDLE_LIGHT : EXIT_LIGHT;
+      moving.push({ x: exit.x, y: exit.y, radius: idle ? EXIT_IDLE_LIGHT_RADIUS : EXIT_LIGHT_RADIUS, look, phase, kind: idle ? "saida-inativa" : "saida" });
     });
     return [...fixed, ...moving, ...(this.bolts?.lights() ?? []), ...(this.spellEffects?.lights() ?? []), ...(this.zoneFx?.lights() ?? [])];
   }
@@ -878,8 +912,10 @@ Subiu para o nível ${info.level}!` : "";
     hud.prompt(atPortal ? PORTAL_PROMPT : spot && !open ? INTERACTION_PROMPTS[spot] : undefined);
     if (!this.portalKey || !Phaser.Input.Keyboard.JustDown(this.portalKey)) return;
     // No portal: o primeiro E abre a confirmação; o segundo (ou o botão dela) entra.
-    if (atPortal && hud.portalOpen) room.send("enterPortal");
-    else if (atPortal) hud.openPortal();
+    if (atPortal && hud.portalOpen) {
+      hud.closePortal();
+      room.send("enterPortal");
+    } else if (atPortal) hud.openPortal();
     else if (spot && isStationId(spot)) hud.toggleStation(spot);
     else if (spot && this.doorAskedAt === undefined) {
       this.doorAskedAt = time;
@@ -922,31 +958,79 @@ Subiu para o nível ${info.level}!` : "";
     this.spellEffects?.sync(room.state.spells, time);
     this.stepInMud(room, time);
     this.updateZoneEffects(room, time);
+    // [E]: dentro de um portal inativo, começa a canalização; senão, acende a tocha perto (se houver).
+    if (this.torchKey && Phaser.Input.Keyboard.JustDown(this.torchKey)) {
+      const exit = this.exitHere(room);
+      if (exit?.phase === "idle") room.send("channelExit");
+      else if (this.nearTorch) room.send("lightTorch");
+    }
     this.drawOverlay(room, this.overlay, time);
     this.drawTelegraphs(room, this.telegraphs, time);
-    if (this.exitsLayer) this.drawExits(room, this.exitsLayer);
+    if (this.exitsLayer) this.drawExits(room, this.exitsLayer, time);
   }
 
-  // Portal ativo: anel no chão do tamanho exato da área em que a extração conta, e o portal em pé com a base no
-  // meio do anel (quem está dentro do anel fica na frente dele).
-  private drawExits(room: Room<unknown, ServerState>, g: Phaser.GameObjects.Graphics) {
+  // Portal: anel no chão do tamanho exato da área em que a canalização e a extração contam, e o portal em pé com a base
+  // no meio do anel (quem está dentro do anel fica na frente dele). Inativo: roxo apagado. Canalizando: azul, o anel
+  // pulsa. Aberto: azul forte. Ao começar a canalização e ao abrir, uma explosão de faíscas e um tremor (o alarme).
+  private drawExits(room: Room<unknown, ServerState>, g: Phaser.GameObjects.Graphics, time: number) {
     g.clear();
     const seen = new Set<string>();
     room.state.exits?.forEach((exit, id) => {
-      g.fillStyle(EXIT_COLOR, 0.15);
+      const phase = exit.phase || "idle";
+      const idle = phase === "idle";
+      const pulse = phase === "channel" ? 0.5 + 0.5 * Math.sin(time / 90) : 1;
+      g.fillStyle(idle ? EXIT_IDLE_COLOR : EXIT_COLOR, idle ? 0.06 : 0.15 + 0.15 * pulse);
       g.fillCircle(exit.x, exit.y, EXIT_RADIUS);
-      g.lineStyle(2, EXIT_COLOR, 0.9);
+      g.lineStyle(phase === "open" ? 3 : 2, idle ? EXIT_IDLE_COLOR : EXIT_COLOR, idle ? 0.35 : 0.6 + 0.4 * pulse);
       g.strokeCircle(exit.x, exit.y, EXIT_RADIUS);
       seen.add(id);
-      if (this.exitSprites.has(id)) return;
-      const portal = this.add.image(exit.x, exit.y, EXIT_PORTAL_KEY).setOrigin(0.5, 1).setTint(EXIT_PORTAL_TINT);
-      this.exitSprites.set(id, portal.setDepth(sortDepth(exit.y)));
+      const before = this.exitPhases.get(id);
+      this.exitPhases.set(id, phase);
+      if (before !== undefined && before !== phase && !idle) {
+        this.particles?.explode(exit.x, exit.y - 24, [EXIT_COLOR, 0xffffff, 0x8a5cd8], time);
+        this.shake.kick(phase === "open" ? 4 : 3);
+      }
+      let portal = this.exitSprites.get(id);
+      if (!portal) {
+        portal = this.add.image(exit.x, exit.y, EXIT_PORTAL_KEY).setOrigin(0.5, 1).setDepth(sortDepth(exit.y));
+        this.exitSprites.set(id, portal);
+      }
+      const tint = idle ? EXIT_IDLE_TINT : EXIT_PORTAL_TINT;
+      if (portal.tintTopLeft !== tint) portal.setTint(tint);
     });
     for (const [id, portal] of this.exitSprites) {
       if (seen.has(id)) continue;
       portal.destroy();
       this.exitSprites.delete(id);
+      this.exitPhases.delete(id);
     }
+  }
+
+  // O portal em que o próprio jogador está (o anel), se houver.
+  private exitHere(room: Room<unknown, ServerState>): ExitView | undefined {
+    const self = room.state.players.get(room.sessionId);
+    if (!self) return undefined;
+    const exits: ExitView[] = [];
+    room.state.exits?.forEach((exit) => exits.push(exit));
+    return exits[exitIndexAt(self, exits)];
+  }
+
+  // Placa do portal: canalizando, o tempo que falta; num portal inativo, o [E]; perto de um aberto, quanto falta.
+  private exitPrompt(room: Room<unknown, ServerState>, self: PlayerView): Prompt | undefined {
+    const channelMs = self.channelMs ?? 0;
+    if (channelMs > 0) {
+      const left = ((EXIT_CHANNEL.channelMs - channelMs) / 1000).toFixed(1);
+      return { title: "Canalizando o portal…", subtitle: `${left} s — não se mexa nem leve dano`, arcane: true };
+    }
+    let open: ExitView | undefined;
+    room.state.exits?.forEach((exit) => {
+      if (exit.phase === "open" && Math.hypot(exit.x - self.x, exit.y - self.y) <= EXIT_LIGHT_RADIUS) open = exit;
+    });
+    if (open) return { title: "Portal aberto!", subtitle: `${Math.ceil((open.openMs ?? 0) / 1000)} s — entre no anel para extrair`, arcane: true };
+    const here = this.exitHere(room);
+    if (here?.phase === "idle") return { key: "E", title: "Ativar Portal", subtitle: `Canalize ${EXIT_CHANNEL.channelMs / 1000} s parado — o labirinto vai ouvir`, arcane: true };
+    if (here?.phase === "channel") return { title: "Portal despertando", subtitle: "Proteja quem está canalizando", arcane: true };
+    return undefined;
   }
 
   // Dados do próprio jogador para o HUD (HTML). Na cidade não há vida nem fome: o HUD mostra cheias.
@@ -991,10 +1075,7 @@ Subiu para o nível ${info.level}!` : "";
       time,
     );
     if (this.place !== "labyrinth") return;
-    const extractMs = self.extractMs ?? 0;
-    hud.prompt(
-      extractMs > 0 ? { title: "Extraindo…", subtitle: `${((EXTRACT_MS - extractMs) / 1000).toFixed(1)} s — fique no portal` } : this.torchPrompt,
-    );
+    hud.prompt(this.exitPrompt(room, self) ?? this.torchPrompt);
   }
 
   private drawTelegraphs(room: Room<unknown, ServerState>, g: Phaser.GameObjects.Graphics, time: number) {
@@ -1008,7 +1089,9 @@ Subiu para o nível ${info.level}!` : "";
       const stats = MOB_KINDS[mob.kind as MobKind];
       const arc = mobStrikeArc(stats);
       const half = (arc.degrees * Math.PI) / 180 / 2;
-      const progress = Math.min(1, (time - startedAt) / stats.windupMs);
+      // Lobo em frenesi prepara o golpe mais rápido (FRENZY.attackTimeFactor), como no servidor.
+      const windupMs = stats.windupMs * (mob.frenzy ? FRENZY.attackTimeFactor : 1);
+      const progress = Math.min(1, (time - startedAt) / windupMs);
       g.lineStyle(2, TELEGRAPH_COLOR, 0.8);
       g.slice(mob.x, mob.y, arc.range, mob.attackAngle - half, mob.attackAngle + half);
       g.strokePath();
@@ -1044,22 +1127,12 @@ Subiu para o nível ${info.level}!` : "";
       if (!lit && !art.image.isTinted) art.image.setTint(UNLIT_TORCH_TINT);
     }
     const near = torchInReach(self, torches, TORCH.interactRadius);
+    this.nearTorch = near !== undefined;
     this.torchPrompt = near ? { key: "E", title: "Acender tocha", subtitle: "Luz para todos até o fim da run" } : undefined;
-    if (near && this.torchKey && Phaser.Input.Keyboard.JustDown(this.torchKey)) room.send("lightTorch");
-    // Breu e frio, com transição suave.
+    // Frio, com transição suave.
     const k = Math.min(1, delta / ZONE_FADE_MS);
-    this.darkness += ((zone === "goblin" ? 1 : 0) - this.darkness) * k * 3;
     this.frost += ((zone === "lobo" ? 1 : 0) - this.frost) * k * 3;
-    const ambient = Phaser.Display.Color.Interpolate.ColorWithColor(
-      Phaser.Display.Color.ValueToColor(AMBIENT.labyrinth),
-      Phaser.Display.Color.ValueToColor(GOBLIN_AMBIENT),
-      1,
-      this.darkness,
-    );
-    this.lighting?.setLook(
-      Phaser.Display.Color.GetColor(ambient.r, ambient.g, ambient.b),
-      VIGNETTE_ALPHA.labyrinth + (FROST_VIGNETTE_ALPHA - VIGNETTE_ALPHA.labyrinth) * this.frost,
-    );
+    this.lighting?.setLook(AMBIENT.labyrinth, VIGNETTE_ALPHA.labyrinth + (FROST_VIGNETTE_ALPHA - VIGNETTE_ALPHA.labyrinth) * this.frost);
     this.lighting?.setVignetteTint(this.frost > 0.05 ? FROST_TINT : 0xffffff);
   }
 
@@ -1147,10 +1220,18 @@ Subiu para o nível ${info.level}!` : "";
       const pose = weaponPose(avatar.swingAt, avatar.swingAngle, time);
       if (pose.visible && avatar.weapon.visible && !isStaff(avatar.weaponItem)) drawBladeTrail(g, avatar.weapon.x, avatar.weapon.y, avatar.swingAngle, pose, WEAPON_REACH * pose.scale);
     }
-    // Barra de vida do jogador acima da cabeça do sprite.
+    // Barra de vida do jogador acima da cabeça do sprite; canalizando um portal, a barra da canalização acima dela.
     room.state.players.forEach((player) => {
       const top = player.y + PLAYER_SIZE / 2 - AVATAR_HEIGHT - HP_BAR_GAP - HP_BAR_HEIGHT;
       drawHpBar(g, player.x, top, PLAYER_SIZE, (player.hp ?? 0) / (player.maxHp || PLAYER_MAX_HP));
+      const channelMs = player.channelMs ?? 0;
+      if (channelMs <= 0) return;
+      const bar = CHANNEL_BAR;
+      const y = top - bar.gap - bar.height;
+      g.fillStyle(bar.back, 0.9);
+      g.fillRect(player.x - bar.width / 2 - 1, y - 1, bar.width + 2, bar.height + 2);
+      g.fillStyle(bar.color, 1);
+      g.fillRect(player.x - bar.width / 2, y, bar.width * Math.min(1, channelMs / EXIT_CHANNEL.channelMs), bar.height);
     });
     room.state.mobs?.forEach((mob) => {
       const kind = mob.kind as MobKind;

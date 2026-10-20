@@ -9,6 +9,8 @@ import {
   ZONE_EFFECTS,
   type MobKind,
 } from "./balance";
+import type { CollisionGrid } from "./collision";
+import { lightReaches } from "./light";
 import type { Vec2 } from "./movement";
 
 // As 4 zonas hostis do labirinto (uma por canto) e o que cada uma faz com quem está nela. Tudo decidido no servidor
@@ -50,21 +52,25 @@ export function zoneDamage(amount: number, zone: ZoneId | undefined): number {
   return zone === "gnomo" ? amount * ZONE_EFFECTS.gnomo.damageTakenFactor : amount;
 }
 
-// Mana depois de dtMs: regenera MANA_REGEN_PER_SECOND; na zona dos gnomos a regeneração cai e há o dreno. Entre 0 e
-// a máxima.
-export function tickMana(mana: number, maxMana: number, zone: ZoneId | undefined, dtMs: number): number {
+// Mana depois de dtMs: regenera MANA_REGEN_PER_SECOND x regenFactor (no labirinto, LABYRINTH_REGEN_FACTOR); na zona
+// dos gnomos a regeneração cai e há o dreno. Entre 0 e a máxima.
+export function tickMana(mana: number, maxMana: number, zone: ZoneId | undefined, dtMs: number, regenFactor = 1): number {
   const gnomo = zone === "gnomo";
-  const regen = MANA_REGEN_PER_SECOND * (gnomo ? ZONE_EFFECTS.gnomo.manaRegenFactor : 1);
+  const regen = MANA_REGEN_PER_SECOND * regenFactor * (gnomo ? ZONE_EFFECTS.gnomo.manaRegenFactor : 1);
   const drain = gnomo ? ZONE_EFFECTS.gnomo.manaDrainPerSecond : 0;
   return Math.min(maxMana, Math.max(0, mana + ((regen - drain) * dtMs) / 1000));
 }
 
 // ---------------------------------------------------------------- goblins: olhos no escuro
 
-// Goblins que já notaram o jogador (perseguindo ou atacando) e estão entre os limites de EYES: os olhos a desenhar.
-export function goblinEyes(player: Vec2, goblins: readonly (Vec2 & { hunting: boolean })[]): Vec2[] {
+// Goblins que já notaram o jogador (perseguindo ou atacando), entre os limites de EYES e, com `grid`, sem parede no
+// meio (olho atrás do muro não se vê): os olhos a desenhar.
+export function goblinEyes(player: Vec2, goblins: readonly (Vec2 & { hunting: boolean })[], grid?: CollisionGrid): Vec2[] {
   const { min, max } = ZONE_EFFECTS.goblin.eyes;
-  return goblins.filter((g) => g.hunting && distance(g, player) >= min && distance(g, player) <= max).map(({ x, y }) => ({ x, y }));
+  return goblins
+    .filter((g) => g.hunting && distance(g, player) >= min && distance(g, player) <= max)
+    .filter((g) => !grid || lightReaches(grid, player, g))
+    .map(({ x, y }) => ({ x, y }));
 }
 
 // A tocha apagada mais perto, a até TORCH.interactRadius (para o [E]); undefined se nenhuma.
