@@ -1,9 +1,23 @@
 import { type Area, areaAt } from "./areas";
-import { LEASH, MOB_LOSE_TRACK_MS, MOB_WAKE_RADIUS, PATH_RECALC_MS, PLAYER_SIZE, VIEW_RADIUS } from "./balance";
+import {
+  CAST_RECOVER_MS,
+  FLANK,
+  GNOME_CASTER,
+  GOBLIN_DASH,
+  GOBLIN_THROW,
+  LEASH,
+  MOB_LOSE_TRACK_MS,
+  MOB_WAKE_RADIUS,
+  PATH_RECALC_MS,
+  PLAYER_SIZE,
+  SLIME_LEAP,
+  VIEW_RADIUS,
+  WOLF_POUNCE,
+} from "./balance";
 import { type CollisionGrid, moveWithCollision } from "./collision";
 import type { Arc } from "./combat";
 import { hasLineOfSight } from "./lineOfSight";
-import type { MobStats } from "./mobs";
+import type { MobAbility, MobStats } from "./mobs";
 import type { Vec2 } from "./movement";
 import { type IdlePlan, idlePauseMs, roamPoint } from "./packs";
 import { findPath } from "./pathfinding";
@@ -22,16 +36,36 @@ export type MobMind =
   | { mode: "chase"; targetId: string; lastSeen: Vec2; lostMs: number; path: Vec2[]; sinceRepathMs: number; alert?: boolean }
   | { mode: "return"; path: Vec2[]; immuneMs?: number }
   | { mode: "windup"; targetId: string; angle: number; remainingMs: number; alert?: boolean }
-  | { mode: "recover"; targetId: string; remainingMs: number; alert?: boolean };
+  | { mode: "recover"; targetId: string; remainingMs: number; alert?: boolean }
+  // Ataque especial (balance.ts): "prep" é o preparo parado (o aviso); "act", o movimento (investida, bote, pulo).
+  // aim: o ponto do alvo no começo (para onde o bote e o pulo vão).
+  | { mode: "ability"; ability: MobAbility; targetId: string; phase: "prep" | "act"; remainingMs: number; angle: number; aim: Vec2; alert?: boolean };
+
+// Recarga que falta (ms) de cada ataque especial, e há quanto tempo o alvo está na distância do arremesso (goblin).
+export interface MobTimers {
+  cooldowns: Partial<Record<MobAbility, number>>;
+  holdMs: number;
+}
+
+// O que um ataque especial faz no mundo; quem aplica é o servidor (dano, projétil, cristal, poça).
+// projectile: a adaga do goblin ou o projétil do gnomo, de `from` na direção `angle`. crystal: a erupção no ponto
+// `at` (o círculo agora, o cristal depois). impact: a queda do bote (lobo) ou do pulo (slime) em `at`.
+export type MobEvent =
+  | { type: "projectile"; kind: "dagger" | "gnome"; from: Vec2; angle: number }
+  | { type: "crystal"; at: Vec2 }
+  | { type: "impact"; ability: "pounce" | "leap"; at: Vec2 };
 
 export interface ThinkingMob {
   position: Vec2;
   mind: MobMind;
+  timers?: MobTimers;
 }
 
-// `strike`: no tick em que a preparação termina, a direção do golpe. O servidor aplica o dano.
+// `strike`: no tick em que a preparação termina, a direção do golpe. O servidor aplica o dano. `events`: o que os
+// ataques especiais fizeram neste tick.
 export interface MobStep extends ThinkingMob {
   strike?: number;
+  events?: MobEvent[];
 }
 
 // Arco do golpe do mob, do centro dele até a borda do alvo.
@@ -61,6 +95,8 @@ export interface MobWorld {
   players: ReadonlyMap<string, MobTarget>;
   post?: MobPost;
   noticeable?: ReadonlySet<string>;
+  // Cerco: o ângulo (radianos, até ±FLANK.degrees) pelo qual este mob chega ao alvo de perto.
+  flank?: number;
 }
 
 const distance = (a: Vec2, b: Vec2) => Math.hypot(b.x - a.x, b.y - a.y);
@@ -211,27 +247,209 @@ function stepChasing(
   const lostMs = visible || enRoute ? 0 : mind.lostMs + dtMs;
   if (lostMs >= MOB_LOSE_TRACK_MS) return { position: mob.position, mind: giveUp(mob.position, world, random) };
   const lastSeen = visible ? target : mind.lastSeen;
+  const gap = distance(mob.position, target);
+  const timers = holdTimer(mob.timers, visible, gap, dtMs);
 
-  // Encostou no alvo à vista: para e começa a preparar o golpe, com a direção travada a partir de agora.
+  // Ataque especial pronto e na distância certa: começa.
+  const special = visible ? startAbility(mob.position, mind, world.stats, target, gap, timers) : undefined;
+  if (special) return { position: mob.position, mind: special.mind, timers: special.timers };
+
   const stopAt = world.stats.size / 2 + PLAYER_SIZE / 2 + world.stats.reach;
-  if (visible && distance(mob.position, target) <= stopAt) {
+  // Gnomo: perto demais, recua; na distância de conjurar, espera parado a recarga. Encurralado, cai no golpe de perto.
+  if (visible && isCaster(world.stats)) {
+    const kept = keepDistance(mob, mind, world, target, gap, stopAt, dtMs);
+    if (kept) return { position: kept.position, mind: kept.mind.mode === "chase" ? { ...mind, lastSeen, lostMs } : kept.mind, timers };
+  }
+
+  // Encostou no alvo à vista: para e começa a preparar o golpe, com a direção travada a partir de agora. O slime não
+  // golpeia parado: o ataque dele é o pulo.
+  if (visible && gap <= stopAt && !world.stats.abilities?.includes("leap")) {
     const angle = Math.atan2(target.y - mob.position.y, target.x - mob.position.x);
     return {
       position: mob.position,
       mind: { mode: "windup", targetId: mind.targetId, angle, remainingMs: world.stats.windupMs, alert: mind.alert },
+      timers,
     };
+  }
+  // Cerco: de perto e à vista, cada um chega pelo seu ângulo.
+  if (visible && world.flank && gap < FLANK.range && gap > stopAt) {
+    const away = Math.atan2(mob.position.y - target.y, mob.position.x - target.x) + world.flank;
+    const goal = { x: target.x + Math.cos(away) * stopAt, y: target.y + Math.sin(away) * stopAt };
+    const moved = followPath(mob.position, [], goal, chaser(world), dtMs);
+    return { position: moved.position, mind: { ...mind, lastSeen, lostMs, path: [], sinceRepathMs: mind.sinceRepathMs + dtMs }, timers };
   }
   const since = mind.sinceRepathMs + dtMs;
   const route = pathTo(world.grid, mob.position, lastSeen, mind.path, since);
-  // Perseguindo, alguns tipos correm mais (chaseSpeedFactor).
-  const factor = world.stats.chaseSpeedFactor ?? 1;
-  const runner = factor === 1 ? world : { ...world, stats: { ...world.stats, speed: world.stats.speed * factor } };
-  const moved = followPath(mob.position, route.path, lastSeen, runner, dtMs);
+  const moved = followPath(mob.position, route.path, lastSeen, chaser(world), dtMs);
   // Terminou de andar o caminho neste tick: o próximo recalcula na hora. Um A* que devolveu [] (já está no ponto mais
   // perto de um alvo fora de alcance) não conta: aí espera o intervalo, em vez de rodar de novo a cada tick.
   const ranOut = route.path.length > 0 && moved.path.length === 0;
   const sinceRepathMs = ranOut ? PATH_RECALC_MS : route.repathed ? 0 : since;
-  return { position: moved.position, mind: { ...mind, lastSeen, lostMs, path: moved.path, sinceRepathMs } };
+  return { position: moved.position, mind: { ...mind, lastSeen, lostMs, path: moved.path, sinceRepathMs }, timers };
+}
+
+// Perseguindo, alguns tipos correm mais (chaseSpeedFactor).
+function chaser(world: MobWorld): MobWorld {
+  const factor = world.stats.chaseSpeedFactor ?? 1;
+  return factor === 1 ? world : { ...world, stats: { ...world.stats, speed: world.stats.speed * factor } };
+}
+
+// ---------------------------------------------------------------- ataques especiais
+
+const NO_TIMERS: MobTimers = { cooldowns: {}, holdMs: 0 };
+
+// As recargas andam em qualquer modo.
+function tickTimers(timers: MobTimers | undefined, dtMs: number): MobTimers | undefined {
+  if (!timers) return undefined;
+  const cooldowns: Partial<Record<MobAbility, number>> = {};
+  for (const [ability, left] of Object.entries(timers.cooldowns) as [MobAbility, number][]) {
+    if (left - dtMs > 0) cooldowns[ability] = left - dtMs;
+  }
+  return { cooldowns, holdMs: timers.holdMs };
+}
+
+// Arremesso do goblin: conta o tempo seguido com o alvo à vista na distância dele (fora dela, zera).
+function holdTimer(timers: MobTimers | undefined, visible: boolean, gap: number, dtMs: number): MobTimers {
+  const current = timers ?? NO_TIMERS;
+  const inRange = visible && gap >= GOBLIN_THROW.min && gap <= GOBLIN_THROW.max;
+  return { cooldowns: current.cooldowns, holdMs: inRange ? current.holdMs + dtMs : 0 };
+}
+
+function isCaster(stats: MobStats): boolean {
+  return stats.abilities?.includes("bolt") === true;
+}
+
+// Qual ataque especial começa agora (o primeiro pronto, na ordem da lista do tipo), ou nenhum.
+function startAbility(
+  position: Vec2,
+  mind: Extract<MobMind, { mode: "chase" }>,
+  stats: MobStats,
+  target: Vec2,
+  gap: number,
+  timers: MobTimers,
+): { mind: MobMind; timers: MobTimers } | undefined {
+  const ready = (a: MobAbility) => (timers.cooldowns[a] ?? 0) <= 0;
+  const angle = Math.atan2(target.y - position.y, target.x - position.x);
+  for (const ability of stats.abilities ?? []) {
+    const plan = abilityPlan(ability, gap, timers, ready(ability));
+    if (!plan) continue;
+    const aim = ability === "leap" ? clampTo(position, target, SLIME_LEAP.range) : { x: target.x, y: target.y };
+    const cooldowns = plan.cooldownMs ? { ...timers.cooldowns, [ability]: plan.cooldownMs } : timers.cooldowns;
+    return {
+      mind: { mode: "ability", ability, targetId: mind.targetId, phase: "prep", remainingMs: plan.prepMs, angle, aim, alert: mind.alert },
+      timers: { cooldowns, holdMs: ability === "throw" ? 0 : timers.holdMs },
+    };
+  }
+  return undefined;
+}
+
+// Se o ataque pode começar agora (distância e recarga) e quanto dura o preparo e a recarga dele.
+function abilityPlan(ability: MobAbility, gap: number, timers: MobTimers, ready: boolean): { prepMs: number; cooldownMs?: number } | undefined {
+  switch (ability) {
+    case "dash":
+      return ready && gap >= GOBLIN_DASH.min && gap <= GOBLIN_DASH.max ? { prepMs: GOBLIN_DASH.windupMs, cooldownMs: GOBLIN_DASH.cooldownMs } : undefined;
+    case "throw":
+      return timers.holdMs >= GOBLIN_THROW.holdMs ? { prepMs: GOBLIN_THROW.windupMs } : undefined;
+    case "pounce":
+      return ready && gap >= WOLF_POUNCE.min && gap <= WOLF_POUNCE.max ? { prepMs: WOLF_POUNCE.crouchMs, cooldownMs: WOLF_POUNCE.cooldownMs } : undefined;
+    case "leap":
+      return gap <= SLIME_LEAP.range ? { prepMs: SLIME_LEAP.crouchMs } : undefined;
+    case "crystal":
+      return ready && gap <= GNOME_CASTER.keepMax + 32 ? { prepMs: GNOME_CASTER.castMs, cooldownMs: GNOME_CASTER.crystalCooldownMs } : undefined;
+    case "bolt":
+      return ready && gap <= GNOME_CASTER.boltRange ? { prepMs: GNOME_CASTER.castMs, cooldownMs: GNOME_CASTER.boltCooldownMs } : undefined;
+  }
+}
+
+// O ponto `to`, trazido para no máximo `max` px de `from`.
+function clampTo(from: Vec2, to: Vec2, max: number): Vec2 {
+  const d = distance(from, to);
+  if (d <= max) return { x: to.x, y: to.y };
+  return { x: from.x + ((to.x - from.x) * max) / d, y: from.y + ((to.y - from.y) * max) / d };
+}
+
+// Gnomo: perto demais, recua (anda para longe do alvo); entre KEEP_MIN e KEEP_MAX, fica parado conjurando. Recuar
+// travado (parede atrás) com o alvo colado: golpe de perto. Longe demais: undefined (persegue como os outros).
+function keepDistance(
+  mob: ThinkingMob,
+  mind: Extract<MobMind, { mode: "chase" }>,
+  world: MobWorld,
+  target: Vec2,
+  gap: number,
+  stopAt: number,
+  dtMs: number,
+): ThinkingMob | undefined {
+  if (gap > GNOME_CASTER.keepMax) return undefined;
+  if (gap >= GNOME_CASTER.keepMin) return { position: mob.position, mind };
+  const away = gap > 0 ? { x: (mob.position.x - target.x) / gap, y: (mob.position.y - target.y) / gap } : { x: 1, y: 0 };
+  const goal = { x: mob.position.x + away.x * 32, y: mob.position.y + away.y * 32 };
+  const moved = followPath(mob.position, [], goal, world, dtMs);
+  const expected = (world.stats.speed * dtMs) / 1000;
+  if (distance(moved.position, mob.position) >= expected * 0.25 || gap > stopAt) return { position: moved.position, mind };
+  const angle = Math.atan2(target.y - mob.position.y, target.x - mob.position.x);
+  return { position: mob.position, mind: { mode: "windup", targetId: mind.targetId, angle, remainingMs: world.stats.windupMs, alert: mind.alert } };
+}
+
+// Um tick de ataque especial. Preparo: parado, até acabar; aí atira, conjura ou parte. Movimento: investida (até
+// encostar, termina numa facada), bote e pulo (até o ponto, terminam num impacto).
+function stepAbility(mob: ThinkingMob, mind: Extract<MobMind, { mode: "ability" }>, world: MobWorld, dtMs: number): MobStep {
+  const remainingMs = mind.remainingMs - dtMs;
+  const target = world.players.get(mind.targetId);
+  if (mind.phase === "prep") {
+    if (remainingMs > 0) return { position: mob.position, mind: { ...mind, remainingMs } };
+    return finishPrep(mob.position, mind, target);
+  }
+  if (mind.ability === "dash") return stepDash(mob.position, mind, world, target, remainingMs, dtMs);
+  return stepLeap(mob.position, mind, world, remainingMs, dtMs);
+}
+
+const recover = (mind: Extract<MobMind, { mode: "ability" }>, remainingMs: number): MobMind => ({
+  mode: "recover",
+  targetId: mind.targetId,
+  remainingMs,
+  alert: mind.alert,
+});
+
+function finishPrep(position: Vec2, mind: Extract<MobMind, { mode: "ability" }>, target: Vec2 | undefined): MobStep {
+  const towards = target ? Math.atan2(target.y - position.y, target.x - position.x) : mind.angle;
+  switch (mind.ability) {
+    case "throw":
+      return { position, mind: recover(mind, CAST_RECOVER_MS), events: [{ type: "projectile", kind: "dagger", from: position, angle: towards }] };
+    case "bolt":
+      return { position, mind: recover(mind, CAST_RECOVER_MS), events: [{ type: "projectile", kind: "gnome", from: position, angle: towards }] };
+    case "crystal":
+      return { position, mind: recover(mind, CAST_RECOVER_MS), events: [{ type: "crystal", at: target ? { x: target.x, y: target.y } : mind.aim }] };
+    case "dash":
+      return { position, mind: { ...mind, phase: "act", remainingMs: GOBLIN_DASH.maxMs, angle: towards } };
+    case "pounce":
+      return { position, mind: { ...mind, phase: "act", remainingMs: WOLF_POUNCE.maxAirMs } };
+    case "leap":
+      return { position, mind: { ...mind, phase: "act", remainingMs: SLIME_LEAP.airMs } };
+  }
+}
+
+// Investida do goblin: corre até encostar no alvo (ou acabar o tempo) e dá a facada (o golpe normal, na hora).
+function stepDash(position: Vec2, mind: Extract<MobMind, { mode: "ability" }>, world: MobWorld, target: Vec2 | undefined, remainingMs: number, dtMs: number): MobStep {
+  const goal = target ?? mind.aim;
+  const stopAt = world.stats.size / 2 + PLAYER_SIZE / 2 + world.stats.reach;
+  const fast = { ...world, stats: { ...world.stats, speed: world.stats.speed * GOBLIN_DASH.speedFactor } };
+  const moved = followPath(position, [], goal, fast, dtMs);
+  const angle = Math.atan2(goal.y - moved.position.y, goal.x - moved.position.x);
+  if (distance(moved.position, goal) > stopAt && remainingMs > 0) return { position: moved.position, mind: { ...mind, remainingMs, angle } };
+  return { position: moved.position, mind: recover(mind, world.stats.recoverMs), strike: angle };
+}
+
+// Bote do lobo e pulo do slime: voa em linha reta até o ponto (o bote a WOLF_POUNCE.speed; o pulo chega no fim do
+// AIR_MS); parede no caminho para antes. Ao chegar (ou acabar o tempo), o impacto.
+function stepLeap(position: Vec2, mind: Extract<MobMind, { mode: "ability" }>, world: MobWorld, remainingMs: number, dtMs: number): MobStep {
+  const left = distance(position, mind.aim);
+  const speed = mind.ability === "pounce" ? WOLF_POUNCE.speed : (left * 1000) / Math.max(dtMs, mind.remainingMs);
+  const flying = { ...world, stats: { ...world.stats, speed } };
+  const moved = followPath(position, [], mind.aim, flying, dtMs);
+  const stuck = distance(moved.position, position) < 0.5 && left > 1;
+  if (distance(moved.position, mind.aim) > 2 && remainingMs > 0 && !stuck) return { position: moved.position, mind: { ...mind, remainingMs } };
+  const after = mind.ability === "pounce" ? WOLF_POUNCE.recoverMs : SLIME_LEAP.recoverMs;
+  return { position: moved.position, mind: recover(mind, after), events: [{ type: "impact", ability: mind.ability as "pounce" | "leap", at: moved.position }] };
 }
 
 // Preparando: parado, direção travada. Não é interrompido por dano. Ao terminar, golpeia e passa a se recuperar.
@@ -311,6 +529,12 @@ export function isDormant(mob: ThinkingMob, players: ReadonlyMap<string, Vec2>):
 
 // Um tick da cabeça de um mob: vagar, perseguir, golpear ou voltar para casa. `random` vem de fora para ser testável.
 export function stepMob(mob: ThinkingMob, world: MobWorld, dtMs: number, random: () => number): MobStep {
+  const timers = tickTimers(mob.timers, dtMs);
+  const step = thinkStep({ ...mob, timers }, world, dtMs, random);
+  return { ...step, timers: step.timers ?? timers };
+}
+
+function thinkStep(mob: ThinkingMob, world: MobWorld, dtMs: number, random: () => number): MobStep {
   switch (mob.mind.mode) {
     case "wander":
       return stepWandering(mob, mob.mind.wander, world, dtMs, random);
@@ -324,5 +548,7 @@ export function stepMob(mob: ThinkingMob, world: MobWorld, dtMs: number, random:
       return stepWindup(mob, mob.mind, world, dtMs);
     case "recover":
       return stepRecover(mob, mob.mind, dtMs);
+    case "ability":
+      return stepAbility(mob, mob.mind, world, dtMs);
   }
 }

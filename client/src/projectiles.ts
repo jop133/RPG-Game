@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { MAGIC_BOLT, type Vec2 } from "shared";
+import { GNOME_CASTER, GOBLIN_THROW, MAGIC_BOLT, type Vec2 } from "shared";
 import { LIGHT_KEY, type Light, type LightLook } from "./lighting";
 import type { Particles } from "./particles";
 
@@ -11,10 +11,28 @@ import type { Particles } from "./particles";
 // - no fim (done: bateu ou acabou o alcance), a explosão de brasas no ponto do impacto;
 // - o clarão na ponta do cajado no disparo (flash).
 // Brilham por cima da camada de luz (glowDepth): aparecem no escuro.
+// Os mobs também atiram (kind): o gnomo, o projétil mágico ciano (weapons/projetil_magico); o goblin, a adaga girando
+// no ar (mobs/efeitos/adaga-*). Mesmo voo, outro desenho.
 
 export interface ProjectileView extends Vec2 {
   angle: number;
   done: boolean;
+  kind?: string;
+}
+
+// O desenho de cada tipo de projétil: textura (animada ou não), escala, giro no ar (voltas/s; sem giro, aponta para
+// onde voa), velocidade (para seguir na reta entre um tick e outro), luz e cores do rastro e do impacto.
+interface BoltLook {
+  texture: string;
+  animated: boolean;
+  origin: { x: number; y: number };
+  scale: number;
+  spin: number;
+  speed: number;
+  light?: { radius: number; look: LightLook };
+  trail: readonly number[];
+  explosion: readonly number[];
+  flashColor?: number;
 }
 
 // A tira de 4 quadros de 64x64 (tools/assets/process_spells.py): a frente da cabeça em (56, 32) em todos; a origem
@@ -34,9 +52,47 @@ const EXTRAPOLATE_MS = 60;
 const FLASH_MS = 150;
 const FLASH_RADIUS = { cast: 22, impact: 34 };
 const FLASH_LIGHT_RADIUS = { cast: 70, impact: 110 };
+const GNOME_COLOR = 0x22d3ee;
+const LOOKS: Record<string, BoltLook> = {
+  "": {
+    texture: FIREBALL_KEY,
+    animated: true,
+    origin: FIREBALL_ORIGIN,
+    scale: 1,
+    spin: 0,
+    speed: MAGIC_BOLT.speed,
+    light: { radius: MAGIC_BOLT.lightRadius, look: BOLT_LIGHT },
+    trail: TRAIL_COLORS,
+    explosion: EXPLOSION_COLORS,
+    flashColor: BOLT_COLOR,
+  },
+  gnome: {
+    texture: "weapons/projetil_magico",
+    animated: false,
+    origin: { x: 0.75, y: 0.5 },
+    scale: 1,
+    spin: 0,
+    speed: GNOME_CASTER.boltSpeed,
+    light: { radius: 64, look: { color: GNOME_COLOR, intensity: 0.9, effect: "flicker" } },
+    trail: [0x22d3ee, 0x67e8f9, 0xa5f3fc, 0x0891b2],
+    explosion: [0x22d3ee, 0xa5f3fc, 0xffffff, 0x0e7490],
+    flashColor: GNOME_COLOR,
+  },
+  dagger: {
+    texture: "mobs/efeitos/adaga-north",
+    animated: false,
+    origin: { x: 0.5, y: 0.5 },
+    scale: 0.55,
+    spin: 3,
+    speed: GOBLIN_THROW.speed,
+    trail: [],
+    explosion: [0x9ca3af, 0xd1d5db, 0x6b7280],
+  },
+};
 
 interface Flying {
   image: Phaser.GameObjects.Sprite;
+  look: BoltLook;
   serverX: number;
   serverY: number;
   seenAt: number;
@@ -68,10 +124,11 @@ export class Bolts {
       seen.add(id);
       let fly = this.flying.get(id);
       if (!fly) {
-        const image = this.scene.add.sprite(bolt.x, bolt.y, FIREBALL_KEY).setOrigin(FIREBALL_ORIGIN.x, FIREBALL_ORIGIN.y);
+        const look = LOOKS[bolt.kind ?? ""] ?? (LOOKS[""] as BoltLook);
+        const image = this.scene.add.sprite(bolt.x, bolt.y, look.texture).setOrigin(look.origin.x, look.origin.y).setScale(look.scale);
         image.setDepth(this.glowDepth);
-        if (this.scene.anims.exists(FIREBALL_KEY)) image.play(FIREBALL_KEY);
-        fly = { image, serverX: bolt.x, serverY: bolt.y, seenAt: time, exploded: false };
+        if (look.animated && this.scene.anims.exists(look.texture)) image.play(look.texture);
+        fly = { image, look, serverX: bolt.x, serverY: bolt.y, seenAt: time, exploded: false };
         this.flying.set(id, fly);
       }
       if (bolt.x !== fly.serverX || bolt.y !== fly.serverY) {
@@ -83,11 +140,12 @@ export class Bolts {
         if (!fly.exploded) this.explode(fly, bolt, time);
         return;
       }
-      const ahead = (MAGIC_BOLT.speed * Math.min(time - fly.seenAt, EXTRAPOLATE_MS)) / 1000;
+      const ahead = (fly.look.speed * Math.min(time - fly.seenAt, EXTRAPOLATE_MS)) / 1000;
       const x = fly.serverX + Math.cos(bolt.angle) * ahead;
       const y = fly.serverY + Math.sin(bolt.angle) * ahead;
-      fly.image.setPosition(x, y).setRotation(bolt.angle);
-      this.trail(x, y, bolt.angle, time, delta);
+      const rotation = fly.look.spin ? (time / 1000) * fly.look.spin * Math.PI * 2 : bolt.angle;
+      fly.image.setPosition(x, y).setRotation(rotation);
+      this.trail(fly.look, x, y, bolt.angle, time, delta);
     });
     for (const [id, fly] of this.flying) {
       if (seen.has(id)) continue;
@@ -106,8 +164,8 @@ export class Bolts {
   lights(): Light[] {
     const lights: Light[] = [];
     for (const fly of this.flying.values()) {
-      if (fly.exploded) continue;
-      lights.push({ x: fly.image.x, y: fly.image.y, radius: MAGIC_BOLT.lightRadius, look: BOLT_LIGHT, phase: 0, kind: "projetil" });
+      if (fly.exploded || !fly.look.light) continue;
+      lights.push({ x: fly.image.x, y: fly.image.y, radius: fly.look.light.radius, look: fly.look.light.look, phase: 0, kind: "projetil" });
     }
     for (const f of this.flashes) {
       lights.push({ x: f.x, y: f.y, radius: FLASH_LIGHT_RADIUS[f.kind], look: BOLT_LIGHT, phase: 0, kind: "projetil" });
@@ -125,27 +183,27 @@ export class Bolts {
   private explode(fly: Flying, at: Vec2, time: number) {
     fly.exploded = true;
     fly.image.setVisible(false);
-    this.particles?.explode(at.x, at.y, EXPLOSION_COLORS, time);
-    this.addFlash(at.x, at.y, time, "impact");
+    this.particles?.explode(at.x, at.y, fly.look.explosion, time);
+    if (fly.look.flashColor !== undefined) this.addFlash(at.x, at.y, time, "impact", fly.look.flashColor);
   }
 
   // Brasas soltas para trás, com um pouco de espalhamento (em média TRAIL_PER_SECOND por segundo).
-  private trail(x: number, y: number, angle: number, time: number, delta: number) {
-    if (!this.particles) return;
+  private trail(look: BoltLook, x: number, y: number, angle: number, time: number, delta: number) {
+    if (!this.particles || look.trail.length === 0) return;
     const count = Math.floor((TRAIL_PER_SECOND * delta) / 1000 + Math.random());
     for (let i = 0; i < count; i++) {
       const back = angle + Math.PI + Phaser.Math.FloatBetween(-0.5, 0.5);
       const speed = Phaser.Math.FloatBetween(20, 60);
-      const color = TRAIL_COLORS[Phaser.Math.Between(0, TRAIL_COLORS.length - 1)] ?? BOLT_COLOR;
+      const color = look.trail[Phaser.Math.Between(0, look.trail.length - 1)] ?? BOLT_COLOR;
       this.particles.spark(x, y + Phaser.Math.FloatBetween(-2, 2), color, Math.cos(back) * speed, Math.sin(back) * speed, Phaser.Math.Between(180, 320), time);
     }
   }
 
-  private addFlash(x: number, y: number, time: number, kind: Flash["kind"]) {
+  private addFlash(x: number, y: number, time: number, kind: Flash["kind"], color = BOLT_COLOR) {
     const image = this.scene.add
       .image(x, y, LIGHT_KEY)
       .setBlendMode(Phaser.BlendModes.ADD)
-      .setTint(BOLT_COLOR)
+      .setTint(color)
       .setDepth(this.glowDepth)
       .setScale(0);
     this.flashes.push({ image, x, y, at: time, kind });

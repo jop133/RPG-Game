@@ -16,7 +16,12 @@ export interface MobStats {
   recoverMs: number;
   // Velocidade x isto enquanto persegue (sem o campo, a mesma).
   chaseSpeedFactor?: number;
+  // Ataques especiais (mobAi.ts; os números em balance.ts).
+  abilities?: readonly MobAbility[];
 }
+
+// dash/throw: goblin; pounce: lobo; leap: slime; bolt/crystal: gnomo.
+export type MobAbility = "dash" | "throw" | "pounce" | "leap" | "bolt" | "crystal";
 
 export interface MobSpawn {
   kind: MobKind;

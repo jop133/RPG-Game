@@ -1,6 +1,18 @@
 import { StateView } from "@colyseus/schema";
 import { CloseCode, Room, type Client } from "colyseus";
 import {
+  ATTACK_SLOW,
+  FLANK,
+  GNOME_CASTER,
+  GOBLIN_THROW,
+  SLIME_LEAP,
+  SLIME_SPLIT,
+  SPELL_FLATTEN,
+  WOLF_POUNCE,
+  crystalArea,
+  type MobEvent,
+  type MobTimers,
+  type ProjectileSpec,
   ARENA_AREAS,
   CLASS_NAMES,
   DEV,
@@ -183,6 +195,15 @@ export function arenaLevel(): Level {
   return (arena ??= loadLevel(new URL("../../assets/maps/test_arena.json", import.meta.url), ARENA_AREAS));
 }
 
+// A ação de um mob, para o cliente escolher a animação (ver MobState.action).
+function actionOf(mind: MobMind): string {
+  if (mind.mode === "windup") return "attack";
+  if (mind.mode !== "ability") return "";
+  if (mind.ability === "pounce") return `pounce-${mind.phase}`;
+  if (mind.ability === "bolt" || mind.ability === "crystal") return "cast";
+  return mind.ability;
+}
+
 // Ferramentas de dev: o destino pedido ao entrar na sala (options.devTarget), se for um destino válido.
 function devTargetOf(options: unknown): DevTeleport | undefined {
   const raw = typeof options === "object" && options !== null ? (options as { devTarget?: unknown }).devTarget : undefined;
@@ -192,10 +213,17 @@ function devTargetOf(options: unknown): DevTeleport | undefined {
 // O que o servidor precisa saber de um mob para movê-lo, e que o cliente não precisa ver. post e pack: só os mobs de
 // grupo (spawns táticos das zonas): o posto e de qual grupo é.
 // ai: false = parado (spawn de dev com a IA desligada, e o Boneco de Treino); dummy: o Boneco de Treino (não morre).
+// timers: recargas dos ataques especiais. flank: o ângulo do cerco (FLANK). mini: Mini-Slime. dyingMs: explodindo
+// (slime), quanto falta; killer: quem matou (os minis nascem caçando ele).
 interface MobBrain {
   kind: SpawnKind;
   ai?: boolean;
   dummy?: boolean;
+  timers?: MobTimers;
+  flank?: number;
+  mini?: boolean;
+  dyingMs?: number;
+  killer?: string;
   area: Area;
   homeCells: Vec2[];
   mind: MobMind;
@@ -220,10 +248,13 @@ const RESPAWN_CHECK_TICKS = 20;
 
 // Projétil Mágico em voo, do lado do servidor: o voo (shared/src/projectile.ts), quem atirou (o mob atingido vai atrás
 // dele; jogador e mob não acertam quem atirou) e o Dano Mágico de quem atirou no instante do disparo.
+// hostile: de um mob (acerta só jogadores, com o tipo do mob como causa da morte); spec: velocidade, alcance e tamanho.
 interface Bolt {
   flight: Projectile;
   owner: string;
   damage: number;
+  spec: ProjectileSpec;
+  hostile?: { mob: MobKind; type: DamageType };
 }
 
 // Magia no chão, do lado do servidor: quem lançou, a fase e quanto falta dela, e o dano do raio (fixado no lançamento).
@@ -233,7 +264,17 @@ interface CastSpell {
   phase: "warn" | "strike" | "cast" | "active";
   remainingMs: number;
   damage: number;
+  // De um mob (a Erupção de Cristal do gnomo): acerta só jogadores.
+  hostile?: boolean;
 }
+
+// Projéteis dos mobs: a adaga do goblin e o projétil do gnomo (balance.ts).
+const MOB_BOLTS: Record<"dagger" | "gnome", { spec: ProjectileSpec; damage: number; mob: MobKind; type: DamageType }> = {
+  dagger: { spec: { speed: GOBLIN_THROW.speed, range: GOBLIN_THROW.range, radius: GOBLIN_THROW.radius, spawnOffset: 12 }, damage: GOBLIN_THROW.damage, mob: "goblin", type: "physical" },
+  gnome: { spec: { speed: GNOME_CASTER.boltSpeed, range: GNOME_CASTER.boltRange, radius: GNOME_CASTER.boltRadius, spawnOffset: 12 }, damage: GNOME_CASTER.boltDamage, mob: "gnomo", type: "magic" },
+};
+// Cerco: os ângulos dos mobs, um de cada vez (o grupo abre em volta).
+const FLANK_ANGLES = [0, FLANK.degrees, -FLANK.degrees].map((d) => (d * Math.PI) / 180);
 
 
 export class GameRoom extends Room<{ state: GameState }> {
@@ -261,8 +302,11 @@ export class GameRoom extends Room<{ state: GameState }> {
   // depois disso interrompe) e quanto já foi. E até quando cada saída aberta fica aberta.
   private channels = new Map<string, { exitId: string; at: Vec2; startedAt: number; elapsedMs: number }>();
   private exitOpenUntil = new Map<string, number>();
-  // Stagger: até quando cada um anda mais devagar depois de levar golpe de mob.
+  // Stagger: até quando cada um anda mais devagar depois de levar golpe de mob. Anti-kiting: depois de golpear. Bote do
+  // lobo: depois de levar o impacto.
   private staggerUntil = new Map<string, number>();
+  private attackSlowUntil = new Map<string, number>();
+  private pounceSlowUntil = new Map<string, number>();
   // Quem é cada sessão no banco.
   private characters = new Map<string, CharacterRecord>();
   // Essências absorvidas e os status que resultam delas e da arma (velocidade, dano, vida máxima, golpe).
@@ -352,6 +396,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       hp: stats.maxHp,
       maxHp: stats.maxHp,
       attackSeq: 0,
+      castSeq: 0,
       attackAngle: 0,
       mana: stats.maxMana,
       maxMana: stats.maxMana,
@@ -409,6 +454,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.inventories.delete(sessionId);
     this.equipment.delete(sessionId);
     this.staggerUntil.delete(sessionId);
+    this.attackSlowUntil.delete(sessionId);
+    this.pounceSlowUntil.delete(sessionId);
     this.godMode.delete(sessionId);
     this.forcedZones.delete(sessionId);
     if (this.channels.has(sessionId)) this.endChannel(sessionId);
@@ -656,10 +703,11 @@ export class GameRoom extends Room<{ state: GameState }> {
     const attacker = this.state.players.get(sessionId);
     const now = this.clock.currentTime;
     const stats = this.statsOf(sessionId);
-    // Com cajado, o clique não faz nada por enquanto (pedido do dono do projeto): a Bola de Fogo é uma habilidade.
-    if (stats.attack.weaponType === "staff") return;
+    // O cajado golpeia de perto como a espada (as magias são habilidades).
     if (angle === undefined || !attacker || !isOffCooldown(this.lastAttackMs.get(sessionId), now, attackCooldownMs(stats))) return;
     this.lastAttackMs.set(sessionId, now);
+    // Anti-kiting: golpear deixa mais lento por um instante.
+    this.attackSlowUntil.set(sessionId, now + ATTACK_SLOW.durationMs);
     attacker.attackSeq += 1;
     attacker.attackAngle = angle;
     this.hitMobs(sessionId, attacker, angle);
@@ -670,9 +718,19 @@ export class GameRoom extends Room<{ state: GameState }> {
   // Disparo: o projétil nasce no centro de quem atira e já anda até a ponta do cajado (pode bater ali mesmo).
   private fireBolt(owner: string, from: Vec2, angle: number, damage: number) {
     const id = `bolt-${this.nextBoltId++}`;
-    this.state.projectiles.set(id, new ProjectileState({ x: from.x, y: from.y, angle, done: false }));
-    this.bolts.set(id, { flight: { x: from.x, y: from.y, angle, traveled: 0 }, owner, damage });
+    this.state.projectiles.set(id, new ProjectileState({ x: from.x, y: from.y, angle, done: false, kind: "" }));
+    this.bolts.set(id, { flight: { x: from.x, y: from.y, angle, traveled: 0 }, owner, damage, spec: MAGIC_BOLT });
     this.applyBoltStep(id, launchProjectile(from, angle, this.level.grid, this.boltTargets(owner)));
+  }
+
+  // Projétil de mob (adaga do goblin, projétil do gnomo): acerta só jogadores.
+  private fireMobBolt(owner: string, kind: "dagger" | "gnome", from: Vec2, angle: number) {
+    const config = MOB_BOLTS[kind];
+    const id = `bolt-${this.nextBoltId++}`;
+    this.state.projectiles.set(id, new ProjectileState({ x: from.x, y: from.y, angle, done: false, kind }));
+    const hostile = { mob: config.mob, type: config.type };
+    this.bolts.set(id, { flight: { x: from.x, y: from.y, angle, traveled: 0 }, owner, damage: config.damage, spec: config.spec, hostile });
+    this.applyBoltStep(id, launchProjectile(from, angle, this.level.grid, this.boltTargets(owner, true), config.spec));
   }
 
   // Janela de Skills: trocar a habilidade de um slot (Q ou R), a qualquer momento da run. Gravado na hora (não é loot).
@@ -691,8 +749,8 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   // Tecla da skill (Q = slot 0, R = slot 1). O cliente diz o slot e o ponto do mouse; aqui: a skill equipada nele,
   // fora da recarga dela. Bola de Fogo dispara o projétil na direção do ponto; Raio e Pântano caem no ponto de verdade
-  // (spellTarget: no alcance, fora de parede). O lançamento conta como golpe (attackSeq): quem vê o mago desenha o
-  // cajado inclinando para a mira.
+  // (spellTarget: no alcance, fora de parede). O lançamento sobe castSeq (não attackSeq, que é o golpe): quem vê o mago
+  // desenha o cajado inclinando para a mira.
   private handleSkill(sessionId: string, message: unknown) {
     const cast = parseSkillCast(message);
     const caster = this.state.players.get(sessionId);
@@ -717,7 +775,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.state.spells.set(id, new SpellState({ kind: skill, x: at.x, y: at.y, phase }));
     }
     this.lastSpellMs.set(sessionId, { ...last, [skill]: now });
-    caster.attackSeq += 1;
+    caster.castSeq += 1;
     caster.attackAngle = angle;
     this.resolveDeaths();
   }
@@ -728,7 +786,11 @@ export class GameRoom extends Room<{ state: GameState }> {
       spell.remainingMs -= dtMs;
       if (spell.remainingMs > 0) continue;
       const view = this.state.spells.get(id);
-      if (spell.phase === "warn" && view) {
+      if (spell.phase === "warn" && view && spell.kind === "crystal") {
+        spell.phase = "strike";
+        spell.remainingMs = GNOME_CASTER.crystalShowMs;
+        this.strikeCrystal(spell, view);
+      } else if (spell.phase === "warn" && view) {
         spell.phase = "strike";
         spell.remainingMs = LIGHTNING_SPELL.strikeMs;
         this.strikeLightning(spell, view);
@@ -753,13 +815,27 @@ export class GameRoom extends Room<{ state: GameState }> {
     });
   }
 
+  // O cristal do gnomo brota: dano mágico e empurrão em quem ficou no círculo.
+  private strikeCrystal(spell: CastSpell, at: SpellState) {
+    const area = crystalArea(at);
+    this.state.players.forEach((player, sessionId) => {
+      if (!feetInside(area, player, PLAYER_SIZE / 2)) return;
+      this.damagePlayer(sessionId, player, spell.damage, { kind: "mob", mob: "gnomo" }, "magic");
+      const push = knockback(at, player);
+      const scale = GNOME_CASTER.crystalKnockback / Math.max(1, Math.hypot(push.x, push.y));
+      const next = moveWithCollision(this.level.grid, player, { x: push.x * scale, y: push.y * scale }, PLAYER_SIZE / 2);
+      player.x = next.x;
+      player.y = next.y;
+    });
+  }
+
   // O raio cai: Dano Mágico em todos com os pés na área (mobs, que vão atrás de quem lançou, e os outros jogadores).
   private strikeLightning(spell: CastSpell, at: SpellState) {
     const area = lightningArea(at);
     const caster = this.state.players.get(spell.owner);
     const dead: string[] = [];
     this.state.mobs.forEach((mob, id) => {
-      if (!feetInside(area, mob, mobStats(mob.kind).size / 2)) return;
+      if (this.dying(id) || !feetInside(area, mob, mobStats(mob.kind).size / 2)) return;
       mob.hp = applyDamage(mob.hp, spell.damage);
       const brain = this.mobBrains.get(id);
       if (brain && caster) brain.mind = provoke(brain.mind, spell.owner, caster);
@@ -783,9 +859,11 @@ export class GameRoom extends Room<{ state: GameState }> {
   }
 
   // Quem um projétil pode acertar: os mobs e os outros jogadores vivos (fogo amigo, como o golpe). Nunca quem atirou.
-  private boltTargets(owner: string): ProjectileTarget[] {
+  private boltTargets(owner: string, hostile = false): ProjectileTarget[] {
     const targets: ProjectileTarget[] = [];
-    this.state.mobs.forEach((mob, id) => targets.push({ id, x: mob.x, y: mob.y, radius: mobStats(mob.kind).size / 2 }));
+    this.state.mobs.forEach((mob, id) => {
+      if (!hostile && !this.dying(id)) targets.push({ id, x: mob.x, y: mob.y, radius: mobStats(mob.kind).size / 2 });
+    });
     this.state.players.forEach((player, id) => {
       if (id !== owner && player.hp > 0) targets.push({ id, x: player.x, y: player.y, radius: PLAYER_SIZE / 2 });
     });
@@ -802,7 +880,9 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.spentBolts.delete(id);
       this.state.projectiles.delete(id);
     }
-    for (const [id, bolt] of this.bolts) this.applyBoltStep(id, stepProjectile(bolt.flight, dtMs, this.level.grid, this.boltTargets(bolt.owner)));
+    for (const [id, bolt] of this.bolts) {
+      this.applyBoltStep(id, stepProjectile(bolt.flight, dtMs, this.level.grid, this.boltTargets(bolt.owner, bolt.hostile !== undefined), bolt.spec));
+    }
   }
 
   private applyBoltStep(id: string, step: ProjectileStep) {
@@ -825,6 +905,11 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   // Acerto: Dano Mágico no mob (que vai atrás de quem atirou) ou no jogador (reduzido pela Resistência Mágica dele).
   private boltHit(bolt: Bolt, targetId: string) {
+    if (bolt.hostile) {
+      const player = this.state.players.get(targetId);
+      if (player) this.damagePlayer(targetId, player, bolt.damage, { kind: "mob", mob: bolt.hostile.mob }, bolt.hostile.type);
+      return;
+    }
     const mob = this.state.mobs.get(targetId);
     if (mob) {
       mob.hp = applyDamage(mob.hp, bolt.damage);
@@ -847,7 +932,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     const dead: string[] = [];
     const { physicalDamage, attack } = this.statsOf(attackerId);
     this.state.mobs.forEach((mob, id) => {
-      if (!isInSwing(attacker, angle, attack, mob, mobStats(mob.kind).size / 2)) return;
+      if (this.dying(id) || !isInSwing(attacker, angle, attack, mob, mobStats(mob.kind).size / 2)) return;
       mob.hp = applyDamage(mob.hp, physicalDamage);
       if (mob.hp === 0) dead.push(id);
     });
@@ -857,14 +942,29 @@ export class GameRoom extends Room<{ state: GameState }> {
   // Mob morto: larga o loot, conta para quem matou (se ainda estiver na sala) e sai.
   private killMob(killerId: string, id: string) {
     const mob = this.state.mobs.get(id);
+    const brain = this.mobBrains.get(id);
     // O Boneco de Treino não morre: zerou, volta inteiro (sem loot, sem crédito).
-    if (mob && this.mobBrains.get(id)?.dummy) {
+    if (mob && brain?.dummy) {
       mob.hp = TRAINING_DUMMY.maxHp;
+      return;
+    }
+    if (brain?.dyingMs !== undefined) return;
+    // Slime grande: larga o loot e conta agora, mas explode por SLIME_SPLIT.deathMs antes de sair (e soltar os minis).
+    if (mob && brain && mob.kind === "slime" && !brain.mini) {
+      this.dropPile(mob, rollDrops("slime", Math.random));
+      const killer = this.state.players.get(killerId);
+      if (killer) this.creditKill(killerId, killer, "slime");
+      brain.dyingMs = SLIME_SPLIT.deathMs;
+      brain.killer = killerId;
+      mob.hp = 0;
+      mob.windup = false;
+      this.setAction(mob, "dying");
       return;
     }
     const killer = this.state.players.get(killerId);
     if (mob) {
-      this.dropPile(mob, rollDrops(mob.kind as MobKind, Math.random));
+      // Mini-Slime não larga loot (o grande já largou).
+      if (!brain?.mini) this.dropPile(mob, rollDrops(mob.kind as MobKind, Math.random));
       if (killer) this.creditKill(killerId, killer, mob.kind as MobKind);
       // O slime deixa uma poça de lodo ácido por ACID.slimeDeathMs.
       if (mob.kind === "slime") this.addTempAcid(mob);
@@ -955,7 +1055,10 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   private addMob(kind: SpawnKind, at: Vec2, brain: MobBrain): string {
     const id = `mob-${this.nextMobId++}`;
-    this.state.mobs.set(id, new MobState({ kind, ...at, hp: mobStats(kind).maxHp, windup: false, attackAngle: 0, frenzy: false }));
+    const fresh = { windup: false, attackAngle: 0, frenzy: false, action: "", actionSeq: 0, aimX: 0, aimY: 0, mini: brain.mini === true };
+    const hp = Math.round(mobStats(kind).maxHp * (brain.mini ? SLIME_SPLIT.hpFraction : 1));
+    this.state.mobs.set(id, new MobState({ kind, ...at, hp, ...fresh }));
+    brain.flank ??= FLANK_ANGLES[this.nextMobId % FLANK_ANGLES.length];
     this.mobBrains.set(id, brain);
     return id;
   }
@@ -994,6 +1097,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.regeneratePlayers(dtMs);
     this.tickZoneHazards(dtMs);
     this.moveMobs(dtMs);
+    this.tickDying(dtMs);
     this.respawnPacks();
     this.moveBolts(dtMs);
     this.tickSpells(dtMs);
@@ -1015,11 +1119,12 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.state.mobs.forEach((mob, id) => {
       const brain = this.mobBrains.get(id);
       if (!brain) return;
-      // Parado: o boneco, o spawn de dev com a IA desligada, ou a IA da sala desligada (set_mob_ai).
-      if (brain.ai === false || !this.mobAiOn) return;
+      // Parado: o boneco, o spawn de dev com a IA desligada, ou a IA da sala desligada (set_mob_ai). Explodindo: parado.
+      if (brain.ai === false || !this.mobAiOn || brain.dyingMs !== undefined) return;
       // Na lama de um Pântano, o mob anda mais devagar (o mesmo passo, com a velocidade reduzida). Lobo em frenesi:
       // mais rápido e nota de mais longe.
-      const kind = mobStats(brain.kind);
+      const base = mobStats(brain.kind);
+      const kind = brain.mini ? { ...base, speed: base.speed * SLIME_SPLIT.speedFactor } : base;
       const slow = swampSlow(mob, kind.size / 2, id, swamps);
       const frenzy = brain.kind === "lobo" && wolfFrenzy(mob, hurt);
       if (mob.frenzy !== frenzy) mob.frenzy = frenzy;
@@ -1036,18 +1141,83 @@ export class GameRoom extends Room<{ state: GameState }> {
               windupMs: kind.windupMs * attackTime,
               recoverMs: kind.recoverMs * attackTime,
             };
-      const thinking = { position: { x: mob.x, y: mob.y }, mind: brain.mind };
+      const thinking = { position: { x: mob.x, y: mob.y }, mind: brain.mind, timers: brain.timers };
       // Longe de todos e só vagando: hiberna neste tick (nem pensa nem se move). Acorda bem antes de alguém chegar.
       if (isDormant(thinking, players)) return;
-      const world = { grid: this.level.grid, home: brain.area, homeCells: brain.homeCells, stats, players, post: brain.post, noticeable };
+      const world = { grid: this.level.grid, home: brain.area, homeCells: brain.homeCells, stats, players, post: brain.post, noticeable, flank: brain.flank };
       const next = stepMob(thinking, world, dtMs, Math.random);
       mob.x = next.position.x;
       mob.y = next.position.y;
       mob.windup = next.mind.mode === "windup";
       if (next.mind.mode === "windup") mob.attackAngle = next.mind.angle;
+      if (next.mind.mode === "ability") {
+        mob.attackAngle = next.mind.angle;
+        if (mob.aimX !== next.mind.aim.x) mob.aimX = next.mind.aim.x;
+        if (mob.aimY !== next.mind.aim.y) mob.aimY = next.mind.aim.y;
+      }
       brain.mind = next.mind;
-      if (next.strike !== undefined && brain.kind !== "dummy") this.mobStrike(next.position, next.strike, brain.kind);
+      brain.timers = next.timers;
+      this.setAction(mob, actionOf(next.mind));
+      if (brain.kind === "dummy") return;
+      if (next.strike !== undefined) this.mobStrike(next.position, next.strike, brain.kind);
+      for (const event of next.events ?? []) this.applyMobEvent(id, brain.kind, event);
     });
+  }
+
+  // A ação mudou: o cliente troca de animação (actionSeq sobe a cada ação nova).
+  private setAction(mob: MobState, action: string) {
+    if (mob.action === action) return;
+    mob.action = action;
+    if (action) mob.actionSeq += 1;
+  }
+
+  private dying(id: string): boolean {
+    return this.mobBrains.get(id)?.dyingMs !== undefined;
+  }
+
+  // O que um ataque especial fez: atirou, conjurou o cristal ou caiu do bote/pulo.
+  private applyMobEvent(id: string, kind: MobKind, event: MobEvent) {
+    if (event.type === "projectile") return this.fireMobBolt(id, event.kind, event.from, event.angle);
+    if (event.type === "crystal") {
+      const spellId = `spell-${this.nextSpellId++}`;
+      this.spells.set(spellId, { kind: "crystal", owner: id, phase: "warn", remainingMs: GNOME_CASTER.crystalWarnMs, damage: GNOME_CASTER.crystalDamage, hostile: true });
+      this.state.spells.set(spellId, new SpellState({ kind: "crystal", x: event.at.x, y: event.at.y, phase: "warn" }));
+      return;
+    }
+    const leap = event.ability === "leap";
+    const radius = leap ? SLIME_LEAP.hitRadius : WOLF_POUNCE.hitRadius;
+    const damage = leap ? SLIME_LEAP.damage : WOLF_POUNCE.damage;
+    const now = this.clock.currentTime;
+    this.state.players.forEach((player, sessionId) => {
+      if (Math.hypot(player.x - event.at.x, player.y - event.at.y) > radius + PLAYER_SIZE / 2) return;
+      this.damagePlayer(sessionId, player, damage, { kind: "mob", mob: kind }, "physical");
+      this.staggerUntil.set(sessionId, now + STAGGER.durationMs);
+      if (!leap) this.pounceSlowUntil.set(sessionId, now + WOLF_POUNCE.slowMs);
+    });
+    if (leap) this.addTempAcid(event.at, SLIME_LEAP.acidMs);
+  }
+
+  // Slimes explodindo: acabou a explosão, saem e soltam os 2 minis (um para cada lado), já caçando quem matou.
+  private tickDying(dtMs: number) {
+    for (const [id, brain] of this.mobBrains) {
+      if (brain.dyingMs === undefined) continue;
+      brain.dyingMs -= dtMs;
+      if (brain.dyingMs > 0) continue;
+      const mob = this.state.mobs.get(id);
+      this.packs.get(brain.pack ?? "")?.alive.delete(id);
+      this.state.mobs.delete(id);
+      this.mobBrains.delete(id);
+      if (!mob) continue;
+      const killer = brain.killer ? this.state.players.get(brain.killer) : undefined;
+      for (const side of [-1, 1]) {
+        const at = { x: mob.x + side * SLIME_SPLIT.offset, y: mob.y };
+        const spot = boxFits(this.level.grid, at, MOB_KINDS.slime.size / 2) ? at : { x: mob.x, y: mob.y };
+        const mind: MobMind = killer && brain.killer
+          ? { mode: "chase", targetId: brain.killer, lastSeen: { x: killer.x, y: killer.y }, lostMs: 0, path: [], sinceRepathMs: 1e9 }
+          : { mode: "wander", wander: startIdle(Math.random) };
+        this.addMob("slime", spot, { kind: "slime", area: brain.area, homeCells: brain.homeCells, mind, mini: true });
+      }
+    }
   }
 
   // Teto de perseguidores (anti-enxame): por jogador, só os MAX_CHASERS mais perto continuam caçando; os outros desistem
@@ -1056,7 +1226,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     const chasers: { id: string; targetId: string; distance: number }[] = [];
     for (const [id, brain] of this.mobBrains) {
       const mind = brain.mind;
-      if (mind.mode !== "chase" && mind.mode !== "windup" && mind.mode !== "recover") continue;
+      if (mind.mode !== "chase" && mind.mode !== "windup" && mind.mode !== "recover" && mind.mode !== "ability") continue;
       // Quem atende ao alarme de um portal não conta para o teto nem é mandado de volta.
       if (mind.alert) continue;
       const mob = this.state.mobs.get(id);
@@ -1128,7 +1298,9 @@ export class GameRoom extends Room<{ state: GameState }> {
       // depois de levar golpe de mob (stagger).
       const acid = inAcid(player, PLAYER_SIZE / 2, this.acidPools()) ? ACID.slow : 1;
       const stagger = now < (this.staggerUntil.get(sessionId) ?? 0) ? STAGGER.slow : 1;
-      const speed = (this.stats.get(sessionId)?.speed ?? PLAYER_SPEED) * swampSlow(player, PLAYER_SIZE / 2, sessionId, swamps) * acid * stagger;
+      const kite = now < (this.attackSlowUntil.get(sessionId) ?? 0) ? ATTACK_SLOW.slow : 1;
+      const pounced = now < (this.pounceSlowUntil.get(sessionId) ?? 0) ? WOLF_POUNCE.slow : 1;
+      const speed = (this.stats.get(sessionId)?.speed ?? PLAYER_SPEED) * swampSlow(player, PLAYER_SIZE / 2, sessionId, swamps) * acid * stagger * kite * pounced;
       const delta = movementDelta(this.moveInputs.get(sessionId) ?? NO_INPUT, dtMs, speed);
       const next = moveWithCollision(this.level.grid, player, delta, PLAYER_SIZE / 2);
       player.x = next.x;
@@ -1425,8 +1597,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     return id;
   }
 
-  private addTempAcid(at: Vec2) {
-    this.tempAcid.set(this.addHazard("acid", at), this.clock.currentTime + ACID.slimeDeathMs);
+  private addTempAcid(at: Vec2, durationMs = ACID.slimeDeathMs) {
+    this.tempAcid.set(this.addHazard("acid", at), this.clock.currentTime + durationMs);
   }
 
   // Todas as poças ácidas agora: as do mapa e as dos slimes mortos.

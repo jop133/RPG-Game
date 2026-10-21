@@ -50,14 +50,14 @@ export const ITEMS = {
     maxStack: 1,
     equip: { slot: "weapon", weapon: { damage: 10, range: 40, arcDegrees: 100 } },
   },
-  // Arma do mago: dispara o projétil, então dano, alcance e arco do golpe ficam zerados (não há golpe).
+  // Arma do mago: o clique é uma batida corpo a corpo, como a espada (as magias são habilidades, Q e R).
   cajado_arcano: {
     name: "Cajado Arcano",
     rarity: "rare",
     maxStack: 1,
     equip: {
       slot: "weapon",
-      weapon: { damage: 0, range: 0, arcDegrees: 0, weaponType: "staff" },
+      weapon: { damage: 8, range: 36, arcDegrees: 90, weaponType: "staff" },
       allowedClasses: ["mago"],
       bonus: { magicDamage: 14, maxMana: 25 },
     },
@@ -297,23 +297,26 @@ export const MOB_KINDS = {
     maxHp: 30,
     aggroRadius: 256,
     reach: 8,
-    windupMs: 450,
+    windupMs: 300,
     attackDamage: 20,
     attackReach: 26,
     attackArcDegrees: 80,
-    recoverMs: 700,
+    recoverMs: 350,
+    abilities: ["pounce"],
   },
   gnomo: {
     size: 18,
     speed: 75,
     maxHp: 30,
-    aggroRadius: 192,
+    aggroRadius: 224,
     reach: 10,
     windupMs: 700,
     attackDamage: 12,
     attackReach: 30,
     attackArcDegrees: 110,
     recoverMs: 800,
+    // Conjurador: mantém distância (GNOME_CASTER) e ataca de longe; a picareta só encurralado.
+    abilities: ["bolt", "crystal"],
   },
   slime: {
     size: 24,
@@ -326,12 +329,15 @@ export const MOB_KINDS = {
     attackReach: 26,
     attackArcDegrees: 180,
     recoverMs: 1000,
+    // O ataque é o pulo (SLIME_LEAP), não o golpe parado.
+    abilities: ["leap"],
   },
   goblin: {
     size: 22,
     speed: 70,
     // Perseguindo, anda 15% mais rápido.
     chaseSpeedFactor: 1.15,
+    abilities: ["dash", "throw"],
     maxHp: 40,
     aggroRadius: 224,
     reach: 12,
@@ -467,3 +473,54 @@ export const TRAINING_DUMMY: MobStats = {
 // Spawn de dev: a SPAWN_TILES tiles à frente de quem pediu (no máximo MAX_SPAWN de uma vez; lowHp: com LOW_HP_FRACTION
 // da vida). Limpar Mobs tira os a até CLEAR_RADIUS px. +GOLD moedas por clique.
 export const DEV = { spawnTiles: 3, maxSpawn: 10, lowHpFraction: 0.25, clearRadius: 640, gold: 1000 };
+
+// ---------------------------------------------------------------- ataques especiais dos mobs (mobAi.ts)
+
+// Distâncias em px (1 tile = 32), tempos em ms, velocidades em px/s. Dano dos golpes especiais: números iniciais,
+// para ajustar jogando.
+
+// Goblin, Investida: a cada COOLDOWN_MS, com o alvo à vista entre MIN e MAX px, prepara por WINDUP_MS e avança a
+// SPEED_FACTOR x a velocidade (no máximo MAX_MS), terminando numa facada (o golpe normal dele).
+export const GOBLIN_DASH = { cooldownMs: 5000, min: 80, max: 160, windupMs: 350, speedFactor: 3.2, maxMs: 650 };
+// Goblin, Arremesso: o alvo ficou entre MIN e MAX px (à vista) por HOLD_MS seguidos: prepara por WINDUP_MS e atira a
+// adaga (SPEED px/s, até RANGE px, DAMAGE físico). Sem a adaga na mão por HIDE_MS (só desenho).
+export const GOBLIN_THROW = { min: 96, max: 208, holdMs: 2200, windupMs: 300, speed: 360, range: 300, radius: 6, damage: 14, hideMs: 500 };
+// Lobo, Bote: a cada COOLDOWN_MS, com o alvo à vista entre MIN e MAX px, agacha por CROUCH_MS (aviso no chão rumo ao
+// ponto do salto) e salta a SPEED px/s até onde o alvo estava (no máximo MAX_AIR_MS). Na aterrissagem, quem estiver a
+// até HIT_RADIUS px leva DAMAGE e fica a SLOW da velocidade por SLOW_MS. Depois, recupera por RECOVER_MS.
+export const WOLF_POUNCE = { cooldownMs: 4500, min: 112, max: 208, crouchMs: 350, speed: 480, maxAirMs: 600, hitRadius: 30, damage: 30, slow: 0.5, slowMs: 1200, recoverMs: 600 };
+// Slime, Pulo: com o alvo à vista a até RANGE px, agacha por CROUCH_MS e salta até onde ele estava em AIR_MS; na queda,
+// quem estiver a até HIT_RADIUS px leva DAMAGE, e fica uma poça ácida por ACID_MS. Depois, recupera por RECOVER_MS.
+export const SLIME_LEAP = { range: 64, crouchMs: 300, airMs: 450, hitRadius: 40, damage: 16, acidMs: 4000, recoverMs: 900 };
+// Slime, morte: explode por DEATH_MS (a animação) e solta 2 Mini-Slimes a OFFSET px para cada lado, com HP_FRACTION da
+// vida, SPEED_FACTOR x a velocidade e SCALE do desenho, já caçando quem o matou. Mini não se divide.
+export const SLIME_SPLIT = { deathMs: 900, offset: 28, hpFraction: 0.35, speedFactor: 1.35, scale: 0.6 };
+// Gnomo, conjurador: fica entre KEEP_MIN e KEEP_MAX px do alvo (perto demais, recua; encurralado, picareta). Conjura
+// por CAST_MS (a animação de mexer as mãos) cada ataque:
+// - Projétil (a cada BOLT_COOLDOWN_MS): BOLT_SPEED px/s, até BOLT_RANGE px, BOLT_DAMAGE mágico;
+// - Erupção de cristal (a cada CRYSTAL_COOLDOWN_MS): o círculo aparece sob os pés do alvo; depois de CRYSTAL_WARN_MS,
+//   o cristal brota: quem estiver na elipse (CRYSTAL_RADIUS_X, achatada como o chão) leva CRYSTAL_DAMAGE mágico e é
+//   empurrado CRYSTAL_KNOCKBACK px. O cristal fica CRYSTAL_SHOW_MS na tela.
+export const GNOME_CASTER = {
+  keepMin: 112,
+  keepMax: 192,
+  castMs: 600,
+  boltCooldownMs: 2200,
+  boltSpeed: 380,
+  boltRange: 320,
+  boltRadius: 5,
+  boltDamage: 12,
+  crystalCooldownMs: 5500,
+  crystalWarnMs: 550,
+  crystalShowMs: 800,
+  crystalRadiusX: 30,
+  crystalDamage: 28,
+  crystalKnockback: 28,
+};
+// Depois de atirar (adaga, projétil) ou de conjurar o cristal, o mob fica parado por isto antes de voltar a andar.
+export const CAST_RECOVER_MS = 300;
+// Anti-kiting: golpear deixa o jogador a SLOW da velocidade por DURATION_MS.
+export const ATTACK_SLOW = { slow: 0.65, durationMs: 220 };
+// Cerco: mobs que perseguem chegam ao alvo por um ângulo de até ±DEGREES (cada um o seu) quando estão a menos de
+// RANGE px dele: o grupo abre em volta em vez de vir em fila.
+export const FLANK = { degrees: 40, range: 160 };

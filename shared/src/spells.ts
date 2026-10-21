@@ -1,4 +1,4 @@
-import { LIGHTNING_SPELL, SPELL_CAST_RANGE, SPELL_FLATTEN, SWAMP_SPELL } from "./balance";
+import { GNOME_CASTER, LIGHTNING_SPELL, SPELL_CAST_RANGE, SPELL_FLATTEN, SWAMP_SPELL } from "./balance";
 import { isSolid, type CollisionGrid } from "./collision";
 import type { Vec2 } from "./movement";
 
@@ -6,8 +6,9 @@ import type { Vec2 } from "./movement";
 // o slot da skill e o ponto do mouse (skills.ts); onde ela cai, quem é atingido e quem fica lento é decidido aqui e no
 // servidor (regra 1).
 
-// As magias que caem no chão (Raio e Pântano). A Bola de Fogo é um projétil (shared/src/projectile.ts).
-export type SpellKind = "lightning" | "swamp";
+// As magias que caem no chão (Raio e Pântano do mago; a Erupção de Cristal do gnomo). A Bola de Fogo é um projétil
+// (shared/src/projectile.ts).
+export type SpellKind = "lightning" | "swamp" | "crystal";
 
 // Onde a magia cai: o ponto do mouse, puxado para dentro de SPELL_CAST_RANGE se estiver mais longe. Em parede (ou fora
 // do mapa), não cai: undefined.
@@ -29,6 +30,11 @@ export interface GroundEllipse extends Vec2 {
 
 export function lightningArea(at: Vec2): GroundEllipse {
   return { x: at.x, y: at.y, radiusX: LIGHTNING_SPELL.radiusX, radiusY: LIGHTNING_SPELL.radiusX * SPELL_FLATTEN };
+}
+
+// O círculo da Erupção de Cristal do gnomo (achatado como o chão).
+export function crystalArea(at: Vec2): GroundEllipse {
+  return { x: at.x, y: at.y, radiusX: GNOME_CASTER.crystalRadiusX, radiusY: GNOME_CASTER.crystalRadiusX * SPELL_FLATTEN };
 }
 
 export function swampArea(at: Vec2): GroundEllipse {

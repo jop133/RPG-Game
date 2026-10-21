@@ -9,6 +9,12 @@ import {
   EXIT_RADIUS,
   EXIT_CHANNEL,
   EXIT_IDLE_LIGHT_RADIUS,
+  GNOME_CASTER,
+  GOBLIN_DASH,
+  GOBLIN_THROW,
+  SLIME_LEAP,
+  SLIME_SPLIT,
+  WOLF_POUNCE,
   DEV_SHOPS,
   interactionAt as stationAt,
   mobStats,
@@ -112,6 +118,7 @@ import { openRegistration, type Registration } from "./registration";
 import cityMapUrl from "../../assets/maps/city.json?url";
 import labyrinthMapUrl from "../../assets/maps/dungeon_floor1.json?url";
 import arenaMapUrl from "../../assets/maps/test_arena.json?url";
+import mobAnims from "../../assets/mobs/anims.json";
 import { DevPanel, installDevApi } from "./devPanel";
 
 // Só o que o cliente lê do estado do servidor. O formato real está em server/src/state.ts.
@@ -135,6 +142,7 @@ interface PlayerView extends Vec2 {
   // Público: sangrando (gotas de sangue).
   bleeding?: boolean;
   attackSeq?: number;
+  castSeq?: number;
   attackAngle?: number;
   // Só chega para o próprio jogador; para os outros fica undefined. Só no labirinto.
   hunger?: number;
@@ -158,6 +166,13 @@ interface MobView extends Vec2 {
   attackAngle: number;
   // Lobo em Frenesi de Sangue.
   frenzy?: boolean;
+  // O que está fazendo (server/src/state.ts, MobState.action), a contagem das ações, o ponto do bote/pulo e se é
+  // Mini-Slime.
+  action?: string;
+  actionSeq?: number;
+  aimX?: number;
+  aimY?: number;
+  mini?: boolean;
 }
 // Portal de saída: fase ("idle", "channel" ou "open") e, aberto, quanto falta para fechar (ms).
 interface ExitView extends Vec2 {
@@ -228,7 +243,22 @@ const ARMOR_WALK_URLS = ARMOR_URLS.filter(({ key }) => key.includes("/walk-"));
 const MOB_URLS = Object.entries(
   import.meta.glob<string>("../../assets/mobs/*/*.png", { eager: true, query: "?url", import: "default" }),
 ).map(([path, url]) => ({ key: path.slice(path.indexOf("mobs/"), -".png".length), url }));
-const MOB_IDLE_URLS = MOB_URLS.filter(({ key }) => !key.includes("/walk-"));
+// Ataque, pulo e morte (process_mobs.py): fitas com o quadro de cada uma (assets/mobs/anims.json). Os efeitos dos
+// ataques (mobs/efeitos/: adaga, círculo e cristal) são imagens soltas.
+const MOB_ACTION_RE = /\/(attack|jump)-|\/death$/;
+const MOB_IDLE_URLS = MOB_URLS.filter(({ key }) => !key.includes("/walk-") && !MOB_ACTION_RE.test(key));
+const MOB_ACTION_URLS = MOB_URLS.filter(({ key }) => MOB_ACTION_RE.test(key));
+interface MobAnimInfo {
+  frame: number;
+  frames: Record<string, number>;
+  feet: number;
+}
+const MOB_ANIMS = mobAnims as Record<string, Record<string, MobAnimInfo>>;
+// "mobs/lobo/jump-east" -> o que o manifesto diz da animação "jump" do lobo.
+function mobAnimInfo(key: string): MobAnimInfo | undefined {
+  const [, kind = "", file = ""] = key.split("/");
+  return MOB_ANIMS[kind]?.[file.split("-")[0] ?? ""];
+}
 // Magias do mago (tools/assets/process_spells.py): "spells/<nome>". As tiras (SPELL_SHEETS) carregam em quadros; os
 // círculos rúnicos, como imagem.
 const SPELL_URLS = Object.entries(
@@ -353,6 +383,35 @@ function mobArt(kind: string): { feet: number; walkFeet?: number; height: number
   return Object.hasOwn(MOB_ART, kind) ? MOB_ART[kind as MobKind] : DUMMY_ART;
 }
 
+// A animação da ação de um mob agora (chave e duração em ms), ou undefined (sem ação, ou ação sem arte). A duração
+// casa com o tempo da ação no servidor (balance.ts): o golpe acaba quando o dano sai, o bote agacha no preparo e voa no
+// salto, a explosão dura a morte inteira.
+function mobActionAnim(mob: MobView, facing: string): { key: string; ms: number } | undefined {
+  const kind = mob.kind;
+  const stats = mobStats(kind);
+  const attack = `mobs/${kind}/attack-${facing}`;
+  switch (mob.action) {
+    case "attack":
+      return { key: attack, ms: stats.windupMs * (mob.frenzy ? FRENZY.attackTimeFactor : 1) + 150 };
+    case "dash":
+      return { key: attack, ms: GOBLIN_DASH.windupMs + 300 };
+    case "throw":
+      return { key: attack, ms: GOBLIN_THROW.windupMs + 200 };
+    case "cast":
+      return { key: attack, ms: GNOME_CASTER.castMs + 100 };
+    case "leap":
+      return { key: attack, ms: SLIME_LEAP.crouchMs + SLIME_LEAP.airMs };
+    case "pounce-prep":
+      return { key: `mobs/${kind}/jump-${facing}#prep`, ms: WOLF_POUNCE.crouchMs };
+    case "pounce-act":
+      return { key: `mobs/${kind}/jump-${facing}#air`, ms: 380 };
+    case "dying":
+      return { key: `mobs/${kind}/death`, ms: SLIME_SPLIT.deathMs };
+    default:
+      return undefined;
+  }
+}
+
 // Diagonal sem caminhada (gnomo): anda com a da cardeal do lado para onde vai. Parado ou preparando golpe, o sprite
 // parado tem as 8 direções e é ele que aparece.
 const WALK_FALLBACK: Record<string, string> = {
@@ -414,6 +473,9 @@ interface Avatar {
   // A arma na mão agora (id do item) e, com cajado, um disparo esperando o clarão na ponta do cristal.
   weaponItem?: string;
   castFlash: boolean;
+  // Habilidade lançada (castSeq): o cajado aponta para a mira (staffPose) desde castAt.
+  castAt: number;
+  castAngle: number;
 }
 
 // Inimigo: sprite do tipo, virado para onde andou (ou, preparando o golpe, para onde vai bater).
@@ -430,6 +492,13 @@ interface MobSprite {
   lastWindup: boolean;
   lungeAt: number;
   lungeAngle: number;
+  // A animação de ação que está tocando (e de qual ação: actionSeq), a última ação vista e, no goblin, a adaga na mão
+  // (some por GOBLIN_THROW.hideMs depois do arremesso: throwAt).
+  playedAnim: string;
+  playedSeq: number;
+  lastAction: string;
+  dagger?: Phaser.GameObjects.Image;
+  throwAt: number;
 }
 
 // "../../assets/tilesets/city/props/poste.png" ou "../tilesets/city/props/poste.png" -> "city/props/poste".
@@ -613,6 +682,23 @@ function swingShape(weapon: string | undefined): { radius: number; halfArc: numb
   return { radius: attack.range + PLAYER_SIZE / 2, halfArc: (attack.arcDegrees * Math.PI) / 180 / 2 };
 }
 const TELEGRAPH_COLOR = 0xff1744;
+// O pulo do lobo (11 quadros): os 7 primeiros agachado (o preparo do bote), o resto no ar.
+const JUMP_CROUCH_FRAMES = 7;
+// Adaga na mão do goblin (mobs/efeitos/adaga-<direção>, 68x68 com o cabo embaixo): escala, onde fica a mão em relação
+// aos pés para cada direção (px), e se fica atrás do corpo (de costas). Na facada, avança STAB px na direção do golpe.
+const DAGGER_SCALE = 0.5;
+const DAGGER_ORIGIN = { x: 0.5, y: 0.86 };
+const DAGGER_HAND: Record<string, { x: number; y: number; behind: boolean }> = {
+  south: { x: 10, y: -20, behind: false },
+  "south-east": { x: 11, y: -21, behind: false },
+  east: { x: 6, y: -22, behind: false },
+  "north-east": { x: 9, y: -24, behind: true },
+  north: { x: -10, y: -23, behind: true },
+  "north-west": { x: -9, y: -24, behind: true },
+  west: { x: -6, y: -22, behind: false },
+  "south-west": { x: -11, y: -21, behind: false },
+};
+const DAGGER_STAB = 9;
 
 type MoveKeys = Record<keyof MoveInput, Phaser.Input.Keyboard.Key>;
 
@@ -649,6 +735,7 @@ class WorldScene extends Phaser.Scene {
   // Quando este cliente viu cada mob começar a preparar: base para o aviso encher no ritmo certo.
   private windupStartedAt = new Map<string, number>();
   private lastAttackSeq = new Map<string, number>();
+  private lastCastSeq = new Map<string, number>();
   private swings: Swing[] = [];
   private numbers?: FloatingNumbers;
   private shake = new ScreenShake();
@@ -690,6 +777,10 @@ class WorldScene extends Phaser.Scene {
     }
     for (const { key, url } of [...WALK_URLS, ...MOB_WALK_URLS, ...ATTACK_URLS, ...ARMOR_WALK_URLS]) {
       if (!this.textures.exists(key)) this.load.spritesheet(key, url, { frameWidth: WALK_FRAME, frameHeight: WALK_FRAME });
+    }
+    for (const { key, url } of MOB_ACTION_URLS) {
+      const info = mobAnimInfo(key);
+      if (info && !this.textures.exists(key)) this.load.spritesheet(key, url, { frameWidth: info.frame, frameHeight: info.frame });
     }
     for (const { key, url } of SPELL_URLS) {
       if (this.textures.exists(key)) continue;
@@ -1101,10 +1192,30 @@ Subiu para o nível ${info.level}!` : "";
     hud.prompt(this.exitPrompt(room, self) ?? this.torchPrompt);
   }
 
+  // Bote do lobo (agachado): a faixa do salto e o círculo de onde ele vai cair, pulsando. Pulo do slime: o círculo da
+  // queda, achatado como o chão.
+  private drawLeapWarning(g: Phaser.GameObjects.Graphics, mob: MobView, time: number) {
+    const at = { x: mob.aimX ?? mob.x, y: mob.aimY ?? mob.y };
+    const pulse = 0.25 + 0.15 * Math.sin(time / 60);
+    if (mob.action === "pounce-prep") {
+      g.lineStyle(14, TELEGRAPH_COLOR, pulse);
+      g.lineBetween(mob.x, mob.y, at.x, at.y);
+      g.fillStyle(TELEGRAPH_COLOR, pulse);
+      g.fillEllipse(at.x, at.y, WOLF_POUNCE.hitRadius * 2, WOLF_POUNCE.hitRadius * 2 * 0.55);
+    }
+    if (mob.action === "leap") {
+      g.fillStyle(TELEGRAPH_COLOR, pulse);
+      g.fillEllipse(at.x, at.y, SLIME_LEAP.hitRadius * 2, SLIME_LEAP.hitRadius * 2 * 0.55);
+      g.lineStyle(2, TELEGRAPH_COLOR, 0.8);
+      g.strokeEllipse(at.x, at.y, SLIME_LEAP.hitRadius * 2, SLIME_LEAP.hitRadius * 2 * 0.55);
+    }
+  }
+
   private drawTelegraphs(room: Room<unknown, ServerState>, g: Phaser.GameObjects.Graphics, time: number) {
     g.clear();
     const preparing = new Set<string>();
     room.state.mobs?.forEach((mob, id) => {
+      this.drawLeapWarning(g, mob, time);
       if (!mob.windup) return;
       preparing.add(id);
       const startedAt = this.windupStartedAt.get(id) ?? time;
@@ -1233,13 +1344,24 @@ Subiu para o nível ${info.level}!` : "";
   // Com cajado, o clique não faz nada por enquanto (a Bola de Fogo é uma habilidade); o servidor também ignora.
   private sendAttack(pointer: Phaser.Input.Pointer) {
     const self = this.room?.state.players.get(this.room.sessionId);
-    if (!this.room || !self || !pointer.leftButtonDown() || isStaff(self.equipment?.get("weapon"))) return;
+    if (!this.room || !self || !pointer.leftButtonDown()) return;
     const target = pointer.positionToCamera(this.cameras.main) as Phaser.Math.Vector2;
     this.room.send("attack", { angle: Math.atan2(target.y - self.y, target.x - self.x) });
   }
 
   // Golpe novo = attackSeq mudou desde o último frame. Vale para o próprio jogador e para os outros.
   private collectSwings(room: Room<unknown, ServerState>, time: number) {
+    // Habilidade lançada (castSeq): o cajado aponta para a mira e sai o clarão na ponta.
+    room.state.players.forEach((player, sessionId) => {
+      const cast = player.castSeq ?? 0;
+      const before = this.lastCastSeq.get(sessionId);
+      this.lastCastSeq.set(sessionId, cast);
+      const avatar = this.avatars.get(sessionId);
+      if (before === undefined || cast === before || !avatar) return;
+      avatar.castAt = time;
+      avatar.castAngle = player.attackAngle ?? 0;
+      avatar.castFlash = true;
+    });
     room.state.players.forEach((player, sessionId) => {
       const seq = player.attackSeq ?? 0;
       const previous = this.lastAttackSeq.get(sessionId);
@@ -1250,10 +1372,6 @@ Subiu para o nível ${info.level}!` : "";
       if (avatar) {
         avatar.swingAt = time;
         avatar.swingAngle = player.attackAngle ?? 0;
-      }
-      if (isStaff(player.equipment?.get("weapon"))) {
-        if (avatar) avatar.castFlash = true;
-        return;
       }
       const classId = player.classId ?? "";
       const seed = Math.floor(Math.random() * 1e9);
@@ -1284,9 +1402,12 @@ Subiu para o nível ${info.level}!` : "";
       g.fillRect(player.x - bar.width / 2, y, bar.width * Math.min(1, channelMs / EXIT_CHANNEL.channelMs), bar.height);
     });
     room.state.mobs?.forEach((mob) => {
+      if (mob.action === "dying") return;
       const stats = mobStats(mob.kind);
-      const top = mob.y + stats.size / 2 - mobArt(mob.kind).height - HP_BAR_GAP - HP_BAR_HEIGHT;
-      drawHpBar(g, mob.x, top, PLAYER_SIZE, mob.hp / stats.maxHp);
+      const size = mob.mini ? SLIME_SPLIT.scale : 1;
+      const maxHp = Math.round(stats.maxHp * (mob.mini ? SLIME_SPLIT.hpFraction : 1));
+      const top = mob.y + stats.size / 2 - mobArt(mob.kind).height * size - HP_BAR_GAP - HP_BAR_HEIGHT;
+      drawHpBar(g, mob.x, top, PLAYER_SIZE, mob.hp / maxHp);
     });
   }
 
@@ -1370,6 +1491,18 @@ Subiu para o nível ${info.level}!` : "";
     for (const { key } of [...WALK_URLS, ...MOB_WALK_URLS]) {
       if (this.anims.exists(key)) continue;
       this.anims.create({ key, frames: this.anims.generateFrameNumbers(key, {}), frameRate: WALK_FPS, repeat: -1 });
+    }
+    // Mobs: ataque e morte, a fita inteira uma vez (a duração vem da ação, ao tocar); o pulo do lobo em duas partes, o
+    // agachar (até o quadro JUMP_CROUCH_FRAMES) e o voo.
+    for (const { key } of MOB_ACTION_URLS) {
+      if (this.anims.exists(key) || !this.textures.exists(key)) continue;
+      const frames = this.anims.generateFrameNumbers(key, {});
+      if (!key.includes("/jump-")) {
+        this.anims.create({ key, frames, frameRate: 10, repeat: 0 });
+        continue;
+      }
+      this.anims.create({ key: `${key}#prep`, frames: frames.slice(0, JUMP_CROUCH_FRAMES), frameRate: 10, repeat: 0 });
+      this.anims.create({ key: `${key}#air`, frames: frames.slice(JUMP_CROUCH_FRAMES), frameRate: 10, repeat: 0 });
     }
     // Golpe: a fita inteira uma vez, durante a janela em que o personagem olha para o golpe.
     for (const { key } of ATTACK_URLS) {
@@ -1457,14 +1590,13 @@ Subiu para o nível ${info.level}!` : "";
     const guard = WEAPON_GUARD_BY_CLASS[classId ?? ""]?.[avatar.facing] ?? WEAPON_GUARD_DEGREES[avatar.facing] ?? -90;
     let angle = (guard * Math.PI) / 180 + this.guardSway(avatar, time);
     let scale = 1;
-    if (isStaff(weapon)) {
-      const cast = staffPose(avatar.swingAt, avatar.swingAngle, angle, time);
-      if (cast.visible) {
-        x += Math.cos(avatar.swingAngle) * cast.push;
-        y += Math.sin(avatar.swingAngle) * cast.push;
-        angle = cast.angle;
-      }
+    const cast = isStaff(weapon) ? staffPose(avatar.castAt, avatar.castAngle, angle, time) : undefined;
+    if (cast?.visible) {
+      x += Math.cos(avatar.castAngle) * cast.push;
+      y += Math.sin(avatar.castAngle) * cast.push;
+      angle = cast.angle;
     } else {
+      // Golpe (espada ou a batida do cajado): o braço estica e a arma varre o arco.
       const pose = weaponPose(avatar.swingAt, avatar.swingAngle, time);
       if (pose.visible) {
         const reach = WEAPON_ARM_EXTEND * Math.sin(Math.PI * pose.p);
@@ -1629,6 +1761,8 @@ Subiu para o nível ${info.level}!` : "";
       swingAt: -Infinity,
       swingAngle: 0,
       castFlash: false,
+      castAt: -Infinity,
+      castAngle: 0,
       pendingHp: 0,
     };
   }
@@ -1662,13 +1796,22 @@ Subiu para o nível ${info.level}!` : "";
           lastWindup: mob.windup,
           lungeAt: -Infinity,
           lungeAngle: 0,
+          playedAnim: "",
+          playedSeq: -1,
+          lastAction: "",
+          throwAt: -Infinity,
+          dagger: kind === "goblin" ? this.add.image(mob.x, mob.y, "mobs/efeitos/adaga-south").setScale(DAGGER_SCALE).setOrigin(DAGGER_ORIGIN.x, DAGGER_ORIGIN.y) : undefined,
         };
         this.mobSprites.set(id, sprite);
       }
       const dx = mob.x - sprite.lastX;
       const dy = mob.y - sprite.lastY;
-      if (mob.windup) sprite.facing = facingFor(Math.cos(mob.attackAngle), Math.sin(mob.attackAngle));
+      // Golpe ou ação: olha para onde vai bater (ou saltar).
+      if (mob.windup || mob.action) sprite.facing = facingFor(Math.cos(mob.attackAngle), Math.sin(mob.attackAngle));
       else if (Math.hypot(dx, dy) > 0.5) sprite.facing = facingFor(dx, dy);
+      // A adaga some por um instante depois do arremesso.
+      if (sprite.lastAction === "throw" && mob.action !== "throw") sprite.throwAt = time;
+      sprite.lastAction = mob.action ?? "";
       if (Math.hypot(dx, dy) > 0.5) sprite.lastMoveAt = time;
       sprite.lastX = mob.x;
       sprite.lastY = mob.y;
@@ -1677,26 +1820,29 @@ Subiu para o nível ${info.level}!` : "";
       sprite.lastHp = mob.hp;
       // Andando = mudou de lugar nos últimos WALK_LINGER_MS e não está parado preparando o golpe.
       const walking = time - sprite.lastMoveAt < WALK_LINGER_MS && !mob.windup;
-      this.animateMob(sprite, kind, walking);
+      this.animateMob(sprite, mob, walking);
       // O golpe saiu (windup acabou): bote na direção do golpe.
       if (sprite.lastWindup && !mob.windup) {
         sprite.lungeAt = time;
         sprite.lungeAngle = mob.attackAngle;
       }
       sprite.lastWindup = mob.windup;
-      const recoil = recoilOffset(sprite.reaction, time);
+      // Poise: preparando ou numa ação, o golpe não empurra (nem no desenho).
+      const recoil = mob.windup || mob.action ? { x: 0, y: 0 } : recoilOffset(sprite.reaction, time);
       const lunge = mobLungeOffset(sprite.lungeAt, sprite.lungeAngle, time);
       sprite.body.setPosition(mob.x + recoil.x + lunge.x, feet + recoil.y + lunge.y).setDepth(sortDepth(feet));
       applyFlash(sprite.body, sprite.reaction, time, HIT_FLASH_COLOR);
       // Slime parado respira (vida em repouso); lobo em frenesi fica vermelho (o flash do golpe vence).
-      if (kind === "slime" && !walking) {
+      const size = mob.mini ? SLIME_SPLIT.scale : 1;
+      if (kind === "slime" && !walking && !mob.action) {
         const beat = Math.sin(time / 380 + mob.x * 0.01);
-        sprite.body.setScale(1 + 0.05 * beat, 1 - 0.04 * beat);
-      } else if (sprite.body.scaleX !== 1) sprite.body.setScale(1);
+        sprite.body.setScale(size * (1 + 0.05 * beat), size * (1 - 0.04 * beat));
+      } else if (sprite.body.scaleX !== size || sprite.body.scaleY !== size) sprite.body.setScale(size);
+      if (sprite.dagger) this.poseDagger(sprite, mob, time);
       if (mob.frenzy && time >= sprite.reaction.flashUntil) sprite.body.setTint(FRENZY_TINT);
       // A sombra pulsa com o passo da caminhada; quem não tem caminhada (slime) pulsa no ritmo do relógio.
       const squash = sprite.body.anims.isPlaying ? stepSquash(sprite.body) : 1 - 0.1 * Math.abs(Math.sin(time / 90));
-      sprite.shadow.setPosition(mob.x, feet - 1).setScale(walking ? squash : 1);
+      sprite.shadow.setPosition(mob.x, feet - 1).setScale((walking ? squash : 1) * size);
     });
     for (const [id, sprite] of this.mobSprites) {
       if (seen.has(id)) continue;
@@ -1709,6 +1855,7 @@ Subiu para o nível ${info.level}!` : "";
       }
       sprite.body.destroy();
       sprite.shadow.destroy();
+      sprite.dagger?.destroy();
       this.mobSprites.delete(id);
     }
   }
@@ -1757,9 +1904,11 @@ Subiu para o nível ${info.level}!` : "";
 
   // Andando: a caminhada da direção (ou da cardeal ao lado, se a diagonal não tem arte), continuando do mesmo quadro
   // ao virar. Parado, preparando golpe ou sem caminhada nenhuma (slime): o sprite parado da direção, nas 8.
-  private animateMob(sprite: MobSprite, kind: string, walking: boolean) {
+  private animateMob(sprite: MobSprite, mob: MobView, walking: boolean) {
+    const kind = mob.kind;
     // O Boneco de Treino é uma imagem só (não anda nem vira).
     if (kind === "dummy") return;
+    if (this.playMobAction(sprite, mob)) return;
     const body = sprite.body;
     const art = mobArt(kind);
     const walk = walking && art.walkFeet !== undefined ? this.mobWalkKey(kind, sprite.facing) : undefined;
@@ -1772,6 +1921,45 @@ Subiu para o nível ${info.level}!` : "";
     if (body.anims.isPlaying) body.stop();
     const idle = mobKey(kind, sprite.facing);
     if (body.texture.key !== idle) body.setTexture(idle).setOrigin(0.5, art.feet / MOB_FRAME);
+  }
+
+  // Ação do mob (golpe, investida, arremesso, bote, pulo, conjuração, explosão): a animação dela, uma vez, no tempo da
+  // ação (recomeça a cada ação nova); acabou e a ação continua, fica no último quadro. Sem arte para a ação: false (fica
+  // andando ou parado).
+  private playMobAction(sprite: MobSprite, mob: MobView): boolean {
+    const anim = mobActionAnim(mob, sprite.facing);
+    if (!anim || !this.anims.exists(anim.key)) {
+      sprite.playedAnim = "";
+      return false;
+    }
+    const seq = mob.actionSeq ?? 0;
+    if (sprite.playedAnim === anim.key && sprite.playedSeq === seq) return true;
+    sprite.playedAnim = anim.key;
+    sprite.playedSeq = seq;
+    const info = mobAnimInfo(anim.key.split("#")[0] ?? "");
+    if (info) sprite.body.setOrigin(0.5, info.feet / info.frame);
+    sprite.body.play({ key: anim.key, duration: anim.ms });
+    return true;
+  }
+
+  // Adaga do goblin: na mão (DAGGER_HAND), virada para onde ele olha; na facada (golpe, investida, arremesso), avança na
+  // direção do golpe. Atrás do corpo quando de costas. Some por GOBLIN_THROW.hideMs depois do arremesso.
+  private poseDagger(sprite: MobSprite, mob: MobView, time: number) {
+    const dagger = sprite.dagger;
+    if (!dagger) return;
+    const hidden = mob.action === "dying" || time - sprite.throwAt < GOBLIN_THROW.hideMs;
+    dagger.setVisible(!hidden);
+    if (hidden) return;
+    const hand = DAGGER_HAND[sprite.facing] ?? { x: 8, y: -21, behind: false };
+    const key = `mobs/efeitos/adaga-${sprite.facing}`;
+    if (dagger.texture.key !== key && this.textures.exists(key)) dagger.setTexture(key);
+    const stabbing = mob.action === "attack" || mob.action === "dash" || mob.action === "throw";
+    const progress = stabbing && sprite.body.anims.isPlaying ? sprite.body.anims.getProgress() : 0;
+    const push = DAGGER_STAB * Math.sin(Math.PI * progress);
+    const x = sprite.body.x + hand.x + Math.cos(mob.attackAngle) * push;
+    const y = sprite.body.y + hand.y + Math.sin(mob.attackAngle) * push;
+    dagger.setPosition(x, y).setDepth(sprite.body.depth + (hand.behind ? -0.001 : 0.001));
+    dagger.setTint(sprite.body.isTinted ? sprite.body.tintTopLeft : 0xffffff);
   }
 
   private mobWalkKey(kind: string, facing: string): string | undefined {

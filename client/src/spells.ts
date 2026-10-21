@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { LIGHTNING_SPELL, SPELL_FLATTEN, SWAMP_SPELL, type Vec2 } from "shared";
+import { GNOME_CASTER, LIGHTNING_SPELL, PLAYER_SIZE, SPELL_FLATTEN, SWAMP_SPELL, type Vec2 } from "shared";
 import spellArt from "../../assets/spells/spells.json";
 import type { Light, LightLook } from "./lighting";
 import type { Particles } from "./particles";
@@ -9,6 +9,8 @@ import type { Particles } from "./particles";
 // - Raio Celestial: "warn" = o círculo rúnico amarelo girando no chão, achatado pela vista (SPELL_FLATTEN), com luz
 //   amarela pulsando; "strike" = os 4 quadros do raio cravados no centro do círculo, clarão e um tremor de tela;
 // - Pântano de Lama: "cast" = o círculo de terra girando e crescendo; "active" = a poça borbulhando no chão.
+// - Erupção de Cristal (do gnomo): "warn" = o círculo mágico ciano (mobs/efeitos/circulo) achatado no chão, girando e
+//   pulsando; "strike" = a estaca de cristal brota do chão (cresce de baixo para cima) com estilhaços e some no fim.
 // Círculos e poça ficam na altura do chão (por baixo dos pés de todo mundo); o raio fica por cima de quem está ali.
 
 export interface SpellView extends Vec2 {
@@ -40,6 +42,18 @@ const STRIKE_SHAKE_PX = 3;
 // Lama nos pés de quem anda dentro da poça (em média, por segundo).
 const MUD_PARTICLES_PER_SECOND = 14;
 const MUD_COLORS = [0x5a4a2a, 0x6e5a32, 0x463820, 0x7d6a3e];
+// Erupção de Cristal: o círculo (64 px, do tamanho da área) e a estaca (pés na linha 59 de 68), crescendo em GROW_MS.
+const CRYSTAL_CIRCLE = "mobs/efeitos/circulo";
+const CRYSTAL_SPIKE = "mobs/efeitos/cristal-south";
+const CRYSTAL_ORIGIN = { x: 0.5, y: 59 / 68 };
+const CRYSTAL_GROW_MS = 120;
+// O círculo do tamanho de onde o cristal acerta de verdade: o raio da área mais meio jogador (feetInside conta quem
+// encosta). A arte tem 64 px.
+const CRYSTAL_CIRCLE_SCALE = ((GNOME_CASTER.crystalRadiusX + PLAYER_SIZE / 2) * 2) / 64;
+const CRYSTAL_TURNS = 0.5;
+const CRYSTAL_COLOR = 0x22d3ee;
+const CRYSTAL_LOOK: LightLook = { color: CRYSTAL_COLOR, intensity: 0.9, effect: "pulse" };
+const CRYSTAL_SHARDS = [0x22d3ee, 0xa5f3fc, 0x67e8f9, 0xffffff];
 
 interface Drawn {
   kind: string;
@@ -49,6 +63,7 @@ interface Drawn {
   runeImage?: Phaser.GameObjects.Image;
   strike?: Phaser.GameObjects.Sprite;
   mud?: Phaser.GameObjects.Sprite;
+  spike?: Phaser.GameObjects.Image;
   x: number;
   y: number;
 }
@@ -87,6 +102,10 @@ export class SpellEffects {
   lights(): Light[] {
     const lights: Light[] = [];
     for (const d of this.drawn.values()) {
+      if (d.kind === "crystal") {
+        lights.push({ x: d.x, y: d.y, radius: d.phase === "strike" ? 120 : 80, look: CRYSTAL_LOOK, phase: 0, kind: "cristal" });
+        continue;
+      }
       if (d.kind !== "lightning") continue;
       const look = d.phase === "strike" ? STRIKE_LOOK : LIGHTNING_LOOK;
       const radius = d.phase === "strike" ? STRIKE_FLASH_RADIUS : LIGHTNING_SPELL.lightRadius;
@@ -116,6 +135,10 @@ export class SpellEffects {
   private enter(d: Drawn, phase: string, time: number) {
     d.phase = phase;
     d.phaseAt = time;
+    if (d.kind === "crystal") {
+      this.enterCrystal(d, phase, time);
+      return;
+    }
     if (phase === "warn" || phase === "cast") {
       const key = d.kind === "lightning" ? RUNE_LIGHTNING : RUNE_SWAMP;
       d.runeImage = this.scene.add.image(0, 0, key);
@@ -135,7 +158,40 @@ export class SpellEffects {
     }
   }
 
+  // O círculo no aviso; no "strike", a estaca brota no meio dele com estilhaços, e o círculo apaga.
+  private enterCrystal(d: Drawn, phase: string, time: number) {
+    if (phase === "warn") {
+      d.runeImage = this.scene.add.image(0, 0, CRYSTAL_CIRCLE).setBlendMode(Phaser.BlendModes.ADD);
+      d.rune = this.scene.add.container(d.x, d.y, [d.runeImage]).setScale(1, SPELL_FLATTEN).setDepth(this.groundDepth + 0.01);
+      return;
+    }
+    if (phase !== "strike") return;
+    d.spike = this.scene.add.image(d.x, d.y, CRYSTAL_SPIKE).setOrigin(CRYSTAL_ORIGIN.x, CRYSTAL_ORIGIN.y).setScale(1, 0).setDepth(this.sortDepth(d.y + 1));
+    this.particles?.explode(d.x, d.y - 10, CRYSTAL_SHARDS, time);
+    this.onStrike(2);
+  }
+
+  private animateCrystal(d: Drawn, time: number) {
+    const t = time - d.phaseAt;
+    if (d.runeImage && d.rune) {
+      d.runeImage.setRotation(2 * Math.PI * CRYSTAL_TURNS * (time / 1000));
+      const pulse = CRYSTAL_CIRCLE_SCALE * (0.92 + 0.08 * Math.sin(time / 70));
+      d.rune.setScale(pulse, pulse * SPELL_FLATTEN);
+      if (d.phase === "strike") d.rune.setAlpha(Math.max(0, 1 - t / 300));
+    }
+    if (!d.spike) return;
+    d.spike.setScale(1, Math.min(1, t / CRYSTAL_GROW_MS));
+    // Nos últimos 150 ms, estilhaça: some e solta cacos.
+    const left = GNOME_CASTER.crystalShowMs - t;
+    if (left < 150) d.spike.setAlpha(Math.max(0, left / 150));
+    if (left < 150 && d.spike.visible && d.spike.alpha < 0.5) {
+      this.particles?.explode(d.x, d.y - 24, CRYSTAL_SHARDS, time);
+      d.spike.setVisible(false);
+    }
+  }
+
   private animate(d: Drawn, time: number) {
+    if (d.kind === "crystal") return this.animateCrystal(d, time);
     const t = (time - d.phaseAt) / 1000;
     if (d.runeImage) {
       const turns = d.kind === "lightning" ? RUNE_TURNS.lightning : RUNE_TURNS.swamp;
@@ -159,6 +215,7 @@ export class SpellEffects {
   }
 
   private clear(d: Drawn) {
+    d.spike?.destroy();
     d.rune?.destroy();
     d.strike?.destroy();
     d.mud?.destroy();

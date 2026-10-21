@@ -1183,6 +1183,26 @@ Slot vazio usa a moldura comum.
 
 ---
 
+## 2026-10 — Ataques especiais e animações novas dos 4 monstros; cajado golpeia; anti-kiting
+
+**Pedido do dono do projeto:** animações de ataque (os 4), pulo do lobo, morte do slime e caminhada diagonal do gnomo (GIFs novos), e um combate novo: goblin com facada, investida e arremesso da adaga; lobo com mordida e bote; slime com pulo ácido e explosão em 2 Mini-Slimes; gnomo conjurador (projétil e erupção de cristal); anti-kiting, poise e cerco; o clique do cajado vira batida.
+
+**Decisões (perguntadas ao dono do projeto):**
+- **Assets no padrão do projeto**, não em `client/public`: os GIFs foram para `assets/tilesets/Inimigos/<Tipo>/{walk,attack,jump}/` e `death.gif`; `tools/assets/process_mobs.py` gera as fitas em `assets/mobs/<tipo>/` e o manifesto `assets/mobs/anims.json` (quadro, quadros por direção, linha dos pés; cada GIF tem seu tamanho). Adaga, círculo e cristal em `assets/mobs/efeitos/` (já vinham com fundo transparente). A adaga chegou como `facagolbin.<direção>.png`.
+- **Projéteis e cristal dos mobs acertam só jogadores.**
+- **Mini-Slimes sem loot** (o slime grande larga ao explodir); contam no bestiário como slime.
+- **Gnomo perto demais recua e continua conjurando**; encurralado, a picareta antiga.
+
+**Como ficou:**
+- `shared/src/mobAi.ts`: modo `ability` (preparo e movimento), recargas por mob (`MobTimers`) e eventos para o servidor (`MobEvent`: projétil, cristal, impacto). Os números em `balance.ts` (`GOBLIN_DASH`, `GOBLIN_THROW`, `WOLF_POUNCE`, `SLIME_LEAP`, `SLIME_SPLIT`, `GNOME_CASTER`, `CAST_RECOVER_MS`, `ATTACK_SLOW`, `FLANK`); cada tipo lista os seus em `MOB_KINDS[...].abilities`. Mordida do lobo mais rápida (preparo 300, recuperação 350). O slime não golpeia parado: o ataque é o pulo. Cerco: cada mob chega pelo seu ângulo (0, +40°, −40°) de perto.
+- Projétil genérico (`ProjectileSpec`): a adaga e o projétil do gnomo usam o mesmo voo do Projétil Mágico, com velocidade, alcance e tamanho próprios.
+- Servidor: `MobState.action/actionSeq/aimX/aimY/mini`; `ProjectileState.kind`; a Erupção é uma magia de chão (`SpellState` "crystal": aviso 0,55 s, depois o cristal: dano mágico e empurrão); slime morto fica "dying" 0,9 s e solta os minis a ±28 px já caçando quem matou; bote: dano e 50% de lentidão por 1,2 s; pulo do slime: dano e poça ácida de 4 s. Anti-kiting: golpear deixa a 65% por 220 ms. Habilidades do mago sobem `castSeq` (o golpe é `attackSeq`).
+- Cliente: a animação vem da ação (duração casada com o tempo dela no servidor; o pulo do lobo em agachar/voo); adaga na mão do goblin por direção (some 0,5 s depois do arremesso); aviso do bote (faixa e círculo) e do pulo do slime; círculo do cristal do tamanho real da área; Mini-Slime em 0,6; sem recuo visual em quem está preparando ou numa ação (poise).
+
+**Escolhas minhas (avise se quiser diferente):** os danos que o pedido não deu: adaga 14, projétil do gnomo 12, cristal 28, bote 30, pulo do slime 16; recargas: projétil do gnomo 2,2 s, investida 5 s, bote 4,5 s; a investida dura até 0,65 s (a 3,2x, 0,5 s não alcançava 5 tiles); o cajado bate 8 com alcance 36. A posição da adaga na mão é uma tabela por direção (não há sockets de mão para mobs).
+
+---
+
 ## 2026-10 — Campo de visão padrão dobrado (120 -> 240 px)
 
 **Pedido do dono do projeto:** dobrar o campo de visão padrão dos personagens. `PLAYER_LIGHT_RADIUS` (a Percepção base) volta a 240 px: o que se vê e o que o servidor envia (regra 4), sempre cortado pelas paredes. **Escolha minha (avise se quiser diferente):** a zona dos goblins continua em 80 px, como pedido antes (`ZONE_EFFECTS.goblin.lightFactor` 2/3 -> 1/3); dobrar a dela também a deixaria em 160 px.

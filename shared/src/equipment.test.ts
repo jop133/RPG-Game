@@ -206,11 +206,12 @@ describe("Cajado Arcano (só o mago)", () => {
     expect(wrongClassNotice(STAFF)).toBe("Apenas o Mago pode empunhar o Cajado Arcano!");
   });
 
-  it("dispara em vez de golpear e soma Dano Mágico e Mana", () => {
+  it("golpeia de perto como a espada (batida) e soma Dano Mágico e Mana", () => {
     const stats = playerStats([], { weapon: STAFF });
     expect(stats.attack.weaponType).toBe("staff");
     expect(stats.magicDamage).toBe(BASE_STATS.magicDamage + 14);
     expect(stats.maxMana).toBe(BASE_STATS.maxMana + 25);
-    expect(stats.physicalDamage).toBe(0);
+    expect(stats.physicalDamage).toBe(8);
+    expect(stats.attack.range).toBeGreaterThan(0);
   });
 });

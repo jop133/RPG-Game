@@ -1,0 +1,87 @@
+{
+  "gnomo": {
+    "attack": {
+      "frame": 96,
+      "frames": {
+        "south": 7,
+        "south-east": 7,
+        "east": 7,
+        "north-east": 7,
+        "north": 7,
+        "north-west": 7,
+        "west": 7,
+        "south-west": 7
+      },
+      "feet": 82
+    }
+  },
+  "goblin": {
+    "attack": {
+      "frame": 96,
+      "frames": {
+        "south": 6,
+        "south-east": 6,
+        "east": 6,
+        "north-east": 6,
+        "north": 6,
+        "north-west": 6,
+        "west": 6,
+        "south-west": 6
+      },
+      "feet": 81
+    }
+  },
+  "lobo": {
+    "attack": {
+      "frame": 96,
+      "frames": {
+        "south": 6,
+        "south-east": 6,
+        "east": 6,
+        "north-east": 6,
+        "north": 6,
+        "north-west": 6,
+        "west": 6,
+        "south-west": 6
+      },
+      "feet": 83
+    },
+    "jump": {
+      "frame": 88,
+      "frames": {
+        "south": 11,
+        "south-east": 11,
+        "east": 11,
+        "north-east": 11,
+        "north": 11,
+        "north-west": 11,
+        "west": 11,
+        "south-west": 11
+      },
+      "feet": 79
+    }
+  },
+  "slime": {
+    "attack": {
+      "frame": 76,
+      "frames": {
+        "south": 9,
+        "south-east": 11,
+        "east": 9,
+        "north-east": 9,
+        "north": 9,
+        "north-west": 9,
+        "west": 9,
+        "south-west": 11
+      },
+      "feet": 69
+    },
+    "death": {
+      "frame": 76,
+      "frames": {
+        "south": 9
+      },
+      "feet": 66
+    }
+  }
+}

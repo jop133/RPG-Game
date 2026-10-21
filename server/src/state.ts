@@ -23,6 +23,8 @@ export const PlayerState = schema(
     // Pública: a barra de vida dos outros precisa dela (essência de vida aumenta).
     maxHp: t.number(),
     attackSeq: t.number(),
+    // Sobe a cada habilidade lançada (Bola de Fogo, Raio, Pântano): quem vê desenha o cajado apontando para a mira.
+    castSeq: t.number(),
     attackAngle: t.number(),
     hunger: t.number().view(OWNER_TAG),
     inventory: t.array(ItemSlotState).view(OWNER_TAG),
@@ -55,8 +57,25 @@ export type PlayerState = SchemaType<typeof PlayerState>;
 // `kind` é uma chave de MOB_KINDS (shared/src/balance.ts); o cliente usa para saber tamanho, cor e vida máxima.
 // windup + attackAngle são o telegrafo: o cliente desenha onde o golpe vai cair enquanto o mob prepara.
 // frenzy: lobo em Frenesi de Sangue (o cliente brilha os olhos de vermelho).
+// action: o que o mob está fazendo, para o cliente escolher a animação ("" andando/parado; "attack" golpe de perto;
+// "dash", "throw", "cast" (projétil e cristal do gnomo), "pounce-prep"/"pounce-act" (bote), "leap" (pulo do slime),
+// "dying" (a explosão do slime). actionSeq sobe a cada ação nova (a animação recomeça). aimX/aimY: o ponto do bote e do
+// pulo (o aviso no chão). mini: Mini-Slime (desenho menor, vida menor).
 export const MobState = schema(
-  { kind: t.string(), x: t.number(), y: t.number(), hp: t.number(), windup: t.boolean(), attackAngle: t.number(), frenzy: t.boolean() },
+  {
+    kind: t.string(),
+    x: t.number(),
+    y: t.number(),
+    hp: t.number(),
+    windup: t.boolean(),
+    attackAngle: t.number(),
+    frenzy: t.boolean(),
+    action: t.string(),
+    actionSeq: t.number(),
+    aimX: t.number(),
+    aimY: t.number(),
+    mini: t.boolean(),
+  },
   "MobState",
 );
 export type MobState = SchemaType<typeof MobState>;
@@ -72,13 +91,15 @@ export type ExitState = SchemaType<typeof ExitState>;
 
 // Projétil Mágico em voo (MAGIC_BOLT). angle: para onde voa (o cliente gira o desenho). done: bateu ou acabou o
 // alcance; fica um tick parado no ponto do impacto, para o cliente desenhar a explosão ali, e sai.
+// kind: "" (Projétil Mágico do mago), "dagger" (adaga do goblin, gira no ar) ou "gnome" (projétil do gnomo).
 export const ProjectileState = schema(
-  { x: t.number(), y: t.number(), angle: t.number(), done: t.boolean() },
+  { x: t.number(), y: t.number(), angle: t.number(), done: t.boolean(), kind: t.string() },
   "ProjectileState",
 );
 export type ProjectileState = SchemaType<typeof ProjectileState>;
 
-// Magia lançada no chão: kind "lightning" (fases "warn" → "strike") ou "swamp" ("cast" → "active"). O cliente desenha
+// Magia lançada no chão: kind "lightning" e "crystal" (do gnomo) (fases "warn" → "strike") ou "swamp" ("cast" →
+// "active"). O cliente desenha
 // cada fase; os tempos são os de LIGHTNING_SPELL e SWAMP_SPELL.
 export const SpellState = schema({ kind: t.string(), x: t.number(), y: t.number(), phase: t.string() }, "SpellState");
 export type SpellState = SchemaType<typeof SpellState>;
