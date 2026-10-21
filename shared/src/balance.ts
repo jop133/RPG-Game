@@ -416,7 +416,8 @@ export const MOB_SPAWN_SAFE_RADIUS = 320;
 // nela sofre o efeito da zona.
 // Valores do 1º andar (assets/maps/dungeon_floor1.json, gerado por tools/assets/build_labyrinth.py).
 export const AREAS: Record<string, AreaConfig> = {
-  centro: { playerEntry: true, mobs: { goblin: 1, lobo: 1, gnomo: 1, slime: 1 } },
+  // Área de segurança da chegada (ZONE_LAYOUT): sem mobs.
+  centro: { playerEntry: true, mobs: {} },
   noroeste: { playerEntry: false, mobs: {}, zone: "goblin" },
   nordeste: { playerEntry: false, mobs: {}, zone: "lobo" },
   sudeste: { playerEntry: false, mobs: {}, zone: "gnomo" },
@@ -429,7 +430,12 @@ export const AREAS: Record<string, AreaConfig> = {
 // (MIN_SECTOR_CELLS) recebe um grupo de SIZE mobs do povo da zona, num posto (home) a pelo menos MIN_DISTANCE px do
 // posto de qualquer outro grupo e longe das entradas (MOB_SPAWN_SAFE_RADIUS). Os membros nascem a até SPREAD_TILES
 // tiles do posto.
-export const PACKS = { sectorTiles: 25, minSectorCells: 40, size: { min: 2, max: 4 }, minDistance: 576, spreadTiles: 3 };
+// Até PER_SECTOR grupos por setor (cada um com o seu posto, ainda a MIN_DISTANCE dos outros).
+export const PACKS = { sectorTiles: 25, minSectorCells: 40, size: { min: 3, max: 3 }, minDistance: 352, spreadTiles: 3, perSector: 1 };
+// Zonas do labirinto por posição, não pelas áreas desenhadas no mapa (quadrantAreas em areas.ts): um quadrado de
+// SAFE_TILES tiles para cada lado do centro é a área de segurança ("centro"); fora dele, cada quadrante é uma zona
+// (noroeste goblin, nordeste lobo, sudeste gnomo, sudoeste slime). O mapa (paredes e pisos) não muda.
+export const ZONE_LAYOUT = { safeTiles: 20 };
 // Coleira: perseguindo a mais de RADIUS px do posto, o mob desiste, volta a RETURN_SPEED x a velocidade e fica
 // IMMUNE_MS sem notar ninguém. Teto de perseguidores: um jogador com MAX_CHASERS atrás dele não atrai mais ninguém, e
 // só os MAX_CHASERS mais perto continuam a caça.

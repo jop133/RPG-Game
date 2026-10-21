@@ -56,6 +56,8 @@ import {
   TORCH,
   ZONE_EFFECTS,
   parseAreas,
+  quadrantAreas,
+  ZONE_LAYOUT,
   torchInReach,
   zoneAt,
   type Area,
@@ -1442,7 +1444,10 @@ Subiu para o nível ${info.level}!` : "";
   private createMapObjects() {
     const data = (this.cache.tilemap.get(this.mapKey) as { data?: TiledMap } | undefined)?.data;
     if (!data) return;
-    if (this.place === "labyrinth") this.areas = parseAreas(data);
+    // O labirinto tem as zonas por posição (as mesmas do servidor: quadrantAreas); a Sala de Testes, as do mapa.
+    if (this.place === "labyrinth") {
+      this.areas = this.mapKey === "labyrinth" ? quadrantAreas(data.width, data.height, data.tilewidth, ZONE_LAYOUT.safeTiles) : parseAreas(data);
+    }
     const keys = new Map<number, string>();
     for (const tileset of data.tilesets) {
       for (const tile of tileset.tiles ?? []) if (tile.image) keys.set(tileset.firstgid + tile.id, imageKey(tile.image));

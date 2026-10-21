@@ -48,16 +48,19 @@ export function planPacks(cells: readonly Vec2[], kind: MobKind, tileSize: numbe
       y: sectorCells.reduce((s, c) => s + c.y, 0) / sectorCells.length,
     };
     const central = sectorCells.reduce((best, c) => (distance(c, mid) < distance(best, mid) ? c : best));
-    const candidates = [central, ...Array.from({ length: 8 }, () => sectorCells[Math.floor(random() * sectorCells.length)] as Vec2)];
-    const home = candidates.find(allowed);
-    if (!home) continue;
-    homes.push(home);
-    const size = Math.floor(between({ min: PACKS.size.min, max: PACKS.size.max + 1 }, random));
-    const near = sectorCells
-      .filter((c) => distance(c, home) <= PACKS.spreadTiles * tileSize)
-      .sort((a, b) => distance(a, home) - distance(b, home))
-      .slice(0, size);
-    packs.push({ kind, home: { x: home.x, y: home.y }, members: near.map((c) => ({ x: c.x, y: c.y })) });
+    // Até PACKS.perSector grupos por setor: o 1º tenta o meio do setor; os outros, pontos sorteados nele.
+    for (let k = 0; k < PACKS.perSector; k++) {
+      const randomCells = Array.from({ length: 8 }, () => sectorCells[Math.floor(random() * sectorCells.length)] as Vec2);
+      const home = (k === 0 ? [central, ...randomCells] : randomCells).find(allowed);
+      if (!home) continue;
+      homes.push(home);
+      const size = Math.floor(between({ min: PACKS.size.min, max: PACKS.size.max + 1 }, random));
+      const near = sectorCells
+        .filter((c) => distance(c, home) <= PACKS.spreadTiles * tileSize)
+        .sort((a, b) => distance(a, home) - distance(b, home))
+        .slice(0, size);
+      packs.push({ kind, home: { x: home.x, y: home.y }, members: near.map((c) => ({ x: c.x, y: c.y })) });
+    }
   }
   return packs;
 }

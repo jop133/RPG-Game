@@ -28,9 +28,9 @@ const openCells = Array.from({ length: 100 * 100 }, (_, i) => center(i % 100, Ma
 describe("planPacks", () => {
   const packs = planPacks(openCells, "goblin", TILE, [], seeded(7));
 
-  it("um grupo por setor com chão, de 2 a 4 membros", () => {
+  it("até PACKS.perSector grupos por setor com chão, do tamanho de PACKS.size", () => {
     expect(packs.length).toBeGreaterThan(8);
-    expect(packs.length).toBeLessThanOrEqual(16);
+    expect(packs.length).toBeLessThanOrEqual(16 * PACKS.perSector);
     for (const pack of packs) {
       expect(pack.kind).toBe("goblin");
       expect(pack.members.length).toBeGreaterThanOrEqual(PACKS.size.min);

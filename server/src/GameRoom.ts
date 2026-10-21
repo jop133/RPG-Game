@@ -20,6 +20,7 @@ import {
   type MobEvent,
   type MobTimers,
   type ProjectileSpec,
+  AREAS,
   ARENA_AREAS,
   CLASS_NAMES,
   DEV,
@@ -195,7 +196,7 @@ import { updateVisibility } from "./views";
 // Ticks que um projétil parado continua no estado (ver spentBolts): 3 ticks = 150 ms, três patches.
 const SPENT_BOLT_TICKS = 3;
 
-const LABYRINTH = loadLevel(new URL("../../assets/maps/dungeon_floor1.json", import.meta.url));
+const LABYRINTH = loadLevel(new URL("../../assets/maps/dungeon_floor1.json", import.meta.url), AREAS, { quadrants: true });
 // A Sala de Testes (DEV_TOOLS=1) só é lida quando a primeira sala dela abre.
 let arena: Level | undefined;
 export function arenaLevel(): Level {

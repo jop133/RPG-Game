@@ -25,6 +25,8 @@ import {
   parsePortalPoints,
   parseSpawnPoints,
   validateAreas,
+  quadrantAreas,
+  ZONE_LAYOUT,
   zoneAt,
   type Area,
   type AreaConfig,
@@ -76,10 +78,11 @@ function readMap(file: URL): TiledMap {
 }
 
 // Qualquer erro de mapa aparece ao subir o servidor, não no meio de uma run.
-export function loadLevel(file: URL, configs: Record<string, AreaConfig> = AREAS): Level {
+// quadrants: as áreas vêm da posição (quadrantAreas, ZONE_LAYOUT), não da camada "areas" do mapa (o labirinto).
+export function loadLevel(file: URL, configs: Record<string, AreaConfig> = AREAS, options: { quadrants?: boolean } = {}): Level {
   const map = readMap(file);
   const grid = parseCollisionGrid(map);
-  const areas = parseAreas(map);
+  const areas = options.quadrants ? quadrantAreas(map.width, map.height, map.tilewidth, ZONE_LAYOUT.safeTiles) : parseAreas(map);
   const spawnPoints = parseSpawnPoints(map);
   const exitCandidates = parseExitPoints(map);
   const mapLights = parseLights(map);

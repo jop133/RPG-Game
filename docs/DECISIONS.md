@@ -1183,6 +1183,16 @@ Slot vazio usa a moldura comum.
 
 ---
 
+## 2026-10 — Zonas por quadrante, área segura pequena e o dobro de grupos
+
+**Pedido do dono do projeto:** encolher a zona neutra a um raio pequeno em volta da chegada e esticar as 4 zonas pelo labirinto inteiro; grupos de 3 a 5 e mais perto uns dos outros, sem mexer na geometria do mapa.
+
+**Muda** o layout do 1º andar (a cruz da caverna de cristal como zona normal): as áreas do labirinto deixam de vir da camada "areas" do mapa e passam a vir da posição (`quadrantAreas` em `areas.ts`, `ZONE_LAYOUT.safeTiles` = 14): um quadrado de 14 tiles para cada lado do centro é a área segura ("centro", sem mobs; os 4 soltos que nasciam lá saíram) e cada quadrante em volta é uma zona (noroeste goblin, nordeste lobo, sudeste gnomo, sudoeste slime). Servidor (`loadLevel(..., { quadrants: true })`) e cliente usam a mesma função. O mapa não mudou: o piso temático e os enfeites de cada zona ficaram onde estavam (a cruz de cristal agora é dividida entre as zonas).
+
+`PACKS`: grupos de 3 a 5 (eram 2 a 4), postos a 352 px (eram 576) e até 2 grupos por setor de 25x25. Resultado: 754 grupos e 2968 mobs (eram 238 e 713); o chão neutro caiu de 53.752 tiles para 691. A sala abre em ~0,25 s; os mobs longe de todos hibernam.
+
+---
+
 ## 2026-10 — Luz redonda de novo no cliente (sem sombra de parede)
 
 **Pedido do dono do projeto:** tirar do desenho da luz o raycasting que projetava sombras atrás de paredes e obstáculos; a luz volta a ser o círculo inteiro (jogador, tochas, portais, projéteis), com o breu preto puro fora dela. **Muda** a decisão "Breu absoluto com linha de visão" só no cliente: saíram os leques de raios e a sombra da vista de `lighting.ts`, e o filtro de linha de visão dos esporos. **O servidor continua com a linha de visão** (regra 4): mob, pilha e outro jogador atrás de parede seguem sem ser enviados, mesmo dentro do círculo de luz. A zona dos goblins segue com o raio menor (`ZONE_EFFECTS.goblin.lightFactor`, 80 px) e os olhos.
