@@ -76,6 +76,7 @@ export type DevCommand =
   | { command: "heal" }
   | { command: "spawn_mob"; mob: SpawnKind; count: number; aiEnabled: boolean; lowHp: boolean; angle?: number }
   | { command: "clear_mobs" }
+  | { command: "test_drops" }
   | { command: "teleport_to"; target: DevTeleport }
   | { command: "force_zone_effect"; effect: DevZoneName | "none" };
 
@@ -92,6 +93,7 @@ export function parseDevCommand(raw: unknown): DevCommand | undefined {
     case "clear_bag":
     case "heal":
     case "clear_mobs":
+    case "test_drops":
       return { command: raw.command };
     case "set_god_mode":
     case "set_mob_ai":

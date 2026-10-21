@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { INVENTORY_SLOTS, ITEMS, MOB_DROPS } from "./balance";
 import { addItems, countItem, emptyInventory, startingInventory } from "./inventory";
-import { inventoryToPile, nearestWithin, rollDrops, takeFromPile } from "./loot";
+import type { CollisionGrid } from "./collision";
+import { allWithin, dropUnits, inventoryToPile, nearestWithin, placeDrops, rollDrops, takeFromPile } from "./loot";
 
 function sequence(...values: number[]): () => number {
   let i = 0;
@@ -9,18 +10,23 @@ function sequence(...values: number[]): () => number {
 }
 
 describe("rollDrops", () => {
-  it("sorteio abaixo da chance: cai o item, na quantidade sorteada", () => {
-    // goblin, na ordem da tabela: dente (chance 1, 1–2), ração (0.25), essência (0.2), essência rara (0.05).
-    // Sorteios: dente cai (0) com quantidade alta (0.99); ração cai (0.1) com quantidade (0); essências não (0.9, 0.9).
-    expect(rollDrops("goblin", sequence(0, 0.99, 0.1, 0, 0.9, 0.9))).toEqual([
-      { item: "dente_de_goblin", count: 2 },
-      { item: "racao", count: 1 },
+  it("só Cristais e a essência do tipo: o 1º cristal sempre, o 2º com 50%, o 3º com 25%, a essência com 5%", () => {
+    // Sorteios na ordem da tabela (cada linha: chance, depois quantidade): todos caem.
+    expect(rollDrops("lobo", sequence(0, 0, 0.4, 0, 0.2, 0, 0.01, 0))).toEqual([
+      { item: "cristal_magico", count: 1 },
+      { item: "cristal_magico", count: 1 },
+      { item: "cristal_magico", count: 1 },
+      { item: "essencia_lobo", count: 1 },
     ]);
+    // Acima das chances: só o 1º cristal.
+    expect(rollDrops("gnomo", sequence(0.99))).toEqual([{ item: "cristal_magico", count: 1 }]);
   });
 
-  it("sorteio acima da chance: o item não cai", () => {
-    // dente sempre cai; ração e as duas essências com 0.9 (acima das chances) não caem.
-    expect(rollDrops("goblin", sequence(0, 0, 0.9, 0.9, 0.9))).toEqual([{ item: "dente_de_goblin", count: 1 }]);
+  it("cada tipo larga a sua essência e nada dos materiais antigos", () => {
+    for (const kind of ["goblin", "slime", "lobo", "gnomo"] as const) {
+      const items = new Set(MOB_DROPS[kind].map((e) => e.item));
+      expect(items).toEqual(new Set(["cristal_magico", `essencia_${kind}`]));
+    }
   });
 
   it("quantidade sempre dentro de [min, max], para qualquer sorteio", () => {
@@ -82,5 +88,39 @@ describe("nearestWithin", () => {
 
   it("nada no raio: undefined", () => {
     expect(nearestWithin({ x: 0, y: 0 }, points, 5)).toBeUndefined();
+  });
+});
+
+describe("itens no chão", () => {
+  const open: CollisionGrid = { width: 20, height: 20, tileSize: 32, solid: new Array<boolean>(400).fill(false) };
+  const center = { x: 320, y: 320 };
+  const gap = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
+
+  it("cada unidade vira um item à parte", () => {
+    expect(dropUnits([{ item: "cristal_magico", count: 3 }, { item: "essencia_lobo", count: 1 }])).toEqual([
+      "cristal_magico",
+      "cristal_magico",
+      "cristal_magico",
+      "essencia_lobo",
+    ]);
+  });
+
+  it("nunca dois itens a menos de 26 px, nem dos que já estavam no chão", () => {
+    const taken = [{ x: 320, y: 320 }, { x: 346, y: 320 }];
+    const spots = placeDrops(center, 6, taken, open);
+    const all = [...taken, ...spots];
+    for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) expect(gap(all[i]!, all[j]!)).toBeGreaterThanOrEqual(26 - 1e-6);
+    for (const s of spots) expect(gap(s, center)).toBeLessThan(26 * 3);
+  });
+
+  it("não cai dentro nem do outro lado da parede", () => {
+    // Parede na coluna 11 (x 352 a 384), logo a leste do centro.
+    const walled: CollisionGrid = { ...open, solid: open.solid.map((_, i) => i % 20 === 11) };
+    for (const s of placeDrops(center, 10, [], walled)) expect(s.x).toBeLessThan(352 - 6);
+  });
+
+  it("pegar: todas as pilhas no alcance, a mais perto primeiro", () => {
+    const piles = new Map([["a", { x: 30, y: 0 }], ["b", { x: 10, y: 0 }], ["c", { x: 99, y: 0 }]]);
+    expect(allWithin({ x: 0, y: 0 }, piles, 40)).toEqual(["b", "a"]);
   });
 });

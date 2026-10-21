@@ -1,3 +1,4 @@
+import { ATTACK_LOCK_MS } from "shared";
 import Phaser from "phaser";
 
 // Efeitos de impacto ("juice"). Tudo aqui é só desenho: vem do que o servidor já mandou (vida que caiu, golpe
@@ -160,85 +161,6 @@ export function swingDuration(classId: string): number {
   return SWING_MS[classId] ?? DEFAULT_SWING_MS;
 }
 
-// Desenha o rastro do golpe. Toda classe mostra a área de acerto de verdade (fatia clara: a arma é a mesma para
-// todos, passo 8); por cima vai o enfeite da classe. p vai de 0 (golpe saiu) a 1 (rastro some).
-export function drawSwing(g: Phaser.GameObjects.Graphics, swing: Swing, time: number) {
-  const { radius, halfArc } = swing;
-  const p = Math.min(1, (time - swing.startMs) / swingDuration(swing.classId));
-  const fade = 1 - p;
-  const a0 = swing.angle - halfArc;
-  const a1 = swing.angle + halfArc;
-  g.fillStyle(0xffffff, 0.18 * fade);
-  g.slice(swing.x, swing.y, radius, a0, a1);
-  g.fillPath();
-  if (swing.classId === "barbaro") drawHeavyArc(g, swing, radius, a0, a1, fade);
-  else if (swing.classId === "mago") drawArcane(g, swing, radius, a0, a1, p);
-  else if (swing.classId === "elfo") drawQuickTrail(g, swing, radius, a0, a1, p);
-  else if (swing.classId === "homem_fera") drawClaws(g, swing, radius, fade);
-}
-
-// Bárbaro: arco grosso e pesado, branco por dentro e vermelho por fora.
-function drawHeavyArc(g: Phaser.GameObjects.Graphics, s: Swing, radius: number, a0: number, a1: number, fade: number) {
-  g.lineStyle(7, 0xb71c1c, 0.8 * fade);
-  g.beginPath();
-  g.arc(s.x, s.y, radius - 3, a0, a1);
-  g.strokePath();
-  g.lineStyle(3, 0xffebee, fade);
-  g.beginPath();
-  g.arc(s.x, s.y, radius - 3, a0, a1);
-  g.strokePath();
-}
-
-// Mago: contorno roxo e faíscas azuis e roxas saindo do centro para fora do arco.
-function drawArcane(g: Phaser.GameObjects.Graphics, s: Swing, radius: number, a0: number, a1: number, p: number) {
-  const fade = 1 - p;
-  g.lineStyle(3, 0xb388ff, 0.9 * fade);
-  g.beginPath();
-  g.arc(s.x, s.y, radius, a0, a1);
-  g.strokePath();
-  const random = new Phaser.Math.RandomDataGenerator([String(s.seed)]);
-  for (let i = 0; i < 14; i++) {
-    const angle = random.realInRange(a0, a1);
-    const r = radius * (0.3 + random.realInRange(0.4, 0.9) * (0.4 + p));
-    g.fillStyle(i % 2 ? 0x40c4ff : 0xd500f9, fade);
-    g.fillRect(s.x + Math.cos(angle) * r - 2, s.y + Math.sin(angle) * r - 2, 4, 4);
-  }
-}
-
-// Elfo: três riscos finos, dourado e verde, varrendo o arco depressa.
-function drawQuickTrail(g: Phaser.GameObjects.Graphics, s: Swing, radius: number, a0: number, a1: number, p: number) {
-  const sweep = a0 + (a1 - a0) * Math.min(1, p * 2.5);
-  const fade = 1 - p;
-  [
-    [radius, 0xffd54f],
-    [radius * 0.8, 0x69f0ae],
-    [radius * 0.6, 0xffd54f],
-  ].forEach(([r, color]) => {
-    g.lineStyle(2, color as number, fade);
-    g.beginPath();
-    g.arc(s.x, s.y, r as number, a0, sweep);
-    g.strokePath();
-  });
-}
-
-// Homem fera: três rasgos de garra vermelhos e paralelos, atravessados na frente do golpe.
-function drawClaws(g: Phaser.GameObjects.Graphics, s: Swing, radius: number, fade: number) {
-  const tilt = s.angle + Math.PI / 2 + 0.35; // rasgo quase perpendicular ao golpe, um pouco inclinado
-  const half = radius * 0.4;
-  for (const offset of [-7, 0, 7]) {
-    const cx = s.x + Math.cos(s.angle) * (radius * 0.6 + offset);
-    const cy = s.y + Math.sin(s.angle) * (radius * 0.6 + offset);
-    const x0 = cx - Math.cos(tilt) * half;
-    const y0 = cy - Math.sin(tilt) * half;
-    const x1 = cx + Math.cos(tilt) * half;
-    const y1 = cy + Math.sin(tilt) * half;
-    g.lineStyle(5, 0x3e0000, 0.7 * fade);
-    g.lineBetween(x0, y0, x1, y1);
-    g.lineStyle(2, 0xff1744, fade);
-    g.lineBetween(x0, y0, x1, y1);
-  }
-}
-
 // ---------------------------------------------------------------- arma girando no golpe e o corpo indo junto
 
 // A espada varre de (ângulo do golpe - WEAPON_SWEEP) até (+ WEAPON_SWEEP) em WEAPON_SWING_MS, rápido no começo e
@@ -247,8 +169,9 @@ function drawClaws(g: Phaser.GameObjects.Graphics, s: Swing, radius: number, fad
 export const WEAPON_SWING_MS = 160;
 const WEAPON_SWEEP = (55 * Math.PI) / 180;
 const WEAPON_POP = 0.15;
-// Por quanto tempo o personagem olha para o golpe, mesmo andando para outro lado.
-export const ATTACK_FACING_MS = 180;
+// Por quanto tempo o personagem olha para o golpe (e a animação de ataque toca): o mesmo da trava do servidor, em que
+// ele fica parado (ATTACK_LOCK_MS).
+export const ATTACK_FACING_MS = ATTACK_LOCK_MS;
 // Impulso do corpo: vai LUNGE_PX para a frente em LUNGE_OUT_MS, com uma compressão elástica, e volta em LUNGE_BACK_MS.
 const LUNGE_PX = 4;
 const LUNGE_OUT_MS = 55;
@@ -305,20 +228,4 @@ export function mobLungeOffset(startMs: number, angle: number, time: number): { 
   if (t < 0 || t >= 1) return { x: 0, y: 0 };
   const k = Math.sin(Math.PI * t);
   return { x: Math.cos(angle) * MOB_LUNGE_PX * k, y: Math.sin(angle) * MOB_LUNGE_PX * k };
-}
-
-// Rastro da lâmina, preso à espada: um arco claro que vai do começo da varrida até onde a espada está agora, na
-// altura da ponta, sumindo no fim. (cx, cy) é o pivô da espada; reach, a distância do pivô até a ponta.
-export function drawBladeTrail(g: Phaser.GameObjects.Graphics, cx: number, cy: number, startAngle: number, pose: { angle: number; p: number }, reach: number) {
-  if (pose.p >= 1) return;
-  const from = startAngle - WEAPON_SWEEP;
-  const fade = 1 - pose.p;
-  g.lineStyle(5, 0x9fb4c8, 0.35 * fade);
-  g.beginPath();
-  g.arc(cx, cy, reach - 2, from, pose.angle);
-  g.strokePath();
-  g.lineStyle(2, 0xf2f6ff, 0.85 * fade);
-  g.beginPath();
-  g.arc(cx, cy, reach, Math.max(from, pose.angle - 0.9), pose.angle);
-  g.strokePath();
 }

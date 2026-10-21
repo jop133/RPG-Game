@@ -1,4 +1,4 @@
-import { BASE_STATS, ITEMS, MAX_REDUCTION_PERCENT, REGEN_DELAY_MS, type ItemId } from "./balance";
+import { BASE_STATS, ITEMS, MAX_REDUCTION_PERCENT, REGEN_DELAY_MS, type ItemId, WOUNDED_FRACTION } from "./balance";
 import { EQUIP_SLOTS, type Equipment, type WeaponStats, weaponStats } from "./equipment";
 import type { ItemStats } from "./inventory";
 
@@ -27,6 +27,13 @@ export interface StatBonus {
   stealthPercent?: number;
   vigorPercent?: number;
   regenPerSecond?: number;
+  // Raio de luz em % (Essência de Goblin); Mana por segundo a mais; roubo de vida (% do dano do golpe que volta como
+  // vida); dano a mais (%) em alvo ferido (abaixo de WOUNDED_FRACTION da vida); Dano Mágico em %.
+  perceptionPercent?: number;
+  manaRegenPerSecond?: number;
+  lifestealPercent?: number;
+  woundedDamagePercent?: number;
+  magicDamagePercent?: number;
 }
 
 // Efeito de uma essência absorvida.
@@ -49,6 +56,9 @@ export interface PlayerStats {
   stealthPercent: number;
   vigorPercent: number;
   regenPerSecond: number;
+  manaRegenPerSecond: number;
+  lifestealPercent: number;
+  woundedDamagePercent: number;
   // Alcance e arco do golpe (da arma, ou do soco).
   attack: WeaponStats;
 }
@@ -79,15 +89,18 @@ export function statsFrom(bonuses: readonly StatBonus[], attack: WeaponStats): P
     maxHp: BASE_STATS.maxHp + sum("maxHp"),
     maxMana: BASE_STATS.maxMana + sum("maxMana"),
     physicalDamage: attack.damage + sum("physicalDamage"),
-    magicDamage: BASE_STATS.magicDamage + sum("magicDamage"),
+    magicDamage: (BASE_STATS.magicDamage + sum("magicDamage")) * (1 + sum("magicDamagePercent") / 100),
     defensePercent: reduction(BASE_STATS.defensePercent + sum("defensePercent")),
     magicResistPercent: reduction(BASE_STATS.magicResistPercent + sum("magicResistPercent")),
     attackSpeedPercent: Math.max(0, BASE_STATS.attackSpeedPercent + sum("attackSpeedPercent")),
     speed: BASE_STATS.speed * (1 + sum("speedPercent") / 100),
-    lightRadius: BASE_STATS.lightRadius + sum("perception"),
+    lightRadius: (BASE_STATS.lightRadius + sum("perception")) * (1 + sum("perceptionPercent") / 100),
     stealthPercent: reduction(BASE_STATS.stealthPercent + sum("stealthPercent")),
     vigorPercent: reduction(BASE_STATS.vigorPercent + sum("vigorPercent")),
     regenPerSecond: Math.max(0, BASE_STATS.regenPerSecond + sum("regenPerSecond")),
+    manaRegenPerSecond: Math.max(0, BASE_STATS.manaRegenPerSecond + sum("manaRegenPerSecond")),
+    lifestealPercent: Math.max(0, BASE_STATS.lifestealPercent + sum("lifestealPercent")),
+    woundedDamagePercent: Math.max(0, BASE_STATS.woundedDamagePercent + sum("woundedDamagePercent")),
     attack,
   };
 }
@@ -100,6 +113,17 @@ export function damageTaken(amount: number, type: DamageType, stats: PlayerStats
   if (type === "true") return amount;
   const percent = type === "physical" ? stats.defensePercent : stats.magicResistPercent;
   return amount * (1 - percent / 100);
+}
+
+// Dano do golpe num alvo: com Dano em Alvo Ferido, a mais se o alvo está abaixo de WOUNDED_FRACTION da vida.
+export function hitDamage(damage: number, stats: PlayerStats, targetHp: number, targetMaxHp: number): number {
+  const wounded = targetMaxHp > 0 && targetHp < targetMaxHp * WOUNDED_FRACTION;
+  return wounded ? damage * (1 + stats.woundedDamagePercent / 100) : damage;
+}
+
+// Roubo de vida: a parte do dano que entrou (no máximo a vida que o alvo tinha) que volta como vida.
+export function lifesteal(dealt: number, stats: PlayerStats): number {
+  return (dealt * stats.lifestealPercent) / 100;
 }
 
 // Regeneração: vida a recuperar neste tick. Só depois de REGEN_DELAY_MS sem levar dano, e nunca além da máxima.

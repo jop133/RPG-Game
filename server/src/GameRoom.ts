@@ -1,7 +1,14 @@
 import { StateView } from "@colyseus/schema";
 import { CloseCode, Room, type Client } from "colyseus";
 import {
-  ATTACK_SLOW,
+  ATTACK_LOCK_MS,
+  DEV_TEST_DROPS,
+  GROUND_DROPS,
+  allWithin,
+  dropUnits,
+  hitDamage,
+  lifesteal,
+  placeDrops,
   FLANK,
   GNOME_CASTER,
   GOBLIN_THROW,
@@ -305,7 +312,9 @@ export class GameRoom extends Room<{ state: GameState }> {
   // Stagger: até quando cada um anda mais devagar depois de levar golpe de mob. Anti-kiting: depois de golpear. Bote do
   // lobo: depois de levar o impacto.
   private staggerUntil = new Map<string, number>();
-  private attackSlowUntil = new Map<string, number>();
+  private attackLockUntil = new Map<string, number>();
+  // Itens que acabaram de cair: até quando o cliente desenha o pulo (LootState.fresh).
+  private freshLoot = new Map<string, number>();
   private pounceSlowUntil = new Map<string, number>();
   // Quem é cada sessão no banco.
   private characters = new Map<string, CharacterRecord>();
@@ -454,7 +463,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.inventories.delete(sessionId);
     this.equipment.delete(sessionId);
     this.staggerUntil.delete(sessionId);
-    this.attackSlowUntil.delete(sessionId);
+    this.attackLockUntil.delete(sessionId);
     this.pounceSlowUntil.delete(sessionId);
     this.godMode.delete(sessionId);
     this.forcedZones.delete(sessionId);
@@ -706,8 +715,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     // O cajado golpeia de perto como a espada (as magias são habilidades).
     if (angle === undefined || !attacker || !isOffCooldown(this.lastAttackMs.get(sessionId), now, attackCooldownMs(stats))) return;
     this.lastAttackMs.set(sessionId, now);
-    // Anti-kiting: golpear deixa mais lento por um instante.
-    this.attackSlowUntil.set(sessionId, now + ATTACK_SLOW.durationMs);
+    // Golpear trava o personagem no lugar até a animação acabar.
+    this.attackLockUntil.set(sessionId, now + ATTACK_LOCK_MS);
     attacker.attackSeq += 1;
     attacker.attackAngle = angle;
     this.hitMobs(sessionId, attacker, angle);
@@ -775,6 +784,8 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.state.spells.set(id, new SpellState({ kind: skill, x: at.x, y: at.y, phase }));
     }
     this.lastSpellMs.set(sessionId, { ...last, [skill]: now });
+    // Conjurar também trava no lugar.
+    this.attackLockUntil.set(sessionId, now + ATTACK_LOCK_MS);
     caster.castSeq += 1;
     caster.attackAngle = angle;
     this.resolveDeaths();
@@ -930,13 +941,22 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   private hitMobs(attackerId: string, attacker: PlayerState, angle: number) {
     const dead: string[] = [];
-    const { physicalDamage, attack } = this.statsOf(attackerId);
+    const stats = this.statsOf(attackerId);
+    let healed = 0;
     this.state.mobs.forEach((mob, id) => {
-      if (this.dying(id) || !isInSwing(attacker, angle, attack, mob, mobStats(mob.kind).size / 2)) return;
-      mob.hp = applyDamage(mob.hp, physicalDamage);
+      if (this.dying(id) || !isInSwing(attacker, angle, stats.attack, mob, mobStats(mob.kind).size / 2)) return;
+      // Essência de Lobo: mais dano em alvo ferido, e parte do dano volta como vida.
+      const damage = hitDamage(stats.physicalDamage, stats, mob.hp, this.mobMaxHp(id, mob));
+      healed += lifesteal(Math.min(mob.hp, damage), stats);
+      mob.hp = applyDamage(mob.hp, damage);
       if (mob.hp === 0) dead.push(id);
     });
+    if (healed > 0) attacker.hp = Math.min(attacker.maxHp, attacker.hp + healed);
     for (const id of dead) this.killMob(attackerId, id);
+  }
+
+  private mobMaxHp(id: string, mob: MobState): number {
+    return mobStats(mob.kind).maxHp * (this.mobBrains.get(id)?.mini ? SLIME_SPLIT.hpFraction : 1);
   }
 
   // Mob morto: larga o loot, conta para quem matou (se ainda estiver na sala) e sai.
@@ -951,7 +971,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (brain?.dyingMs !== undefined) return;
     // Slime grande: larga o loot e conta agora, mas explode por SLIME_SPLIT.deathMs antes de sair (e soltar os minis).
     if (mob && brain && mob.kind === "slime" && !brain.mini) {
-      this.dropPile(mob, rollDrops("slime", Math.random));
+      this.dropMobLoot(mob, rollDrops("slime", Math.random));
       const killer = this.state.players.get(killerId);
       if (killer) this.creditKill(killerId, killer, "slime");
       brain.dyingMs = SLIME_SPLIT.deathMs;
@@ -964,7 +984,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     const killer = this.state.players.get(killerId);
     if (mob) {
       // Mini-Slime não larga loot (o grande já largou).
-      if (!brain?.mini) this.dropPile(mob, rollDrops(mob.kind as MobKind, Math.random));
+      if (!brain?.mini) this.dropMobLoot(mob, rollDrops(mob.kind as MobKind, Math.random));
       if (killer) this.creditKill(killerId, killer, mob.kind as MobKind);
       // O slime deixa uma poça de lodo ácido por ACID.slimeDeathMs.
       if (mob.kind === "slime") this.addTempAcid(mob);
@@ -988,11 +1008,40 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.clients.getById(sessionId)?.send("firstKill", message);
   }
 
+  // A pilha de quem morreu: tudo junto, sem dizer o que é (item "").
   private dropPile(at: Vec2, items: ItemStack[]) {
     if (items.length === 0) return;
     const id = `loot-${this.nextLootId++}`;
     this.lootPiles.set(id, items);
-    this.state.loot.set(id, new LootState({ x: at.x, y: at.y }));
+    this.state.loot.set(id, new LootState({ x: at.x, y: at.y, item: "", fresh: false, fromX: at.x, fromY: at.y }));
+  }
+
+  // Drop de mob: cada unidade é um item à parte no chão, espalhado em volta de onde ele morreu (nunca em cima de outro
+  // item, nem em parede); recém-caído, o cliente o desenha pulando de `at` até o lugar.
+  private dropMobLoot(at: Vec2, items: ItemStack[]) {
+    const units = dropUnits(items);
+    if (units.length === 0) return;
+    const taken: Vec2[] = [];
+    this.state.loot.forEach((pile) => taken.push(pile));
+    const spots = placeDrops(at, units.length, taken, this.level.grid);
+    const now = this.clock.currentTime;
+    units.forEach((item, i) => {
+      const spot = spots[i] ?? at;
+      const id = `loot-${this.nextLootId++}`;
+      this.lootPiles.set(id, [{ item, count: 1 }]);
+      this.state.loot.set(id, new LootState({ x: spot.x, y: spot.y, item, fresh: true, fromX: at.x, fromY: at.y }));
+      this.freshLoot.set(id, now + GROUND_DROPS.freshMs);
+    });
+  }
+
+  private tickFreshLoot() {
+    const now = this.clock.currentTime;
+    for (const [id, until] of this.freshLoot) {
+      if (now < until) continue;
+      this.freshLoot.delete(id);
+      const pile = this.state.loot.get(id);
+      if (pile) pile.fresh = false;
+    }
   }
 
   // F: pega da pilha mais próxima o que couber no inventário. O que não couber fica no chão.
@@ -1002,17 +1051,22 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (!player || !inventory) return;
     const positions = new Map<string, Vec2>();
     this.state.loot.forEach((pile, id) => positions.set(id, pile));
-    const id = nearestWithin(player, positions, PICKUP_RADIUS);
-    const pile = id && this.lootPiles.get(id);
-    if (!id || !pile) return;
-    const result = takeFromPile(inventory, pile);
-    this.setInventory(sessionId, player, result.inventory);
-    if (result.pile.length > 0) {
-      this.lootPiles.set(id, result.pile);
-    } else {
+    // F pega tudo no alcance (os cristais caem espalhados), o mais perto primeiro, até a mochila encher.
+    let current = inventory;
+    for (const id of allWithin(player, positions, PICKUP_RADIUS)) {
+      const pile = this.lootPiles.get(id);
+      if (!pile) continue;
+      const result = takeFromPile(current, pile);
+      current = result.inventory;
+      if (result.pile.length > 0) {
+        this.lootPiles.set(id, result.pile);
+        continue;
+      }
       this.lootPiles.delete(id);
       this.state.loot.delete(id);
+      this.freshLoot.delete(id);
     }
+    if (current !== inventory) this.setInventory(sessionId, player, current);
   }
 
   // Fogo amigo: o golpe acerta qualquer outro jogador no arco.
@@ -1098,6 +1152,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.tickZoneHazards(dtMs);
     this.moveMobs(dtMs);
     this.tickDying(dtMs);
+    this.tickFreshLoot();
     this.respawnPacks();
     this.moveBolts(dtMs);
     this.tickSpells(dtMs);
@@ -1284,7 +1339,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       // Mana: regenera; na zona dos gnomos, drena.
       const stats = this.statsOf(sessionId);
       if (player.maxMana !== stats.maxMana) player.maxMana = stats.maxMana;
-      player.mana = tickMana(player.mana, stats.maxMana, this.zones.get(sessionId), dtMs, LABYRINTH_REGEN_FACTOR);
+      player.mana = tickMana(player.mana, stats.maxMana, this.zones.get(sessionId), dtMs, LABYRINTH_REGEN_FACTOR, stats.manaRegenPerSecond);
       // God Mode: Mana infinita.
       if (this.godMode.has(sessionId)) player.mana = stats.maxMana;
     });
@@ -1298,7 +1353,8 @@ export class GameRoom extends Room<{ state: GameState }> {
       // depois de levar golpe de mob (stagger).
       const acid = inAcid(player, PLAYER_SIZE / 2, this.acidPools()) ? ACID.slow : 1;
       const stagger = now < (this.staggerUntil.get(sessionId) ?? 0) ? STAGGER.slow : 1;
-      const kite = now < (this.attackSlowUntil.get(sessionId) ?? 0) ? ATTACK_SLOW.slow : 1;
+      // Golpeando ou conjurando: parado (as teclas seguem apertadas; ao acabar, volta a andar).
+      const kite = now < (this.attackLockUntil.get(sessionId) ?? 0) ? 0 : 1;
       const pounced = now < (this.pounceSlowUntil.get(sessionId) ?? 0) ? WOLF_POUNCE.slow : 1;
       const speed = (this.stats.get(sessionId)?.speed ?? PLAYER_SPEED) * swampSlow(player, PLAYER_SIZE / 2, sessionId, swamps) * acid * stagger * kite * pounced;
       const delta = movementDelta(this.moveInputs.get(sessionId) ?? NO_INPUT, dtMs, speed);
@@ -1409,6 +1465,14 @@ export class GameRoom extends Room<{ state: GameState }> {
         return this.devSpawn(player, command.mob, command.count, command.aiEnabled, command.lowHp, command.angle);
       case "clear_mobs":
         return this.devClearMobs(sessionId, player);
+      case "test_drops": {
+        // 3 Cristais e 1 Essência (sorteada entre as 4) caindo ao lado do jogador.
+        const essences = ["essencia_goblin", "essencia_slime", "essencia_lobo", "essencia_gnomo"] as const;
+        const essence = essences[Math.floor(Math.random() * essences.length)] ?? "essencia_lobo";
+        const at = { x: player.x + this.level.grid.tileSize, y: player.y };
+        const spot = boxFits(this.level.grid, at, GROUND_DROPS.radius) ? at : { x: player.x, y: player.y };
+        return this.dropMobLoot(spot, [{ item: "cristal_magico", count: DEV_TEST_DROPS.crystals }, { item: essence, count: 1 }]);
+      }
       case "force_zone_effect":
         return this.devForceZone(sessionId, player, command.effect);
     }

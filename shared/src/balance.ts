@@ -41,8 +41,33 @@ export const ITEMS = {
   fragmento_de_cristal: { name: "Fragmento de cristal", rarity: "rare", maxStack: 10 },
   gosma_de_slime: { name: "Gosma de slime", rarity: "common", maxStack: 10 },
   essencia_rato: { name: "Essência de rato", rarity: "rare", maxStack: 3, essence: { speedPercent: 15 } },
-  essencia_lobo: { name: "Essência de lobo", rarity: "rare", maxStack: 3, essence: { speedPercent: 15 } },
-  essencia_goblin: { name: "Essência de goblin", rarity: "rare", maxStack: 3, essence: { physicalDamage: 4 } },
+  // As 4 essências dos monstros (mesma arte, status diferentes): absorvidas nos slots de essência (usar o item).
+  essencia_goblin: {
+    name: "Essência de Goblin",
+    rarity: "rare",
+    maxStack: 3,
+    essence: { speedPercent: 12, attackSpeedPercent: 15, perceptionPercent: 20 },
+  },
+  essencia_slime: {
+    name: "Essência de Slime",
+    rarity: "rare",
+    maxStack: 3,
+    essence: { maxHp: 45, regenPerSecond: 3, defensePercent: 5 },
+  },
+  essencia_lobo: {
+    name: "Essência de Lobo",
+    rarity: "rare",
+    maxStack: 3,
+    essence: { physicalDamage: 10, lifestealPercent: 8, woundedDamagePercent: 15 },
+  },
+  essencia_gnomo: {
+    name: "Essência de Gnomo",
+    rarity: "rare",
+    maxStack: 3,
+    essence: { maxMana: 50, manaRegenPerSecond: 2.5, magicDamagePercent: 18 },
+  },
+  // O que os monstros largam (com as essências): vende-se na Guilda.
+  cristal_magico: { name: "Cristal Mágico", rarity: "common", maxStack: 30 },
   essencia_goblin_rara: { name: "Essência rara de goblin", rarity: "epic", maxStack: 3, essence: { maxHp: 25 } },
   espada_ferro: {
     name: "Espada de Ferro",
@@ -97,9 +122,12 @@ export const SELL_PRICES: Partial<Record<ItemId, number>> = {
   pele_de_lobo: 4,
   fragmento_de_cristal: 8,
   essencia_rato: 15,
-  essencia_lobo: 15,
-  essencia_goblin: 15,
   essencia_goblin_rara: 40,
+  cristal_magico: 5,
+  essencia_goblin: 300,
+  essencia_slime: 300,
+  essencia_lobo: 300,
+  essencia_gnomo: 300,
 };
 export const BUY_PRICES: Partial<Record<ItemId, number>> = { racao: 10 };
 // O catálogo da Forja (balcão do ferreiro): o que se compra, por unidade. Tudo de graça por enquanto (pedido do dono do
@@ -117,26 +145,26 @@ export const FORGE_PRICES: Partial<Record<ItemId, number>> = {
 // Maior quantidade aceita numa compra ou venda (só para recusar números absurdos vindos do cliente).
 export const MAX_TRADE_COUNT = 999;
 
-// O que cada tipo de mob larga ao morrer. Cada linha é sorteada à parte: com chance `chance` (0 a 1),
-// cai uma quantidade entre `min` e `max`. Goblins às vezes carregam comida: fonte de ração dentro do labirinto.
-// Gnomo e slime ainda não têm essência: só material (as essências deles são decisão de balanceamento futura).
+// O que cada tipo de mob larga ao morrer: só Cristais Mágicos e a essência do tipo. Cada linha é sorteada à parte:
+// com chance `chance` (0 a 1), cai uma quantidade entre `min` e `max`. Cristais: o 1º sempre, o 2º com 50%, o 3º com
+// 25% (sorteios independentes). Essência: 5%. Os materiais antigos (pele, dente, gosma, fragmento) não caem mais, mas
+// continuam itens (há personagens com eles, e a Forja os usa).
+const CRYSTAL_DROPS: DropEntry[] = [
+  { item: "cristal_magico", chance: 1, min: 1, max: 1 },
+  { item: "cristal_magico", chance: 0.5, min: 1, max: 1 },
+  { item: "cristal_magico", chance: 0.25, min: 1, max: 1 },
+];
+export const ESSENCE_DROP_CHANCE = 0.05;
 export const MOB_DROPS: Record<MobKind, DropEntry[]> = {
-  lobo: [
-    { item: "pele_de_lobo", chance: 0.8, min: 1, max: 1 },
-    { item: "essencia_lobo", chance: 0.15, min: 1, max: 1 },
-  ],
-  gnomo: [
-    { item: "fragmento_de_cristal", chance: 0.9, min: 1, max: 2 },
-    { item: "racao", chance: 0.15, min: 1, max: 1 },
-  ],
-  slime: [{ item: "gosma_de_slime", chance: 0.9, min: 1, max: 2 }],
-  goblin: [
-    { item: "dente_de_goblin", chance: 1, min: 1, max: 2 },
-    { item: "racao", chance: 0.25, min: 1, max: 1 },
-    { item: "essencia_goblin", chance: 0.2, min: 1, max: 1 },
-    { item: "essencia_goblin_rara", chance: 0.05, min: 1, max: 1 },
-  ],
+  lobo: [...CRYSTAL_DROPS, { item: "essencia_lobo", chance: ESSENCE_DROP_CHANCE, min: 1, max: 1 }],
+  gnomo: [...CRYSTAL_DROPS, { item: "essencia_gnomo", chance: ESSENCE_DROP_CHANCE, min: 1, max: 1 }],
+  slime: [...CRYSTAL_DROPS, { item: "essencia_slime", chance: ESSENCE_DROP_CHANCE, min: 1, max: 1 }],
+  goblin: [...CRYSTAL_DROPS, { item: "essencia_goblin", chance: ESSENCE_DROP_CHANCE, min: 1, max: 1 }],
 };
+// Itens no chão: cada unidade que cai é um item à parte, a pelo menos MIN_DISTANCE px de qualquer outro (espiral em volta
+// de onde o mob morreu, sem entrar em parede nem passar por ela). O desenho sai pulando do lugar da morte por TWEEN_MS;
+// o servidor marca o item como recém-caído por FRESH_MS.
+export const GROUND_DROPS = { minDistance: 26, maxRings: 8, radius: 6, tweenMs: 250, freshMs: 1000 };
 
 // Distância, de centro a centro, em que o jogador alcança uma pilha para pegar (tecla F).
 export const PICKUP_RADIUS = 40;
@@ -186,6 +214,11 @@ export const CITY_INTERACT_RADIUS = 48;
 export const UNARMED_ATTACK = { damage: 4, range: 28, arcDegrees: 90 };
 // Tempo mínimo entre dois golpes, com ou sem arma.
 export const PLAYER_ATTACK_COOLDOWN_MS = 500;
+// Golpe básico e magia travam o personagem no lugar (velocidade 0) por isto, do começo do golpe até a animação acabar
+// (o cliente toca a animação de ataque nesse mesmo tempo).
+export const ATTACK_LOCK_MS = 250;
+// "Alvo ferido" (bônus de dano da Essência de Lobo): abaixo desta fração da vida máxima.
+export const WOUNDED_FRACTION = 0.5;
 // Com o que o personagem entra equipado na primeira vez (o novo e os que existiam antes do equipamento). O mago entra
 // com o Cajado Arcano no lugar da espada (STARTING_EQUIPMENT_BY_CLASS); quem já tinha equipamento gravado fica com ele.
 export const STARTING_EQUIPMENT: Equipment = { weapon: "espada_ferro" };
@@ -251,6 +284,10 @@ export const BASE_STATS = {
   stealthPercent: 0,
   vigorPercent: 0,
   regenPerSecond: 0,
+  // Mana por segundo (a base de MANA_REGEN_PER_SECOND); roubo de vida e dano em alvo ferido, em %.
+  manaRegenPerSecond: 2,
+  lifestealPercent: 0,
+  woundedDamagePercent: 0,
 };
 // Teto de toda redução em % (Defesa, Resistência Mágica, Furtividade, Vigor): ninguém fica imune a dano, invisível
 // aos mobs ou sem fome.
@@ -427,7 +464,7 @@ export const ZONE_EFFECTS = {
   gnomo: { manaDrainPerSecond: 1.5, manaRegenFactor: 0.2, damageTakenFactor: 1.25 },
 };
 // Mana: volta a MANA_REGEN_PER_SECOND por segundo, até a Mana máxima (status). As skills ainda não gastam.
-export const MANA_REGEN_PER_SECOND = 2;
+export const MANA_REGEN_PER_SECOND = BASE_STATS.manaRegenPerSecond;
 // Tochas dos Goblins: as do mapa (e os braseiros) começam apagadas; [E] a até INTERACT_RADIUS px acende para todos até
 // o fim da run, com luz de LIGHT_RADIUS px.
 export const TORCH = { interactRadius: 56, lightRadius: 180 };
@@ -454,6 +491,9 @@ export const STAGGER = { slow: 0.6, durationMs: 250 };
 export const LABYRINTH_REGEN_FACTOR = 0.5;
 
 // ---------------------------------------------------------------- ferramentas de dev (só com DEV_TOOLS=1 no servidor)
+
+// Teste de drops (test_drops): quantos Cristais caem ao lado do jogador, com uma Essência.
+export const DEV_TEST_DROPS = { crystals: 3 };
 
 // Sala de Testes (assets/maps/test_arena.json, de tools/assets/build_test_arena.py): uma área só, sem mobs nem zona.
 export const ARENA_AREAS: Record<string, AreaConfig> = { arena: { playerEntry: true, mobs: {} } };
@@ -519,8 +559,6 @@ export const GNOME_CASTER = {
 };
 // Depois de atirar (adaga, projétil) ou de conjurar o cristal, o mob fica parado por isto antes de voltar a andar.
 export const CAST_RECOVER_MS = 300;
-// Anti-kiting: golpear deixa o jogador a SLOW da velocidade por DURATION_MS.
-export const ATTACK_SLOW = { slow: 0.65, durationMs: 220 };
 // Cerco: mobs que perseguem chegam ao alvo por um ângulo de até ±DEGREES (cada um o seu) quando estão a menos de
 // RANGE px dele: o grupo abre em volta em vez de vir em fila.
 export const FLANK = { degrees: 40, range: 160 };

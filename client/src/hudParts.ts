@@ -1,7 +1,7 @@
 import {
   CLASS_NAMES,
   ITEMS,
-  MAGIC_BOLT,
+  
   canEquip,
   parseClassId,
   type ClassId,
@@ -181,6 +181,11 @@ const BONUS_LABELS: readonly [keyof StatBonus, string, string][] = [
   ["stealthPercent", "%", "Furtividade"],
   ["vigorPercent", "%", "Vigor"],
   ["regenPerSecond", "/s", "Regeneração"],
+  ["perceptionPercent", "%", "Raio de Luz"],
+  ["manaRegenPerSecond", "/s", "Regeneração de Mana"],
+  ["lifestealPercent", "%", "Roubo de Vida"],
+  ["woundedDamagePercent", "%", "Dano em Alvo Ferido"],
+  ["magicDamagePercent", "%", "Dano Mágico"],
 ];
 
 export function bonusText(bonus: StatBonus): string {
@@ -197,7 +202,6 @@ export function rarityStyle(rarity: Rarity): { name: string; color: string } {
 
 // Dano, alcance e arco de um golpe, numa linha. Cajado: o disparo (o dano é o Dano Mágico de quem atira).
 export function attackText(attack: WeaponStats): string {
-  if (attack.weaponType === "staff") return `Projétil Mágico  ·  Dano Mágico  ·  Alcance ${MAGIC_BOLT.range} px`;
   return `Dano ${attack.damage}  ·  Alcance ${attack.range} px  ·  Arco ${attack.arcDegrees}°`;
 }
 

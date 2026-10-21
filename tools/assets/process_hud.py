@@ -442,8 +442,7 @@ ICONS = {
     "fragmento_de_cristal": icon_crystal,
     "gosma_de_slime": icon_goo,
     "essencia_rato": lambda: icon_essence((179, 157, 219)),
-    "essencia_lobo": lambda: icon_essence((120, 180, 245)),
-    "essencia_goblin": lambda: icon_essence((140, 200, 90)),
+    # essencia_lobo e essencia_goblin (e as de slime e gnomo) vêm da arte oficial: tools/assets/process_loot.py.
     "essencia_goblin_rara": lambda: icon_essence((255, 200, 60)),
     "espada_ferro": icon_sword,
 }

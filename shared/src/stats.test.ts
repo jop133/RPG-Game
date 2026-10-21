@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BASE_STATS, ITEMS, MAX_REDUCTION_PERCENT, PLAYER_ATTACK_COOLDOWN_MS, REGEN_DELAY_MS, UNARMED_ATTACK } from "./balance";
 import { attackCooldownMs } from "./combat";
-import { damageTaken, playerStats, regenerate, statsFrom, type PlayerStats } from "./stats";
+import { damageTaken, hitDamage, lifesteal, playerStats, regenerate, statsFrom, type PlayerStats } from "./stats";
 
 // Status de teste: a base, com o que o caso pede por cima (sem depender de item que tenha esse bônus).
 const withStats = (changes: Partial<PlayerStats>): PlayerStats => ({ ...playerStats([]), ...changes });
@@ -15,7 +15,7 @@ describe("playerStats", () => {
     });
   });
 
-  it("os 12 status existem", () => {
+  it("os 12 status existem (e os das essências dos monstros)", () => {
     const keys = Object.keys(playerStats([])).filter((key) => key !== "attack");
     expect(keys.sort()).toEqual(
       [
@@ -28,6 +28,9 @@ describe("playerStats", () => {
         "attackSpeedPercent",
         "speed",
         "lightRadius",
+        "manaRegenPerSecond",
+        "lifestealPercent",
+        "woundedDamagePercent",
         "stealthPercent",
         "vigorPercent",
         "regenPerSecond",
@@ -42,13 +45,13 @@ describe("playerStats", () => {
 
   it("cada essência aplica o seu efeito", () => {
     expect(playerStats(["essencia_rato"]).speed).toBeCloseTo(BASE_STATS.speed * (1 + ITEMS.essencia_rato.essence.speedPercent / 100));
-    expect(playerStats(["essencia_goblin"]).physicalDamage).toBe(UNARMED_ATTACK.damage + ITEMS.essencia_goblin.essence.physicalDamage);
+    expect(playerStats(["essencia_lobo"]).physicalDamage).toBe(UNARMED_ATTACK.damage + ITEMS.essencia_lobo.essence.physicalDamage);
     expect(playerStats(["essencia_goblin_rara"]).maxHp).toBe(BASE_STATS.maxHp + ITEMS.essencia_goblin_rara.essence.maxHp);
   });
 
   it("o dano físico das essências soma ao da arma", () => {
-    const stats = playerStats(["essencia_goblin"], { weapon: "espada_ferro" });
-    expect(stats.physicalDamage).toBe(ITEMS.espada_ferro.equip.weapon.damage + ITEMS.essencia_goblin.essence.physicalDamage);
+    const stats = playerStats(["essencia_lobo"], { weapon: "espada_ferro" });
+    expect(stats.physicalDamage).toBe(ITEMS.espada_ferro.equip.weapon.damage + ITEMS.essencia_lobo.essence.physicalDamage);
   });
 
   it("essências iguais se somam (porcentagens somam, não multiplicam)", () => {
@@ -57,9 +60,9 @@ describe("playerStats", () => {
   });
 
   it("essências diferentes não interferem entre si", () => {
-    const stats = playerStats(["essencia_rato", "essencia_goblin"]);
+    const stats = playerStats(["essencia_rato", "essencia_lobo"]);
     expect(stats.maxHp).toBe(BASE_STATS.maxHp);
-    expect(stats.physicalDamage).toBe(UNARMED_ATTACK.damage + ITEMS.essencia_goblin.essence.physicalDamage);
+    expect(stats.physicalDamage).toBe(UNARMED_ATTACK.damage + ITEMS.essencia_lobo.essence.physicalDamage);
   });
 });
 
@@ -122,5 +125,34 @@ describe("regenerate", () => {
 
   it("sem Regeneração, nada muda", () => {
     expect(regenerate(50, playerStats([]), 1000, REGEN_DELAY_MS)).toBe(50);
+  });
+});
+
+describe("essências dos monstros (status novos)", () => {
+  it("goblin: velocidade, velocidade de ataque e raio de luz em %", () => {
+    const s = playerStats(["essencia_goblin"]);
+    expect(s.speed).toBeCloseTo(BASE_STATS.speed * 1.12);
+    expect(s.attackSpeedPercent).toBe(15);
+    expect(s.lightRadius).toBeCloseTo(BASE_STATS.lightRadius * 1.2);
+  });
+
+  it("slime: vida, regeneração e defesa", () => {
+    const s = playerStats(["essencia_slime"]);
+    expect(s).toMatchObject({ maxHp: BASE_STATS.maxHp + 45, regenPerSecond: 3, defensePercent: 5 });
+  });
+
+  it("lobo: dano em alvo ferido e roubo de vida", () => {
+    const s = playerStats(["essencia_lobo"]);
+    expect(hitDamage(20, s, 40, 100)).toBeCloseTo(23);
+    expect(hitDamage(20, s, 60, 100)).toBe(20);
+    expect(lifesteal(20, s)).toBeCloseTo(1.6);
+    expect(lifesteal(20, playerStats([]))).toBe(0);
+  });
+
+  it("gnomo: mana, regeneração de mana e Dano Mágico em %", () => {
+    const s = playerStats(["essencia_gnomo"], { weapon: "cajado_arcano" });
+    expect(s.maxMana).toBe(BASE_STATS.maxMana + 50 + 25);
+    expect(s.manaRegenPerSecond).toBeCloseTo(BASE_STATS.manaRegenPerSecond + 2.5);
+    expect(s.magicDamage).toBeCloseTo(14 * 1.18);
   });
 });

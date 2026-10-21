@@ -1183,6 +1183,28 @@ Slot vazio usa a moldura comum.
 
 ---
 
+## 2026-10 — Drops novos (Cristal Mágico e as 4 Essências), itens visíveis no chão, trava ao golpear e sem arcos
+
+**Pedido do dono do projeto:** os mobs largam só Cristais Mágicos (100%/50%/25%) e a essência do tipo (5%); cada drop é um item animado no chão, sem sobrepor outro; golpe e magia travam o personagem parado até a animação acabar; sem os arcos de golpe (jogadores e mobs).
+
+**Decisão (perguntada ao dono do projeto):** as 4 essências continuam sendo **absorvidas nos slots de essência** (usar o item; o nível dá os slots), não equipadas no amuleto.
+
+**Contraria duas decisões registradas, a pedido:**
+- "Pilhas no chão mostram só a posição; o conteúdo se descobre ao pegar": o drop de mob agora diz o que é (`LootState.item`) e cada unidade é uma pilha à parte. A pilha de quem morre continua como antes (tudo junto, sem dizer o quê).
+- O anti-kiting de 35% por 220 ms virou trava total: velocidade 0 por `ATTACK_LOCK_MS` (250 ms) depois de golpear ou lançar habilidade; o cliente toca a animação de ataque no mesmo tempo. (O cliente não prevê movimento: a trava é só do servidor.)
+
+**Como ficou:**
+- `tools/assets/process_loot.py`: os ícones (`cristal_magico` e as 4 essências, a mesma arte) em `assets/ui/hud/items/` e as fitas do chão em `assets/loot/` com `loot.json` (no padrão do projeto, não em `client/public`). As imagens já vinham com fundo transparente; o script ainda tira o preto puro. `process_hud.py` deixou de desenhar os ícones antigos de essência de lobo e goblin.
+- Itens: `cristal_magico` (vende 5), `essencia_goblin` (+12% velocidade, +15% velocidade de ataque, +20% raio de luz), `essencia_slime` (+45 vida, +3/s regeneração, +5% defesa), `essencia_lobo` (+10 dano físico, 8% roubo de vida, +15% dano em alvo ferido), `essencia_gnomo` (+50 Mana, +2,5/s de Mana, +18% Dano Mágico); cada uma vende 300. Status novos: `perceptionPercent`, `manaRegenPerSecond`, `lifestealPercent`, `woundedDamagePercent` (alvo abaixo de `WOUNDED_FRACTION` = 50% da vida), `magicDamagePercent`. Roubo de vida e dano em alvo ferido valem no golpe corpo a corpo em mobs.
+- Os materiais antigos (pele, dente, gosma, fragmento) não caem mais, mas continuam itens e vendáveis (há personagens com eles; a Forja os usa nas receitas).
+- `placeDrops` (loot.ts): espiral em volta de onde o mob morreu, a pelo menos 26 px de qualquer item no chão, fora de parede e sem parede no meio. O cliente desenha cada item pulando (250 ms) do lugar da morte até o dele, com a animação em laço e um brilho no piso. **F pega tudo no alcance** de uma vez (escolha minha: com os cristais espalhados, um F por item seria chato).
+- Sem arcos: saíram o rastro de golpe das classes, o rastro da lâmina e a fatia vermelha do golpe dos mobs. Ficaram os avisos do bote do lobo, do pulo do slime e o círculo do cristal do gnomo (não são arcos de golpe).
+- Sala de Testes: botões dos 5 itens e "Dropar Cristais + Essência no Chão" (`window.__DEV__.testDrops()`, comando `test_drops`).
+
+**Escolhas minhas (avise se quiser diferente):** os sorteios dos 3 cristais são independentes (o 3º pode cair sem o 2º); o Cristal empilha 30 na mochila; o "+5 Defesa Física" virou +5% de Defesa (a Defesa do jogo é em %).
+
+---
+
 ## 2026-10 — Ataques especiais e animações novas dos 4 monstros; cajado golpeia; anti-kiting
 
 **Pedido do dono do projeto:** animações de ataque (os 4), pulo do lobo, morte do slime e caminhada diagonal do gnomo (GIFs novos), e um combate novo: goblin com facada, investida e arremesso da adaga; lobo com mordida e bote; slime com pulo ácido e explosão em 2 Mini-Slimes; gnomo conjurador (projétil e erupção de cristal); anti-kiting, poise e cerco; o clique do cajado vira batida.

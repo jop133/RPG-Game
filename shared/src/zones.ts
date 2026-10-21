@@ -54,9 +54,16 @@ export function zoneDamage(amount: number, zone: ZoneId | undefined): number {
 
 // Mana depois de dtMs: regenera MANA_REGEN_PER_SECOND x regenFactor (no labirinto, LABYRINTH_REGEN_FACTOR); na zona
 // dos gnomos a regeneração cai e há o dreno. Entre 0 e a máxima.
-export function tickMana(mana: number, maxMana: number, zone: ZoneId | undefined, dtMs: number, regenFactor = 1): number {
+export function tickMana(
+  mana: number,
+  maxMana: number,
+  zone: ZoneId | undefined,
+  dtMs: number,
+  regenFactor = 1,
+  regenPerSecond = MANA_REGEN_PER_SECOND,
+): number {
   const gnomo = zone === "gnomo";
-  const regen = MANA_REGEN_PER_SECOND * regenFactor * (gnomo ? ZONE_EFFECTS.gnomo.manaRegenFactor : 1);
+  const regen = regenPerSecond * regenFactor * (gnomo ? ZONE_EFFECTS.gnomo.manaRegenFactor : 1);
   const drain = gnomo ? ZONE_EFFECTS.gnomo.manaDrainPerSecond : 0;
   return Math.min(maxMana, Math.max(0, mana + ((regen - drain) * dtMs) / 1000));
 }

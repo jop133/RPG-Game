@@ -1,0 +1,14 @@
+{
+  "essencia": {
+    "frame": 84,
+    "frames": 9,
+    "frameMs": 200,
+    "base": 72
+  },
+  "cristal": {
+    "frame": 64,
+    "frames": 9,
+    "frameMs": 150,
+    "base": 59
+  }
+}

@@ -39,6 +39,8 @@ export interface Light {
 // Também serve de brilho solto (ADD): o preto do fundo soma zero (ver Bolts, em projectiles.ts).
 export const LIGHT_KEY = "light";
 const LIGHT_TEXTURE = 256;
+// Lado da textura da mancha (para quem a usa como brilho solto e precisa escalar para um tamanho em px).
+export const LIGHT_TEXTURE_SIZE = LIGHT_TEXTURE;
 // O degradê termina em 120 de 128 px: preto puro antes da borda da textura.
 const LIGHT_EDGE = 120;
 const VIGNETTE_KEY = "vignette";

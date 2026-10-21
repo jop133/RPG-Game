@@ -26,10 +26,11 @@ describe("sellItems", () => {
     expect(result.coins).toBe(5 * PELE);
   });
 
-  it("essência rara vale mais que a comum", () => {
-    expect(SELL_PRICES.essencia_goblin_rara ?? 0).toBeGreaterThan(SELL_PRICES.essencia_goblin ?? 0);
-    const result = sellItems(bag([{ item: "essencia_goblin_rara", count: 1 }]), 0, "essencia_goblin_rara", 1);
-    expect(result).toMatchObject({ kind: "done", coins: SELL_PRICES.essencia_goblin_rara });
+  it("Cristal Mágico vale 5 e cada essência dos monstros, 300", () => {
+    expect(SELL_PRICES.cristal_magico).toBe(5);
+    for (const item of ["essencia_goblin", "essencia_slime", "essencia_lobo", "essencia_gnomo"] as const) expect(SELL_PRICES[item]).toBe(300);
+    const result = sellItems(bag([{ item: "cristal_magico", count: 3 }]), 0, "cristal_magico", 3);
+    expect(result).toMatchObject({ kind: "done", coins: 15 });
   });
 
   it("mais do que tem: recusa e nada muda", () => {

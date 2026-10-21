@@ -50,6 +50,8 @@ const ZONES = [
   ["gnome", "Radiação (gnomo)"],
 ] as const;
 const SINGLE_ITEMS: readonly ItemId[] = ["espada_ferro", "cajado_arcano"];
+// Drops dos monstros: o Cristal e as 4 essências.
+const DROP_ITEMS: readonly ItemId[] = ["cristal_magico", "essencia_goblin", "essencia_slime", "essencia_lobo", "essencia_gnomo"];
 const LOCAL_SETTLE_MS = 250;
 
 export class DevPanel {
@@ -152,6 +154,11 @@ export class DevPanel {
     this.command({ command: "clear_mobs" });
   }
 
+  // 3 Cristais e 1 Essência caindo ao lado do jogador (o espaçamento e a animação dos drops).
+  testDrops() {
+    this.command({ command: "test_drops" });
+  }
+
   setZoneEffect(zone: string) {
     this.command({ command: "force_zone_effect", effect: zone });
   }
@@ -210,6 +217,10 @@ export class DevPanel {
     this.button(items, `+${DEV.gold} Ouro`, () => this.addGold());
     this.button(items, "Limpar mochila", () => this.clearBag(), "dev-danger");
 
+    const drops = div("dev-row", this.section("Drops dos monstros"));
+    for (const id of DROP_ITEMS) this.button(drops, ITEMS[id].name, () => this.giveItem(id, false, id === "cristal_magico" ? 5 : 1), "dev-small");
+    this.button(drops, "Dropar Cristais + Essência no Chão", () => this.testDrops(), "dev-primary");
+
     const mobs = this.section("Mobs (3 tiles à frente, rumo ao mouse)");
     const spawn = div("dev-row", mobs);
     for (const [kind, label] of MOBS) this.button(spawn, `+1 ${label}`, () => this.spawnMob(kind));
@@ -265,6 +276,7 @@ export interface DevApi {
   heal(): void;
   spawnMob(type: string, options?: { count?: number; aiEnabled?: boolean; lowHp?: boolean }): void;
   clearMobs(): void;
+  testDrops(): void;
   teleport(target: string): Promise<void>;
   setZoneEffect(zone: string): void;
   openShop(shop: "blacksmith" | "guild" | "food" | "stash"): Promise<void>;
@@ -284,6 +296,7 @@ export function installDevApi(panel: DevPanel): DevApi {
     heal: () => panel.heal(),
     spawnMob: (type, options) => panel.spawnMob(type, options),
     clearMobs: () => panel.clearMobs(),
+    testDrops: () => panel.testDrops(),
     teleport: (target) => panel.teleport(target as DevTeleport),
     setZoneEffect: (zone) => panel.setZoneEffect(zone),
     openShop: (shop) => panel.openShop(shop),

@@ -9,6 +9,7 @@ import {
   EXIT_RADIUS,
   EXIT_CHANNEL,
   EXIT_IDLE_LIGHT_RADIUS,
+  GROUND_DROPS,
   GNOME_CASTER,
   GOBLIN_DASH,
   GOBLIN_THROW,
@@ -45,7 +46,6 @@ import {
   objectSortLine,
   isStationId,
   lightRadius,
-  mobStrikeArc,
   playerStats,
   viewportSize,
   weaponStats,
@@ -90,8 +90,6 @@ import {
   FloatingNumbers,
   ScreenShake,
   applyFlash,
-  drawBladeTrail,
-  drawSwing,
   lungeOffset,
   mobLungeOffset,
   newReaction,
@@ -109,7 +107,7 @@ import handSockets from "../../assets/characters/hand_sockets.json";
 import staffLook from "../../assets/weapons/cajado_arcano.json";
 import { Hud } from "./hud";
 import type { Prompt } from "./plates";
-import { Lighting, mergeNearby, phaseAt, type Light, type LightLook } from "./lighting";
+import { LIGHT_KEY, LIGHT_TEXTURE_SIZE, Lighting, mergeNearby, phaseAt, type Light, type LightLook } from "./lighting";
 import { Particles } from "./particles";
 import { Bolts, FIREBALL_FPS, FIREBALL_KEY, type ProjectileView } from "./projectiles";
 import { MUD_FPS, MUD_KEY, SPELL_SHEETS, STRIKE_FPS, STRIKE_KEY, SpellEffects, type SpellView } from "./spells";
@@ -119,6 +117,7 @@ import cityMapUrl from "../../assets/maps/city.json?url";
 import labyrinthMapUrl from "../../assets/maps/dungeon_floor1.json?url";
 import arenaMapUrl from "../../assets/maps/test_arena.json?url";
 import mobAnims from "../../assets/mobs/anims.json";
+import lootAnims from "../../assets/loot/loot.json";
 import { DevPanel, installDevApi } from "./devPanel";
 
 // Só o que o cliente lê do estado do servidor. O formato real está em server/src/state.ts.
@@ -186,7 +185,7 @@ interface ServerState {
     get(sessionId: string): PlayerView | undefined;
   };
   mobs?: { forEach(callback: (mob: MobView, id: string) => void): void };
-  loot?: { forEach(callback: (pile: Vec2, id: string) => void): void };
+  loot?: { forEach(callback: (pile: LootView, id: string) => void): void };
   exits?: { forEach(callback: (exit: ExitView, id: string) => void): void };
   // Projéteis Mágicos em voo (só no labirinto).
   projectiles?: { forEach(callback: (bolt: ProjectileView, id: string) => void): void };
@@ -254,6 +253,17 @@ interface MobAnimInfo {
   feet: number;
 }
 const MOB_ANIMS = mobAnims as Record<string, Record<string, MobAnimInfo>>;
+// Itens no chão (tools/assets/process_loot.py): a fita de cada um ("loot/cristal", "loot/essencia") e a animação em laço
+// (crystal_ground_anim, essence_ground_anim). Cada item de drop aponta para a sua.
+const LOOT_URLS = Object.entries(
+  import.meta.glob<string>("../../assets/loot/*.png", { eager: true, query: "?url", import: "default" }),
+).map(([path, url]) => ({ key: path.slice(path.indexOf("loot/"), -".png".length), url }));
+const LOOT_INFO = lootAnims as Record<string, { frame: number; frames: number; frameMs: number; base: number }>;
+const LOOT_ANIM: Record<string, string> = { "loot/cristal": "crystal_ground_anim", "loot/essencia": "essence_ground_anim" };
+function lootSheetOf(item: string): string | undefined {
+  if (item === "cristal_magico") return "loot/cristal";
+  return item.startsWith("essencia_") ? "loot/essencia" : undefined;
+}
 // "mobs/lobo/jump-east" -> o que o manifesto diz da animação "jump" do lobo.
 function mobAnimInfo(key: string): MobAnimInfo | undefined {
   const [, kind = "", file = ""] = key.split("/");
@@ -320,7 +330,6 @@ const WEAPON_LOOKS: Record<string, WeaponLook> = {
 function isStaff(weapon: string | undefined): boolean {
   return weapon !== undefined && weapon in ITEMS && weaponStats({ weapon: weapon as ItemId }).weaponType === "staff";
 }
-const WEAPON_REACH = 36; // do punho até a ponta, em px (para o rastro)
 // No golpe, o braço estica até WEAPON_ARM_EXTEND px na direção do ataque, no pico da varrida.
 const WEAPON_ARM_EXTEND = 3;
 // Guarda (parado ou andando): a lâmina levemente para cima e para a frente de onde o personagem olha, em graus
@@ -478,6 +487,25 @@ interface Avatar {
   castAngle: number;
 }
 
+// Item no chão: o desenho (a animação do item, ou a caixinha da pilha de quem morreu), o brilho no piso, e o pulo de
+// quando caiu (de fromX, fromY até o lugar, a partir de bornAt).
+interface LootSprite {
+  body: Phaser.GameObjects.Sprite | Phaser.GameObjects.Rectangle;
+  glow?: Phaser.GameObjects.Image;
+  sheet?: string;
+  bornAt: number;
+  hops: boolean;
+  fromX: number;
+  fromY: number;
+}
+
+interface LootView extends Vec2 {
+  item?: string;
+  fresh?: boolean;
+  fromX?: number;
+  fromY?: number;
+}
+
 // Inimigo: sprite do tipo, virado para onde andou (ou, preparando o golpe, para onde vai bater).
 interface MobSprite {
   body: Phaser.GameObjects.Sprite;
@@ -618,6 +646,11 @@ function sortDepth(baseY: number): number {
 
 const LOOT_SIZE = 12;
 const LOOT_COLOR = 0x8d6e63;
+// Itens de drop no chão: a animação em DROP_SCALE (a arte tem 64 e 84 px), o brilho no piso (cor de cada um) e o pulo
+// de quando cai (GROUND_DROPS.tweenMs, até DROP_HOP px de altura).
+const DROP_SCALE = 0.45;
+const DROP_HOP = 16;
+const DROP_GLOW: Record<string, number> = { "loot/cristal": 0x60a5fa, "loot/essencia": 0xd8b4fe };
 const EXIT_COLOR = 0x40c4ff;
 const PORTAL_COLOR = 0xb388ff;
 
@@ -718,7 +751,7 @@ class WorldScene extends Phaser.Scene {
   private portalKey?: Phaser.Input.Keyboard.Key;
   private avatars = new Map<string, Avatar>();
   private mobSprites = new Map<string, MobSprite>();
-  private lootSprites = new Map<string, Phaser.GameObjects.Rectangle>();
+  private lootSprites = new Map<string, LootSprite>();
   private pickupKey?: Phaser.Input.Keyboard.Key;
   private lastSentInput = "";
   private overlay?: Phaser.GameObjects.Graphics;
@@ -732,8 +765,6 @@ class WorldScene extends Phaser.Scene {
   // Enfeites, prédios e sombras deles: só os perto da câmera ficam visíveis (mapas grandes).
   private culler = new StaticCuller();
   private slotKeys: Phaser.Input.Keyboard.Key[] = [];
-  // Quando este cliente viu cada mob começar a preparar: base para o aviso encher no ritmo certo.
-  private windupStartedAt = new Map<string, number>();
   private lastAttackSeq = new Map<string, number>();
   private lastCastSeq = new Map<string, number>();
   private swings: Swing[] = [];
@@ -777,6 +808,10 @@ class WorldScene extends Phaser.Scene {
     }
     for (const { key, url } of [...WALK_URLS, ...MOB_WALK_URLS, ...ATTACK_URLS, ...ARMOR_WALK_URLS]) {
       if (!this.textures.exists(key)) this.load.spritesheet(key, url, { frameWidth: WALK_FRAME, frameHeight: WALK_FRAME });
+    }
+    for (const { key, url } of LOOT_URLS) {
+      const info = LOOT_INFO[key.split("/")[1] ?? ""];
+      if (info && !this.textures.exists(key)) this.load.spritesheet(key, url, { frameWidth: info.frame, frameHeight: info.frame });
     }
     for (const { key, url } of MOB_ACTION_URLS) {
       const info = mobAnimInfo(key);
@@ -1066,7 +1101,7 @@ Subiu para o nível ${info.level}!` : "";
       if (Phaser.Input.Keyboard.JustDown(key)) this.castSkill(room, slot);
     });
     if (room.state.mobs) this.syncMobs(room, room.state.mobs, time);
-    if (room.state.loot) syncSprites(room.state.loot, this.lootSprites, () => this.createLootSprite());
+    if (room.state.loot) this.syncLoot(room.state.loot, time);
     this.collectSwings(room, time);
     this.bolts?.sync(room.state.projectiles, time, this.game.loop.delta);
     this.spellEffects?.sync(room.state.spells, time);
@@ -1214,26 +1249,8 @@ Subiu para o nível ${info.level}!` : "";
   private drawTelegraphs(room: Room<unknown, ServerState>, g: Phaser.GameObjects.Graphics, time: number) {
     g.clear();
     const preparing = new Set<string>();
-    room.state.mobs?.forEach((mob, id) => {
-      this.drawLeapWarning(g, mob, time);
-      if (!mob.windup) return;
-      preparing.add(id);
-      const startedAt = this.windupStartedAt.get(id) ?? time;
-      this.windupStartedAt.set(id, startedAt);
-      const stats = mobStats(mob.kind);
-      const arc = mobStrikeArc(stats);
-      const half = (arc.degrees * Math.PI) / 180 / 2;
-      // Lobo em frenesi prepara o golpe mais rápido (FRENZY.attackTimeFactor), como no servidor.
-      const windupMs = stats.windupMs * (mob.frenzy ? FRENZY.attackTimeFactor : 1);
-      const progress = Math.min(1, (time - startedAt) / windupMs);
-      g.lineStyle(2, TELEGRAPH_COLOR, 0.8);
-      g.slice(mob.x, mob.y, arc.range, mob.attackAngle - half, mob.attackAngle + half);
-      g.strokePath();
-      g.fillStyle(TELEGRAPH_COLOR, 0.35);
-      g.slice(mob.x, mob.y, arc.range * progress, mob.attackAngle - half, mob.attackAngle + half);
-      g.fillPath();
-    });
-    for (const id of this.windupStartedAt.keys()) if (!preparing.has(id)) this.windupStartedAt.delete(id);
+    // O golpe de perto não tem mais arco no chão (só a animação do mob); ficam os avisos do bote e do pulo.
+    room.state.mobs?.forEach((mob) => this.drawLeapWarning(g, mob, time));
   }
 
   // Zonas hostis no quadro: perigos do chão, olhos no breu, clima, sangue, tochas (arte, dica e [E]), escuro e
@@ -1383,10 +1400,10 @@ Subiu para o nível ${info.level}!` : "";
 
   private drawOverlay(room: Room<unknown, ServerState>, g: Phaser.GameObjects.Graphics, time: number) {
     g.clear();
-    for (const swing of this.swings) drawSwing(g, swing, time);
+    // Sem arco de golpe: o combate aparece só nas animações (o corpo, a arma na mão e os ataques dos mobs).
     for (const avatar of this.avatars.values()) {
       const pose = weaponPose(avatar.swingAt, avatar.swingAngle, time);
-      if (pose.visible && avatar.weapon.visible && !isStaff(avatar.weaponItem)) drawBladeTrail(g, avatar.weapon.x, avatar.weapon.y, avatar.swingAngle, pose, WEAPON_REACH * pose.scale);
+
     }
     // Barra de vida do jogador acima da cabeça do sprite; canalizando um portal, a barra da canalização acima dela.
     room.state.players.forEach((player) => {
@@ -1491,6 +1508,13 @@ Subiu para o nível ${info.level}!` : "";
     for (const { key } of [...WALK_URLS, ...MOB_WALK_URLS]) {
       if (this.anims.exists(key)) continue;
       this.anims.create({ key, frames: this.anims.generateFrameNumbers(key, {}), frameRate: WALK_FPS, repeat: -1 });
+    }
+    // Itens no chão: em laço.
+    for (const { key } of LOOT_URLS) {
+      const anim = LOOT_ANIM[key];
+      const info = LOOT_INFO[key.split("/")[1] ?? ""];
+      if (!anim || !info || this.anims.exists(anim) || !this.textures.exists(key)) continue;
+      this.anims.create({ key: anim, frames: this.anims.generateFrameNumbers(key, {}), frameRate: 1000 / info.frameMs, repeat: -1 });
     }
     // Mobs: ataque e morte, a fita inteira uma vez (a duração vem da ação, ao tocar); o pulo do lobo em duas partes, o
     // agachar (até o quadro JUMP_CROUCH_FRAMES) e o voo.
@@ -1988,8 +2012,54 @@ Subiu para o nível ${info.level}!` : "";
     this.numbers?.spawn(x, top - NUMBER_GAP, label, kind, this.time.now);
   }
 
-  private createLootSprite() {
-    return this.add.rectangle(0, 0, LOOT_SIZE, LOOT_SIZE, LOOT_COLOR).setStrokeStyle(1, 0x000000).setDepth(LOOT_DEPTH);
+  // Itens no chão: o cristal e as essências com a animação deles e um brilho no piso; a pilha de quem morreu, a caixinha
+  // de sempre. Recém-caído (fresh), sai pulando de onde o mob morreu até o lugar dele (que o servidor escolheu sem
+  // sobrepor outro item).
+  private syncLoot(loot: { forEach(callback: (pile: LootView, id: string) => void): void }, time: number) {
+    const seen = new Set<string>();
+    loot.forEach((pile, id) => {
+      seen.add(id);
+      let drawn = this.lootSprites.get(id);
+      if (!drawn) {
+        drawn = this.createLootSprite(pile, time);
+        this.lootSprites.set(id, drawn);
+      }
+      const t = Math.min(1, (time - drawn.bornAt) / GROUND_DROPS.tweenMs);
+      const hop = drawn.hops ? t : 1;
+      const x = drawn.fromX + (pile.x - drawn.fromX) * hop;
+      const y = drawn.fromY + (pile.y - drawn.fromY) * hop - Math.sin(Math.PI * hop) * DROP_HOP * (drawn.hops ? 1 : 0);
+      drawn.body.setPosition(x, y).setDepth(drawn.sheet ? sortDepth(pile.y) : LOOT_DEPTH);
+      drawn.glow?.setPosition(x, pile.y + (drawn.fromY - pile.y) * (1 - hop)).setAlpha(0.35 + 0.15 * Math.sin(time / 300 + pile.x));
+    });
+    for (const [id, drawn] of this.lootSprites) {
+      if (seen.has(id)) continue;
+      drawn.body.destroy();
+      drawn.glow?.destroy();
+      this.lootSprites.delete(id);
+    }
+  }
+
+  private createLootSprite(pile: LootView, time: number): LootSprite {
+    const sheet = lootSheetOf(pile.item ?? "");
+    const hops = pile.fresh === true && (pile.fromX !== pile.x || pile.fromY !== pile.y);
+    const fromX = hops ? (pile.fromX ?? pile.x) : pile.x;
+    const fromY = hops ? (pile.fromY ?? pile.y) : pile.y;
+    if (!sheet || !this.textures.exists(sheet)) {
+      const body = this.add.rectangle(pile.x, pile.y, LOOT_SIZE, LOOT_SIZE, LOOT_COLOR).setStrokeStyle(1, 0x000000).setDepth(LOOT_DEPTH);
+      return { body, bornAt: time, hops: false, fromX: pile.x, fromY: pile.y };
+    }
+    const info = LOOT_INFO[sheet.split("/")[1] ?? ""];
+    const body = this.add.sprite(fromX, fromY, sheet).setScale(DROP_SCALE).setOrigin(0.5, (info?.base ?? 60) / (info?.frame ?? 64));
+    const anim = LOOT_ANIM[sheet];
+    if (anim && this.anims.exists(anim)) body.play({ key: anim, startFrame: Math.floor(Math.random() * (info?.frames ?? 1)) });
+    // O brilho no piso: por cima da camada de luz (aparece no escuro, como os projéteis), achatado como o chão.
+    const glow = this.add
+      .image(fromX, fromY, LIGHT_KEY)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setTint(DROP_GLOW[sheet] ?? 0xffffff)
+      .setScale(36 / LIGHT_TEXTURE_SIZE, (36 / LIGHT_TEXTURE_SIZE) * 0.45)
+      .setDepth(LIGHT_DEPTH + 0.04);
+    return { body, glow, sheet, bornAt: time, hops, fromX, fromY };
   }
 }
 
@@ -2025,30 +2095,6 @@ function stepSquash(body: Phaser.GameObjects.Sprite): number {
   if (!body.anims.isPlaying || !anim) return 1;
   const frame = body.anims.currentFrame?.index ?? 0;
   return 1 - 0.12 * Math.abs(Math.sin((frame * 2 * Math.PI) / anim.frames.length));
-}
-
-function syncSprites<T extends Vec2>(
-  collection: { forEach(callback: (entity: T, id: string) => void): void },
-  sprites: Map<string, Phaser.GameObjects.Rectangle>,
-  create: (entity: T, id: string) => Phaser.GameObjects.Rectangle,
-  halfHeight?: (entity: T) => number,
-) {
-  const seen = new Set<string>();
-  collection.forEach((entity, id) => {
-    seen.add(id);
-    let sprite = sprites.get(id);
-    if (!sprite) {
-      sprite = create(entity, id);
-      sprites.set(id, sprite);
-    }
-    sprite.setPosition(entity.x, entity.y);
-    if (halfHeight) sprite.setDepth(sortDepth(entity.y + halfHeight(entity)));
-  });
-  for (const [id, sprite] of sprites) {
-    if (seen.has(id)) continue;
-    sprite.destroy();
-    sprites.delete(id);
-  }
 }
 
 function overlayScreen(): HTMLDivElement {

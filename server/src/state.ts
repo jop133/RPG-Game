@@ -81,7 +81,13 @@ export const MobState = schema(
 export type MobState = SchemaType<typeof MobState>;
 
 // Pilha de loot no chão. Só a posição é enviada; o conteúdo fica no servidor até alguém pegar.
-export const LootState = schema({ x: t.number(), y: t.number() }, "LootState");
+// item: o item dela, quando é um drop de mob (cada unidade é uma pilha à parte, e todos veem o que é: cristal ou
+// essência); "" para a pilha de quem morreu (o conteúdo só se descobre ao pegar). fresh: acabou de cair (o desenho sai
+// pulando de fromX, fromY, onde o mob morreu).
+export const LootState = schema(
+  { x: t.number(), y: t.number(), item: t.string(), fresh: t.boolean(), fromX: t.number(), fromY: t.number() },
+  "LootState",
+);
 export type LootState = SchemaType<typeof LootState>;
 
 // Portal de saída desta run. Passa pelo filtro de visão: é preciso explorar para achar. phase: ExitPhase ("idle",
