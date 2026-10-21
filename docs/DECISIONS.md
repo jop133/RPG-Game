@@ -1183,6 +1183,12 @@ Slot vazio usa a moldura comum.
 
 ---
 
+## 2026-10 — Campo de visão padrão dobrado (120 -> 240 px)
+
+**Pedido do dono do projeto:** dobrar o campo de visão padrão dos personagens. `PLAYER_LIGHT_RADIUS` (a Percepção base) volta a 240 px: o que se vê e o que o servidor envia (regra 4), sempre cortado pelas paredes. **Escolha minha (avise se quiser diferente):** a zona dos goblins continua em 80 px, como pedido antes (`ZONE_EFFECTS.goblin.lightFactor` 2/3 -> 1/3); dobrar a dela também a deixaria em 160 px.
+
+---
+
 ## 2026-10 — Sala de Testes, painel F2 e window.__DEV__ (ferramentas de dev)
 
 **Pedido do dono do projeto:** testar qualquer classe, item, magia, mob, zona ou janela em segundos e sem morrer, sem caminhar pelo labirinto: sala de testes, comandos de dev no servidor, painel F2 e uma API no console.

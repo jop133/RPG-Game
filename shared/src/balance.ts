@@ -230,7 +230,7 @@ export const VIEW_HYSTERESIS = 32;
 // ativa. Jogadores e saídas brilham: continuam sendo vistos até VIEW_RADIUS. O cliente desenha a escuridão com estes
 // mesmos raios, então a máscara escura só cobre o mapa, que todo mundo já tem. Na cidade a luz é só desenho.
 // A parede corta toda luz e a vista (lightReach): o que está atrás dela não é enviado, mesmo perto.
-export const PLAYER_LIGHT_RADIUS = 120;
+export const PLAYER_LIGHT_RADIUS = 240;
 // Saída canalizando ou aberta; inativa, só um farol fraco.
 export const EXIT_LIGHT_RADIUS = 200;
 export const EXIT_IDLE_LIGHT_RADIUS = 96;
@@ -407,7 +407,7 @@ export const IDLE = {
 
 // ---------------------------------------------------------------- zonas hostis (efeitos em quem está nelas)
 
-// Breu dos Goblins: a luz de cada um cai a LIGHT_FACTOR (120 -> 80 px; e com ela o que o servidor envia, regra 4);
+// Breu dos Goblins: a luz de cada um cai a LIGHT_FACTOR (240 -> 80 px; e com ela o que o servidor envia, regra 4);
 // goblins que notaram o jogador, a até EYES.max px dele, sem parede no meio e fora do que ele recebe, aparecem só como
 // dois olhos no escuro.
 // Miasma dos Slimes: toda cura recebida (regeneração) vale HEAL_FACTOR.
@@ -415,7 +415,7 @@ export const IDLE = {
 // Radiação dos Gnomos: drena MANA_DRAIN de Mana por segundo, a regeneração de Mana vale MANA_REGEN_FACTOR e todo dano
 // recebido vale DAMAGE_TAKEN_FACTOR.
 export const ZONE_EFFECTS = {
-  goblin: { lightFactor: 2 / 3, eyes: { min: 0, max: 192 } },
+  goblin: { lightFactor: 1 / 3, eyes: { min: 0, max: 192 } },
   slime: { healFactor: 0.7 },
   lobo: { hungerFactor: 1.75 },
   gnomo: { manaDrainPerSecond: 1.5, manaRegenFactor: 0.2, damageTakenFactor: 1.25 },
