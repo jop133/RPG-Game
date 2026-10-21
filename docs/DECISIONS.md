@@ -1183,6 +1183,12 @@ Slot vazio usa a moldura comum.
 
 ---
 
+## 2026-10 — Luz redonda de novo no cliente (sem sombra de parede)
+
+**Pedido do dono do projeto:** tirar do desenho da luz o raycasting que projetava sombras atrás de paredes e obstáculos; a luz volta a ser o círculo inteiro (jogador, tochas, portais, projéteis), com o breu preto puro fora dela. **Muda** a decisão "Breu absoluto com linha de visão" só no cliente: saíram os leques de raios e a sombra da vista de `lighting.ts`, e o filtro de linha de visão dos esporos. **O servidor continua com a linha de visão** (regra 4): mob, pilha e outro jogador atrás de parede seguem sem ser enviados, mesmo dentro do círculo de luz. A zona dos goblins segue com o raio menor (`ZONE_EFFECTS.goblin.lightFactor`, 80 px) e os olhos.
+
+---
+
 ## 2026-10 — Drops novos (Cristal Mágico e as 4 Essências), itens visíveis no chão, trava ao golpear e sem arcos
 
 **Pedido do dono do projeto:** os mobs largam só Cristais Mágicos (100%/50%/25%) e a essência do tipo (5%); cada drop é um item animado no chão, sem sobrepor outro; golpe e magia travam o personagem parado até a animação acabar; sem os arcos de golpe (jogadores e mobs).

@@ -25,9 +25,6 @@ import {
   type DevTeleport,
   FRENZY,
   exitIndexAt,
-  lightReaches,
-  parseCollisionGrid,
-  type CollisionGrid,
   ITEMS,
   MOB_KINDS,
   EXIT_LIGHT_RADIUS,
@@ -786,9 +783,7 @@ class WorldScene extends Phaser.Scene {
   private torchArt: { image: Phaser.GameObjects.Image; x: number; y: number }[] = [];
   private lightFactors = new Map<string, number>();
   private frost = 0;
-  // Labirinto: a grade de paredes (corta a luz e a vista, só desenho; quem decide é o servidor), a fase de cada portal
-  // da última vez (para o efeito de ativação) e se há tocha apagada ao alcance do [E].
-  private grid?: CollisionGrid;
+  // Labirinto: a fase de cada portal da última vez (para o efeito de ativação) e se há tocha apagada ao alcance do [E].
   private exitPhases = new Map<string, string>();
   private nearTorch = false;
   private lastOwnSwingAt = -Infinity;
@@ -920,11 +915,6 @@ class WorldScene extends Phaser.Scene {
   }
 
   private createLabyrinth(room: Room<unknown, ServerState>) {
-    const data = (this.cache.tilemap.get(this.mapKey) as { data?: TiledMap } | undefined)?.data;
-    if (data) {
-      this.grid = parseCollisionGrid(data);
-      this.lighting?.setOccluder(this.grid);
-    }
     this.overlay = this.add.graphics().setDepth(OVERLAY_DEPTH);
     this.telegraphs = this.add.graphics().setDepth(TELEGRAPH_DEPTH);
     this.exitsLayer = this.add.graphics().setDepth(EXIT_DEPTH);
@@ -972,21 +962,18 @@ Subiu para o nível ${info.level}!` : "";
     if (this.place === "city") this.updateCity(room, time);
     else this.updateLabyrinth(room, time);
     const lights = this.currentLights(room);
-    const viewer = this.place === "labyrinth" ? room.state.players.get(room.sessionId) : undefined;
-    this.lighting?.draw(lights, time, viewer);
-    this.emitAmbient(lights, time, delta, viewer);
+    this.lighting?.draw(lights, time);
+    this.emitAmbient(lights, time, delta);
   }
 
   // Esporos perto do que brilha e espiral nos portais, só para luzes na tela. Cada luz solta, em média,
   // a taxa do tipo por segundo (sorteio a cada quadro).
-  // No labirinto, só as luzes que quem joga enxerga (sem parede no meio): esporo não flutua no breu atrás do muro.
-  private emitAmbient(lights: readonly Light[], time: number, delta: number, viewer?: Vec2) {
+  private emitAmbient(lights: readonly Light[], time: number, delta: number) {
     if (!this.particles) return;
     const view = this.cameras.main.worldView;
     const dt = delta / 1000;
     for (const light of lights) {
       if (!light.kind || !view.contains(light.x, light.y)) continue;
-      if (viewer && this.grid && !lightReaches(this.grid, light, viewer)) continue;
       const spores = SPORE_RATE[light.kind];
       if (spores && Math.random() < spores * dt) {
         const spread = light.radius * 0.35;
