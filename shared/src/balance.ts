@@ -250,10 +250,16 @@ export const FIREBALL_SKILL = { baseDamage: 8, cooldownMs: 1000 };
 export const SPELL_FLATTEN = 0.55;
 // Raio Celestial (Q): o círculo avisa por WARN_MS; aí o raio cai, com BASE_DAMAGE + o Dano Mágico de quem lançou, em
 // todos dentro da elipse (fogo amigo, menos quem lançou). O círculo e o raio carregam luz (regra 4).
-export const LIGHTNING_SPELL = { warnMs: 400, strikeMs: 280, radiusX: 46, baseDamage: 10, cooldownMs: 4000, lightRadius: 110 };
+// strikeMs é só o tempo do desenho do raio caindo (8 quadros); o dano sai no começo dele.
+export const LIGHTNING_SPELL = { warnMs: 400, strikeMs: 480, radiusX: 46, baseDamage: 10, cooldownMs: 4000, lightRadius: 110 };
 // Pântano de Lama (R): o círculo de terra gira por CAST_MS; aí a poça fica DURATION_MS. Dentro dela, mobs e os outros
 // jogadores (quem lançou não) andam a SLOW da velocidade. radiusX/radiusY: a elipse da poça na arte (spells.json).
 export const SWAMP_SPELL = { castMs: 350, durationMs: 5000, radiusX: 61, radiusY: 24, slow: 0.45, cooldownMs: 10000 };
+// Barreira de Gelo (skill do mago): uma parede de gelo DISTANCE px à frente de quem lança, na direção da mira (uma das
+// 8), atravessada nela: CELLS tiles em linha. Bloqueia só os mobs (andar e caminho); os jogadores passam. Tem HP próprio:
+// golpes e projéteis de mob que batem nela gastam a vida dela. Some com HP 0 ou depois de DURATION_MS; quebrando, fica
+// BREAK_MS no estado (a animação de quebra) já sem bloquear.
+export const ICE_BARRIER = { hp: 150, durationMs: 12000, distance: 56, cells: 3, cooldownMs: 9000, breakMs: 900 };
 
 // Ticks de simulação do servidor por segundo.
 export const TICK_RATE = 20;

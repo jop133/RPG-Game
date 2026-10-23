@@ -114,6 +114,12 @@ import {
   CLASS_SKILLS,
   FIREBALL_SKILL,
   ARROW,
+  ICE_BARRIER,
+  placeBarrier,
+  withBlockedCells,
+  cellOf,
+  cellCenter,
+  type CollisionGrid,
   SKILLS,
   spellTarget,
   swampArea,
@@ -186,6 +192,7 @@ import {
   PlayerState,
   ProjectileState,
   SpellState,
+  BarrierState,
   TorchState,
   HazardState,
   mirrorEquipment,
@@ -348,6 +355,12 @@ export class GameRoom extends Room<{ state: GameState }> {
   private spells = new Map<string, CastSpell>();
   private nextSpellId = 1;
   private lastSpellMs = new Map<string, Partial<Record<SkillId, number>>>();
+  // Barreiras de Gelo, por id (BarrierState leva lugar, direção, vida e fase ao cliente): os tiles que bloqueiam e o
+  // tempo que falta da fase (de pé até sumir; quebrando até sair do estado). mobGrid: a grade dos mobs, o mapa com os
+  // tiles das barreiras de pé como parede (refeita quando uma barreira sobe ou quebra); sem barreira, a do mapa.
+  private barriers = new Map<string, { cells: number[]; remainingMs: number }>();
+  private nextBarrierId = 1;
+  private mobGrid?: CollisionGrid;
   // Habilidades equipadas de cada um (Q e R). PlayerState.skills espelha para o dono.
   private skills = new Map<string, EquippedSkills>();
   // Mortes do tick (ou do golpe) atual. Resolvidas depois dos laços, para não remover jogador no meio de um forEach.
@@ -756,7 +769,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.state.projectiles.set(id, new ProjectileState({ x: from.x, y: from.y, angle, done: false, kind }));
     const hostile = { mob: config.mob, type: config.type };
     this.bolts.set(id, { flight: { x: from.x, y: from.y, angle, traveled: 0 }, owner, damage: config.damage, spec: config.spec, hostile });
-    this.applyBoltStep(id, launchProjectile(from, angle, this.level.grid, this.boltTargets(owner, true), config.spec));
+    this.applyBoltStep(id, launchProjectile(from, angle, this.gridForMobs(), this.boltTargets(owner, true), config.spec));
   }
 
   // Janela de Skills: trocar a habilidade de um slot (Q ou R), a qualquer momento da run. Gravado na hora (não é loot).
@@ -789,6 +802,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     const angle = Math.atan2(cast.target.y - caster.y, cast.target.x - caster.x);
     if (skill === "fireball") {
       this.fireBolt(sessionId, caster, angle, FIREBALL_SKILL.baseDamage + magicDamage);
+    } else if (skill === "ice_barrier") {
+      if (!this.raiseBarrier(caster, angle)) return;
     } else {
       const at = spellTarget(caster, cast.target, this.level.grid);
       if (!at) return;
@@ -909,7 +924,8 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.state.projectiles.delete(id);
     }
     for (const [id, bolt] of this.bolts) {
-      this.applyBoltStep(id, stepProjectile(bolt.flight, dtMs, this.level.grid, this.boltTargets(bolt.owner, bolt.hostile !== undefined), bolt.spec));
+      const grid = bolt.hostile ? this.gridForMobs() : this.level.grid;
+      this.applyBoltStep(id, stepProjectile(bolt.flight, dtMs, grid, this.boltTargets(bolt.owner, bolt.hostile !== undefined), bolt.spec));
     }
   }
 
@@ -929,6 +945,12 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.bolts.delete(id);
     this.spentBolts.set(id, SPENT_BOLT_TICKS);
     if (step.kind === "hit") this.boltHit(bolt, step.id);
+    // Projétil de mob que parou "na parede": se a parede era uma barreira de gelo, ela leva o dano.
+    if (step.kind === "wall" && bolt.hostile) {
+      const ahead = { x: step.at.x + Math.cos(bolt.flight.angle) * 4, y: step.at.y + Math.sin(bolt.flight.angle) * 4 };
+      const barrier = this.barrierAt(cellOf(this.level.grid, ahead));
+      if (barrier) this.damageBarrier(barrier, bolt.damage);
+    }
   }
 
   // Acerto: Dano Mágico no mob (que vai atrás de quem atirou) ou no jogador (reduzido pela Resistência Mágica dele).
@@ -949,6 +971,72 @@ export class GameRoom extends Room<{ state: GameState }> {
     }
     const player = this.state.players.get(targetId);
     if (player) this.damagePlayer(targetId, player, bolt.damage, { kind: "player" }, bolt.type ?? "magic");
+  }
+
+  // Barreira de Gelo à frente de quem lançou, na direção da mira (placeBarrier). Os tiles com mob dentro ficam de fora.
+  // Sem lugar (parede): não lança (false), e a recarga não começa.
+  private raiseBarrier(caster: Vec2, angle: number): boolean {
+    const grid = this.level.grid;
+    const taken = new Set<number>();
+    this.state.mobs.forEach((mob) => {
+      const half = mobStats(mob.kind).size / 2;
+      for (const dx of [-half, half]) for (const dy of [-half, half]) taken.add(cellOf(grid, { x: mob.x + dx, y: mob.y + dy }));
+    });
+    const placement = placeBarrier(caster, angle, grid, (cell) => taken.has(cell));
+    if (!placement || placement.cells.length === 0) return false;
+    const id = `barrier-${this.nextBarrierId++}`;
+    this.barriers.set(id, { cells: placement.cells, remainingMs: ICE_BARRIER.durationMs });
+    const { center } = placement;
+    this.state.barriers.set(id, new BarrierState({ x: center.x, y: center.y, angle: placement.angle, hp: ICE_BARRIER.hp, maxHp: ICE_BARRIER.hp, phase: "up" }));
+    this.rebuildMobGrid();
+    return true;
+  }
+
+  // Cada tick: a de pé que passou do tempo quebra; a que está quebrando sai do estado no fim da animação.
+  private tickBarriers(dtMs: number) {
+    for (const [id, barrier] of this.barriers) {
+      barrier.remainingMs -= dtMs;
+      if (barrier.remainingMs > 0) continue;
+      if (this.state.barriers.get(id)?.phase === "up") this.breakBarrier(id);
+      else {
+        this.barriers.delete(id);
+        this.state.barriers.delete(id);
+      }
+    }
+  }
+
+  private damageBarrier(id: string, amount: number) {
+    const view = this.state.barriers.get(id);
+    if (!view || view.phase !== "up") return;
+    view.hp = Math.max(0, view.hp - amount);
+    if (view.hp === 0) this.breakBarrier(id);
+  }
+
+  // Quebra: para de bloquear na hora e fica ICE_BARRIER.breakMs no estado, para o cliente tocar a quebra.
+  private breakBarrier(id: string) {
+    const barrier = this.barriers.get(id);
+    const view = this.state.barriers.get(id);
+    if (!barrier || !view) return;
+    view.phase = "broken";
+    barrier.cells = [];
+    barrier.remainingMs = ICE_BARRIER.breakMs;
+    this.rebuildMobGrid();
+  }
+
+  // A barreira de pé que ocupa este tile, se houver.
+  private barrierAt(cell: number): string | undefined {
+    for (const [id, barrier] of this.barriers) if (barrier.cells.includes(cell)) return id;
+    return undefined;
+  }
+
+  private rebuildMobGrid() {
+    const cells = [...this.barriers.values()].flatMap((b) => b.cells);
+    this.mobGrid = cells.length > 0 ? withBlockedCells(this.level.grid, cells) : undefined;
+  }
+
+  // A grade em que os mobs andam e os projéteis deles voam: a do mapa mais as barreiras de pé.
+  private gridForMobs(): CollisionGrid {
+    return this.mobGrid ?? this.level.grid;
   }
 
   // Os status de um jogador (base, arma, equipamento e essências).
@@ -1173,6 +1261,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.respawnPacks();
     this.moveBolts(dtMs);
     this.tickSpells(dtMs);
+    this.tickBarriers(dtMs);
     this.resolveDeaths();
     this.updateExits(dtMs);
     this.updateViews();
@@ -1216,7 +1305,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       const thinking = { position: { x: mob.x, y: mob.y }, mind: brain.mind, timers: brain.timers };
       // Longe de todos e só vagando: hiberna neste tick (nem pensa nem se move). Acorda bem antes de alguém chegar.
       if (isDormant(thinking, players)) return;
-      const world = { grid: this.level.grid, home: brain.area, homeCells: brain.homeCells, stats, players, post: brain.post, noticeable, flank: brain.flank };
+      const world = { grid: this.gridForMobs(), home: brain.area, homeCells: brain.homeCells, stats, players, post: brain.post, noticeable, flank: brain.flank };
       const next = stepMob(thinking, world, dtMs, Math.random);
       mob.x = next.position.x;
       mob.y = next.position.y;
@@ -1322,6 +1411,11 @@ export class GameRoom extends Room<{ state: GameState }> {
   private mobStrike(origin: Vec2, angle: number, kind: MobKind) {
     const stats = MOB_KINDS[kind];
     const arc = mobStrikeArc(stats);
+    // O gelo no caminho do golpe apanha também (cada barreira uma vez).
+    for (const [id, barrier] of this.barriers) {
+      const hit = barrier.cells.some((cell) => isInArc(origin, angle, arc, cellCenter(this.level.grid, cell), this.level.grid.tileSize / 2));
+      if (hit) this.damageBarrier(id, stats.attackDamage);
+    }
     this.state.players.forEach((player, sessionId) => {
       if (!isInArc(origin, angle, arc, player, PLAYER_SIZE / 2)) return;
       this.damagePlayer(sessionId, player, stats.attackDamage, { kind: "mob", mob: kind }, "physical");
@@ -1412,6 +1506,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.state.exits.forEach((exit) => updateVisibility(view, self, exit));
       this.state.projectiles.forEach((bolt) => updateVisibility(view, self, bolt));
       this.state.spells.forEach((spell) => updateVisibility(view, self, spell));
+      this.state.barriers.forEach((barrier) => updateVisibility(view, self, barrier));
       this.state.torches.forEach((torch) => updateVisibility(view, self, torch));
       this.state.hazards.forEach((hazard) => updateVisibility(view, self, hazard));
       this.updateEyes(client.sessionId, self, view);

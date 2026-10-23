@@ -1,4 +1,5 @@
 export * from "./areas";
+export * from "./barrier";
 export * from "./balance";
 export * from "./city";
 export * from "./classes";

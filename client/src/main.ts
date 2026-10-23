@@ -112,6 +112,7 @@ import { LIGHT_KEY, LIGHT_TEXTURE_SIZE, Lighting, mergeNearby, phaseAt, type Lig
 import { Particles } from "./particles";
 import { Bolts, FIREBALL_FPS, FIREBALL_KEY, type ProjectileView } from "./projectiles";
 import { MUD_FPS, MUD_KEY, SPELL_SHEETS, STRIKE_FPS, STRIKE_KEY, SpellEffects, type SpellView } from "./spells";
+import { Barriers, type BarrierView } from "./barriers";
 import { ZoneEffects, type HazardView } from "./zoneEffects";
 import { openRegistration, type Registration } from "./registration";
 import cityMapUrl from "../../assets/maps/city.json?url";
@@ -192,6 +193,8 @@ interface ServerState {
   projectiles?: { forEach(callback: (bolt: ProjectileView, id: string) => void): void };
   // Magias do mago no chão (só no labirinto).
   spells?: { forEach(callback: (spell: SpellView, id: string) => void): void };
+  // Barreiras de Gelo do mago (só no labirinto).
+  barriers?: { forEach(callback: (barrier: BarrierView, id: string) => void): void };
   // Zonas hostis: tochas dos goblins e perigos do chão.
   torches?: { forEach(callback: (torch: Vec2 & { lit: boolean }, id: string) => void): void };
   hazards?: { forEach(callback: (hazard: HazardView, id: string) => void): void };
@@ -273,7 +276,7 @@ function mobAnimInfo(key: string): MobAnimInfo | undefined {
   const [, kind = "", file = ""] = key.split("/");
   return MOB_ANIMS[kind]?.[file.split("-")[0] ?? ""];
 }
-// Magias do mago (tools/assets/process_spells.py): "spells/<nome>". As tiras (SPELL_SHEETS) carregam em quadros; os
+// Magias do mago (tools/assets/process_spells.py e process_magic.py): "spells/<nome>". As tiras (SPELL_SHEETS) carregam em quadros; os
 // círculos rúnicos, como imagem.
 const SPELL_URLS = Object.entries(
   import.meta.glob<string>("../../assets/spells/*.png", { eager: true, query: "?url", import: "default" }),
@@ -803,6 +806,7 @@ class WorldScene extends Phaser.Scene {
   private bolts?: Bolts;
   // Magias do mago no chão (círculos, raio, poça) e as teclas delas.
   private spellEffects?: SpellEffects;
+  private barriers?: Barriers;
   private skillKeys: Phaser.Input.Keyboard.Key[] = [];
   // [E] no labirinto: acender tocha dos goblins; a dica fica até se afastar.
   private torchKey?: Phaser.Input.Keyboard.Key;
@@ -852,7 +856,7 @@ class WorldScene extends Phaser.Scene {
     }
     for (const { key, url } of SPELL_URLS) {
       if (this.textures.exists(key)) continue;
-      const sheet = (SPELL_SHEETS as Record<string, { frameWidth: number; frameHeight: number }>)[key];
+      const sheet = SPELL_SHEETS[key];
       if (sheet) this.load.spritesheet(key, url, sheet);
       else this.load.image(key, url);
     }
@@ -868,6 +872,7 @@ class WorldScene extends Phaser.Scene {
     this.particles = new Particles(this, LIGHT_DEPTH + 0.05);
     this.bolts = new Bolts(this, this.particles, LIGHT_DEPTH + 0.05);
     this.spellEffects = new SpellEffects(this, this.particles, SPELL_GROUND_DEPTH, sortDepth, (amplitude) => this.shake.kick(amplitude));
+    this.barriers = new Barriers(this, this.particles, SPELL_GROUND_DEPTH, sortDepth, OVERLAY_DEPTH);
     this.zoneFx = new ZoneEffects(this, this.particles, HAZARD_DEPTH, LIGHT_DEPTH + 0.06);
     this.keys = this.input.keyboard?.addKeys({ up: "W", down: "S", left: "A", right: "D" }) as MoveKeys;
     // Teclas dos slots nos dois lugares: o personagem leva o inventário para a cidade. Clicar no slot do HUD faz o mesmo.
@@ -1054,7 +1059,7 @@ Subiu para o nível ${info.level}!` : "";
       const look = idle ? EXIT_IDLE_LIGHT : EXIT_LIGHT;
       moving.push({ x: exit.x, y: exit.y, radius: idle ? EXIT_IDLE_LIGHT_RADIUS : EXIT_LIGHT_RADIUS, look, phase, kind: idle ? "saida-inativa" : "saida" });
     });
-    return [...fixed, ...moving, ...(this.bolts?.lights() ?? []), ...(this.spellEffects?.lights() ?? []), ...(this.zoneFx?.lights() ?? [])];
+    return [...fixed, ...moving, ...(this.bolts?.lights() ?? []), ...(this.spellEffects?.lights() ?? []), ...(this.barriers?.lights() ?? []), ...(this.zoneFx?.lights() ?? [])];
   }
 
   private readMapLights(): Light[] {
@@ -1131,6 +1136,7 @@ Subiu para o nível ${info.level}!` : "";
     this.collectSwings(room, time);
     this.bolts?.sync(room.state.projectiles, time, this.game.loop.delta);
     this.spellEffects?.sync(room.state.spells, time);
+    this.barriers?.sync(room.state.barriers, time);
     this.stepInMud(room, time);
     this.updateZoneEffects(room, time);
     // [E]: dentro de um portal inativo, começa a canalização; senão, acende a tocha perto (se houver).

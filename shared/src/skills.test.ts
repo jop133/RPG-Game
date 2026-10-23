@@ -22,7 +22,7 @@ describe("startingSkills e restoreSkills", () => {
   });
 
   it("as classes sem habilidades ainda têm a lista vazia", () => {
-    expect(CLASS_SKILLS.mago).toEqual(["fireball", "lightning", "swamp"]);
+    expect(CLASS_SKILLS.mago).toEqual(["fireball", "lightning", "swamp", "ice_barrier"]);
     for (const id of ["elfo", "barbaro", "homem_fera"] as const) expect(CLASS_SKILLS[id]).toEqual([]);
   });
 });

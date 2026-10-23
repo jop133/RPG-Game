@@ -1,12 +1,12 @@
-import { FIREBALL_SKILL, LIGHTNING_SPELL, SWAMP_SPELL } from "./balance";
+import { FIREBALL_SKILL, ICE_BARRIER, LIGHTNING_SPELL, SWAMP_SPELL } from "./balance";
 import { CLASS_IDS, type ClassId } from "./classes";
 import type { Vec2 } from "./movement";
 
 // Habilidades (skills): cada classe tem as suas (CLASS_SKILLS) e todo personagem equipa até SKILL_SLOTS delas, uma por
 // tecla (slot 0 = Q, slot 1 = R). Equipar e lançar são pedidos do cliente; quem decide é o servidor (regra 1).
 
-export type SkillId = "fireball" | "lightning" | "swamp";
-export const SKILL_IDS: readonly SkillId[] = ["fireball", "lightning", "swamp"];
+export type SkillId = "fireball" | "lightning" | "swamp" | "ice_barrier";
+export const SKILL_IDS: readonly SkillId[] = ["fireball", "lightning", "swamp", "ice_barrier"];
 export const SKILL_SLOTS = 2;
 
 // O que está em cada slot (null = vazio). Sempre SKILL_SLOTS posições.
@@ -36,11 +36,16 @@ export const SKILLS: Record<SkillId, SkillInfo> = {
     )}% mais lentos nela.`,
     cooldownMs: SWAMP_SPELL.cooldownMs,
   },
+  ice_barrier: {
+    name: "Barreira de Gelo",
+    description: `Ergue uma parede de gelo à sua frente, na direção da mira: os monstros não passam e os golpes deles batem nela (${ICE_BARRIER.hp} de vida, até ${ICE_BARRIER.durationMs / 1000} s).`,
+    cooldownMs: ICE_BARRIER.cooldownMs,
+  },
 };
 
 // As habilidades de cada classe. As outras classes ainda não têm (a janela mostra "Em breve").
 export const CLASS_SKILLS: Record<ClassId, readonly SkillId[]> = {
-  mago: ["fireball", "lightning", "swamp"],
+  mago: ["fireball", "lightning", "swamp", "ice_barrier"],
   elfo: [],
   barbaro: [],
   homem_fera: [],

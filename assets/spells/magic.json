@@ -1,0 +1,19 @@
+{
+ "bolt": {
+  "frame": 88,
+  "frames": 8,
+  "feet": 70
+ },
+ "mud": {
+  "frame": 84,
+  "frames": 9,
+  "center": 42.0
+ },
+ "iceBreak": {
+  "frame": 88,
+  "frames": 9
+ },
+ "iceWall": {
+  "frame": 64
+ }
+}

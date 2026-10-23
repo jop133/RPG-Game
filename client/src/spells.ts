@@ -1,14 +1,17 @@
 import Phaser from "phaser";
 import { GNOME_CASTER, LIGHTNING_SPELL, PLAYER_SIZE, SPELL_FLATTEN, SWAMP_SPELL, type Vec2 } from "shared";
-import spellArt from "../../assets/spells/spells.json";
+import magicArt from "../../assets/spells/magic.json";
 import type { Light, LightLook } from "./lighting";
 import type { Particles } from "./particles";
 
 // Magias do mago no chão (só desenho; onde caem, quem é atingido e quem fica lento é do servidor). Cada uma chega como
 // SpellState (tipo, lugar, fase) e é desenhada pela fase:
-// - Raio Celestial: "warn" = o círculo rúnico amarelo girando no chão, achatado pela vista (SPELL_FLATTEN), com luz
-//   amarela pulsando; "strike" = os 4 quadros do raio cravados no centro do círculo, clarão e um tremor de tela;
-// - Pântano de Lama: "cast" = o círculo de terra girando e crescendo; "active" = a poça borbulhando no chão.
+// - Raio Celestial: "warn" = o círculo do raio (spells/circle_lightning) girando no chão, achatado pela vista
+//   (SPELL_FLATTEN), pulsando, com luz amarela; "strike" = o raio caindo no centro dele (lightning_bolt_sheet, 8
+//   quadros no tempo da fase), clarão e um tremor de tela;
+// - Pântano de Lama: "cast" = o círculo de terra (spells/circle_earth, já desenhado em perspectiva) crescendo;
+//   "active" = o círculo embaixo e a poça borbulhando por cima (mud_pit_sheet, em laço), do tamanho da área.
+// Arte de tools/assets/process_magic.py.
 // - Erupção de Cristal (do gnomo): "warn" = o círculo mágico ciano (mobs/efeitos/circulo) achatado no chão, girando e
 //   pulsando; "strike" = a estaca de cristal brota do chão (cresce de baixo para cima) com estilhaços e some no fim.
 // Círculos e poça ficam na altura do chão (por baixo dos pés de todo mundo); o raio fica por cima de quem está ali.
@@ -18,23 +21,31 @@ export interface SpellView extends Vec2 {
   phase: string;
 }
 
-export const SPELL_SHEETS = {
-  "spells/fireball_sheet": { frameWidth: 64, frameHeight: 64 },
-  "spells/lightning_strike_sheet": { frameWidth: 64, frameHeight: 128 },
-  "spells/mud_swamp_sheet": { frameWidth: 128, frameHeight: 64 },
-} as const;
-const RUNE_LIGHTNING = "spells/rune_circle_lightning";
-const RUNE_SWAMP = "spells/rune_circle_swamp";
-export const STRIKE_KEY = "spells/lightning_strike_sheet";
-export const MUD_KEY = "spells/mud_swamp_sheet";
+const DIRECTIONS = ["south", "south-east", "east", "north-east", "north", "north-west", "west", "south-west"];
+const square = (size: number) => ({ frameWidth: size, frameHeight: size });
+// As folhas de quadros de assets/spells (o resto carrega como imagem).
+export const SPELL_SHEETS: Record<string, { frameWidth: number; frameHeight: number }> = {
+  "spells/fireball_sheet": square(64),
+  "spells/lightning_bolt_sheet": square(magicArt.bolt.frame),
+  "spells/mud_pit_sheet": square(magicArt.mud.frame),
+  ...Object.fromEntries(DIRECTIONS.map((d) => [`spells/ice_break-${d}`, square(magicArt.iceBreak.frame)])),
+};
+const RUNE_LIGHTNING = "spells/circle_lightning";
+const CIRCLE_EARTH = "spells/circle_earth";
+export const STRIKE_KEY = "spells/lightning_bolt_sheet";
+export const MUD_KEY = "spells/mud_pit_sheet";
 export const MUD_FPS = 8;
-// O raio toca os 4 quadros no tempo da fase "strike".
-export const STRIKE_FPS = 4 / (LIGHTNING_SPELL.strikeMs / 1000);
-const STRIKE_ORIGIN = { x: 0.5, y: 0.92 };
-// A poça: o centro da elipse (spells.json) é a origem, cravada no lugar da magia.
-const MUD_ORIGIN = { x: (spellArt.mudCenter[0] ?? 64) / 128, y: (spellArt.mudCenter[1] ?? 40) / 64 };
-// Voltas por segundo dos círculos.
-const RUNE_TURNS = { lightning: 0.6, swamp: -0.35 };
+// O raio toca os quadros todos no tempo da fase "strike".
+export const STRIKE_FPS = magicArt.bolt.frames / (LIGHTNING_SPELL.strikeMs / 1000);
+const STRIKE_ORIGIN = { x: 0.5, y: magicArt.bolt.feet / magicArt.bolt.frame };
+const STRIKE_SCALE = 1.6;
+// O círculo do raio do tamanho da área (a arte tem ~56 px de diâmetro); pulsa ±6% no aviso.
+const RUNE_LIGHTNING_SCALE = (LIGHTNING_SPELL.radiusX * 2 + PLAYER_SIZE) / 56;
+// Círculo de terra e poça: a largura da área (o círculo tem ~58 px de largura, a boca da poça ~60), achatados como o chão.
+const EARTH_SCALE = (SWAMP_SPELL.radiusX * 2) / 58;
+const MUD_SCALE = (SWAMP_SPELL.radiusX * 2) / 60;
+// Voltas por segundo do círculo do raio.
+const RUNE_TURNS = 0.6;
 const LIGHTNING_LOOK: LightLook = { color: 0xfacc15, intensity: 1, effect: "pulse" };
 const STRIKE_LOOK: LightLook = { color: 0xfff6c8, intensity: 1, effect: "steady" };
 const STRIKE_FLASH_RADIUS = 170;
@@ -61,6 +72,7 @@ interface Drawn {
   phaseAt: number;
   rune?: Phaser.GameObjects.Container;
   runeImage?: Phaser.GameObjects.Image;
+  earth?: Phaser.GameObjects.Image;
   strike?: Phaser.GameObjects.Sprite;
   mud?: Phaser.GameObjects.Sprite;
   spike?: Phaser.GameObjects.Image;
@@ -139,21 +151,26 @@ export class SpellEffects {
       this.enterCrystal(d, phase, time);
       return;
     }
-    if (phase === "warn" || phase === "cast") {
-      const key = d.kind === "lightning" ? RUNE_LIGHTNING : RUNE_SWAMP;
-      d.runeImage = this.scene.add.image(0, 0, key);
-      d.rune = this.scene.add.container(d.x, d.y, [d.runeImage]).setScale(1, SPELL_FLATTEN).setDepth(this.groundDepth + 0.01);
+    if (phase === "warn") {
+      d.runeImage = this.scene.add.image(0, 0, RUNE_LIGHTNING);
+      d.rune = this.scene.add.container(d.x, d.y, [d.runeImage]).setScale(RUNE_LIGHTNING_SCALE, RUNE_LIGHTNING_SCALE * SPELL_FLATTEN).setDepth(this.groundDepth + 0.01);
+    }
+    if (phase === "cast") {
+      d.earth = this.scene.add.image(d.x, d.y, CIRCLE_EARTH).setDepth(this.groundDepth);
     }
     if (phase === "strike") {
-      d.strike = this.scene.add.sprite(d.x, d.y, STRIKE_KEY).setOrigin(STRIKE_ORIGIN.x, STRIKE_ORIGIN.y).setDepth(this.sortDepth(d.y + 1));
+      d.strike = this.scene.add
+        .sprite(d.x, d.y, STRIKE_KEY)
+        .setOrigin(STRIKE_ORIGIN.x, STRIKE_ORIGIN.y)
+        .setScale(STRIKE_SCALE)
+        .setDepth(this.sortDepth(d.y + 1));
       if (this.scene.anims.exists(STRIKE_KEY)) d.strike.play(STRIKE_KEY);
       this.particles?.explode(d.x, d.y, [0xfff6c8, 0xfacc15, 0xffffff, 0xffe066], time);
       this.onStrike(STRIKE_SHAKE_PX);
     }
     if (phase === "active") {
-      d.rune?.destroy();
-      d.rune = undefined;
-      d.mud = this.scene.add.sprite(d.x, d.y, MUD_KEY).setOrigin(MUD_ORIGIN.x, MUD_ORIGIN.y).setDepth(this.groundDepth);
+      d.earth?.setScale(EARTH_SCALE * 1.08, EARTH_SCALE * 1.08 * SPELL_FLATTEN);
+      d.mud = this.scene.add.sprite(d.x, d.y, MUD_KEY).setScale(MUD_SCALE, MUD_SCALE * SPELL_FLATTEN).setDepth(this.groundDepth + 0.005);
       if (this.scene.anims.exists(MUD_KEY)) d.mud.play(MUD_KEY);
     }
   }
@@ -193,14 +210,17 @@ export class SpellEffects {
   private animate(d: Drawn, time: number) {
     if (d.kind === "crystal") return this.animateCrystal(d, time);
     const t = (time - d.phaseAt) / 1000;
-    if (d.runeImage) {
-      const turns = d.kind === "lightning" ? RUNE_TURNS.lightning : RUNE_TURNS.swamp;
-      d.runeImage.setRotation(2 * Math.PI * turns * (time / 1000));
+    if (d.runeImage && d.rune) {
+      d.runeImage.setRotation(2 * Math.PI * RUNE_TURNS * (time / 1000));
+      if (d.phase === "warn") {
+        const pulse = RUNE_LIGHTNING_SCALE * (0.94 + 0.06 * Math.sin(time / 60));
+        d.rune.setScale(pulse, pulse * SPELL_FLATTEN).setAlpha(0.8 + 0.2 * Math.sin(time / 60));
+      }
     }
-    if (d.rune && d.phase === "cast") {
-      // Conjuração do pântano: o círculo cresce até o tamanho da poça.
-      const p = Math.min(1, t / (SWAMP_SPELL.castMs / 1000));
-      d.rune.setScale(0.4 + 0.6 * p, (0.4 + 0.6 * p) * SPELL_FLATTEN);
+    if (d.earth && d.phase === "cast") {
+      // Conjuração do pântano: o círculo de terra cresce até o tamanho da poça.
+      const k = EARTH_SCALE * (0.4 + 0.6 * Math.min(1, t / (SWAMP_SPELL.castMs / 1000)));
+      d.earth.setScale(k, k * SPELL_FLATTEN);
     }
     if (d.rune && d.phase === "strike") {
       // O círculo do raio some enquanto o raio cai.
@@ -210,13 +230,16 @@ export class SpellEffects {
       // A poça entra e sai com um fade curto (o fim vem do tempo da fase; o servidor a tira em seguida).
       const fade = 0.25;
       const left = SWAMP_SPELL.durationMs / 1000 - t;
-      d.mud.setAlpha(Math.max(0, Math.min(1, t / fade, left / fade)));
+      const alpha = Math.max(0, Math.min(1, t / fade, left / fade));
+      d.mud.setAlpha(alpha);
+      d.earth?.setAlpha(Math.min(alpha, 0.85));
     }
   }
 
   private clear(d: Drawn) {
     d.spike?.destroy();
     d.rune?.destroy();
+    d.earth?.destroy();
     d.strike?.destroy();
     d.mud?.destroy();
   }

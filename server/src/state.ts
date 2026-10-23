@@ -111,6 +111,14 @@ export type ProjectileState = SchemaType<typeof ProjectileState>;
 export const SpellState = schema({ kind: t.string(), x: t.number(), y: t.number(), phase: t.string() }, "SpellState");
 export type SpellState = SchemaType<typeof SpellState>;
 
+// Barreira de Gelo (ICE_BARRIER): o centro, a direção (múltiplo de 45°: o cliente escolhe a arte das 8 direções), a vida
+// e a fase: "up" (de pé, bloqueando os mobs) ou "broken" (quebrando: só a animação, já sem bloquear, e sai).
+export const BarrierState = schema(
+  { x: t.number(), y: t.number(), angle: t.number(), hp: t.number(), maxHp: t.number(), phase: t.string() },
+  "BarrierState",
+);
+export type BarrierState = SchemaType<typeof BarrierState>;
+
 // Tocha da zona dos goblins: apagada no começo da run; [E] perto acende (para todos, até o fim da run).
 export const TorchState = schema({ x: t.number(), y: t.number(), lit: t.boolean() }, "TorchState");
 export type TorchState = SchemaType<typeof TorchState>;
@@ -129,6 +137,7 @@ export const GameState = schema(
     exits: t.map(ExitState).view(),
     projectiles: t.map(ProjectileState).view(),
     spells: t.map(SpellState).view(),
+    barriers: t.map(BarrierState).view(),
     torches: t.map(TorchState).view(),
     hazards: t.map(HazardState).view(),
   },

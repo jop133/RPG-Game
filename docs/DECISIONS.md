@@ -1183,6 +1183,22 @@ Slot vazio usa a moldura comum.
 
 ---
 
+## 2026-10 — Arte nova do Raio e do Pântano; Barreira de Gelo (4ª magia do mago)
+
+**Pedido do dono do projeto (Etapa 2):** o Raio Celestial e o Pântano de Lama com os círculos e as animações novas (`magias/raio`, `magias/terra`); a Barreira de Gelo como 4ª habilidade do mago: uma parede de gelo à frente, na direção da mira (8 direções), com vida própria, que bloqueia os inimigos e absorve os golpes e projéteis deles, e quebra com animação.
+
+**Como ficou:**
+- `tools/assets/process_magic.py`: círculos (`spells/circle_lightning`, `circle_earth`), o raio caindo (`lightning_bolt_sheet`, 8 quadros), a poça (`mud_pit_sheet`, 9 quadros em laço), a parede (`ice_wall-<direção>`) e a quebra (`ice_break-<direção>`, as 3 medidas da arte num quadro de 88), `magic.json` e o ícone `assets/ui/skill_ice_barrier.png` (parede e círculo de gelo na moldura vazia).
+- Raio: o círculo gira e pulsa no aviso (0,4 s); na queda, o raio novo. `LIGHTNING_SPELL.strikeMs` foi de 280 para 480 ms: é só o tempo do desenho (o dano continua saindo no começo da queda). Pântano: o círculo de terra cresce na conjuração e fica embaixo da poça enquanto ela dura (5 s, lentidão de 55% igual).
+- Barreira (`ICE_BARRIER` em `balance.ts`: 150 de vida, 12 s, 56 px à frente, 3 tiles, recarga 9 s): `shared/src/barrier.ts` (`placeBarrier`, puro, testado) põe a parede atravessada na mira, alinhada aos tiles (na diagonal, sem fresta de quina), fora de parede e dos tiles com mob dentro. No servidor, `BarrierState` (lugar, direção, vida, fase "up"/"broken") e uma **grade só dos mobs** (`gridForMobs`: o mapa com os tiles das barreiras de pé como parede), usada no andar, no caminho e no voo dos projéteis de mob. Os jogadores passam por ela, e os projéteis deles também. Golpe de mob cujo arco pega um tile da barreira e projétil de mob que para nela tiram vida dela. Com 0 de vida ou no fim do tempo, para de bloquear na hora e fica `breakMs` (0,9 s) no estado para o cliente tocar a quebra. Interest management como as magias.
+- Cliente (`client/src/barriers.ts`): o círculo de gelo girando e apagando, a parede subindo do chão, barra de vida em cima, pisca branca e solta cacos ao levar dano, e a quebra no lugar.
+
+**Faltou arte, avise se quiser diferente:** a pasta `gelo/` não tem o círculo de magia de gelo. O círculo de gelo é o do raio recolorido para azul-gelo (`ICE_HUE` no script); com a arte, é só trocar no script.
+
+**Escolhas minhas:** os círculos do raio e da terra usam a arte "south" (a de frente; o do raio gira achatado como antes, o da terra já vem em perspectiva); a parede e a quebra em escala 1,5 (para cobrir os 3 tiles); a barreira solta um brilho frio só de desenho; mobs não "atacam" a barreira de propósito (a IA não mudou): eles contornam pelo caminho, e só a acertam quando ela está no arco do golpe contra um jogador. Recarga de 9 s, para ajustar jogando.
+
+---
+
 ## 2026-10 — Soco desarmado, Besta e Flecha do elfo, teleporte na chegada
 
 **Pedido do dono do projeto (Etapa 1 das animações novas):** soco desenhado para bárbaro, elfo e homem-fera, só sem arma; a Besta, só do elfo, com tiro de Flecha à distância (dano físico) e a besta aparecendo na mão no disparo; o personagem surgindo de um tubo de teleporte ao entrar e ao sair do labirinto.
