@@ -27,6 +27,13 @@ const MOBS = [
   ["gnomo", "Gnomo"],
   ["dummy", "Boneco de Treino"],
 ] as const;
+// Minibosses (no labirinto nascem sozinhos no meio da zona; aqui, à frente, como os outros mobs).
+const BOSSES = [
+  ["krag", "Krag, o Carrasco"],
+  ["rei_slime", "Rei Slime Abissal"],
+] as const;
+// Painel recolhido (só o título): lembrado neste navegador.
+const COLLAPSED_KEY = "rpg-extracao:devPanelCollapsed";
 const PLACES: readonly [DevTeleport, string][] = [
   ["test_room", "Sala de Testes"],
   ["hub", "Praça (cidade)"],
@@ -66,8 +73,11 @@ export class DevPanel {
   constructor(private readonly bridge: DevBridge) {
     this.root = div("dev-panel", document.body);
     this.root.hidden = true;
+    // Título com os botões de recolher (só o título fica) e de mostrar o painel inteiro de novo.
     const head = div("dev-head", this.root);
-    head.textContent = "Sala de Testes · F2";
+    div("dev-head-title", head).textContent = "Sala de Testes · F2";
+    this.button(head, "Esconder", () => this.setCollapsed(true), "dev-small dev-hide");
+    this.button(head, "Mostrar inteira", () => this.setCollapsed(false), "dev-small dev-primary dev-show");
     this.status = div("dev-status", this.root);
     this.build();
     window.addEventListener("keydown", (e) => {
@@ -77,11 +87,22 @@ export class DevPanel {
     });
     const params = new URLSearchParams(window.location.search);
     if (params.has("dev") || params.has("testRoom")) this.root.hidden = false;
+    this.setCollapsed(readCollapsed());
     this.refresh();
   }
 
   toggle() {
     this.root.hidden = !this.root.hidden;
+  }
+
+  // Recolhido: só a barra do título, com o botão de mostrar tudo; o resto do painel some.
+  setCollapsed(collapsed: boolean) {
+    this.root.classList.toggle("dev-collapsed", collapsed);
+    try {
+      localStorage.setItem(COLLAPSED_KEY, collapsed ? "1" : "0");
+    } catch {
+      // Sem armazenamento (aba privada): só não lembra.
+    }
   }
 
   // A sala nova avisou que as ferramentas estão ligadas: o God Mode e a IA escolhidos continuam valendo nela.
@@ -225,6 +246,8 @@ export class DevPanel {
     const spawn = div("dev-row", mobs);
     for (const [kind, label] of MOBS) this.button(spawn, `+1 ${label}`, () => this.spawnMob(kind));
     this.button(spawn, "Limpar mobs", () => this.clearMobs(), "dev-danger");
+    const bosses = div("dev-row", mobs);
+    for (const [kind, label] of BOSSES) this.button(bosses, `+1 ${label}`, () => this.spawnMob(kind), "dev-primary");
     this.toggleBox(mobs, "spawnStill", "Spawnar parado (IA desligada)", (on) => ((this.spawnStill = on), this.refresh()));
     this.toggleBox(mobs, "spawnLow", "Spawnar com pouca vida", (on) => ((this.spawnLow = on), this.refresh()));
 
@@ -315,4 +338,12 @@ function div(className: string, parent: HTMLElement): HTMLDivElement {
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function readCollapsed(): boolean {
+  try {
+    return localStorage.getItem(COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
 }

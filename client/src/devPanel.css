@@ -22,6 +22,9 @@
 }
 
 .dev-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-weight: 700;
   font-size: 13px;
   color: #ffd166;
@@ -96,4 +99,22 @@
   display: block;
   margin: 2px 0;
   cursor: pointer;
+}
+
+/* Título à esquerda, botões de recolher e mostrar à direita. Recolhido: só o título e "Mostrar inteira". */
+.dev-head-title {
+  flex: 1;
+}
+
+.dev-panel .dev-show,
+.dev-panel.dev-collapsed .dev-hide {
+  display: none;
+}
+
+.dev-panel.dev-collapsed .dev-show {
+  display: inline-block;
+}
+
+.dev-panel.dev-collapsed > :not(.dev-head) {
+  display: none;
 }
