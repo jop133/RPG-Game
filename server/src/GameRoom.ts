@@ -18,6 +18,11 @@ import {
   KRAG_KICK,
   KRAG_TORNADO,
   BOSS_SPAWNS,
+  AFFLICTIONS,
+  FENRIR_CLAW,
+  FENRIR_HOWL,
+  FIZBAN_ESCAPE,
+  FIZBAN_POTIONS,
   SLIME_SPLIT,
   SPELL_FLATTEN,
   WOLF_POUNCE,
@@ -259,6 +264,9 @@ interface MobBrain {
   mind: MobMind;
   post?: MobPost;
   pack?: string;
+  // Fenrir: até quando dura o Uivo (mais rápido). Lobo chamado pelo Uivo: o id do Fenrir.
+  howlUntil?: number;
+  summoner?: string;
 }
 
 // Um grupo tático: onde nasce, quem está vivo dele e, morto o grupo inteiro, desde quando (para o respawn).
@@ -308,6 +316,22 @@ const MOB_BOLTS: Record<"dagger" | "gnome", { spec: ProjectileSpec; damage: numb
 // Cerco: os ângulos dos mobs, um de cada vez (o grupo abre em volta).
 const FLANK_ANGLES = [0, FLANK.degrees, -FLANK.degrees].map((d) => (d * Math.PI) / 180);
 
+
+// Ataque em linha pelo chão: a velocidade da ponta, a largura, o dano, o alcance e quanto fica no chão depois.
+type LineSpec = { speed: number; width: number; damage: number; length: number; lingerMs: number };
+// Os efeitos das poções e da fumaça do Fizban.
+type Affliction = "poison" | "burn" | "frailty";
+function randomAffliction(): Affliction {
+  return (["poison", "burn", "frailty"] as const)[Math.floor(Math.random() * 3)] ?? "poison";
+}
+function shuffle<T>(list: T[]): T[] {
+  const out = [...list];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j] as T, out[i] as T];
+  }
+  return out;
+}
 
 export class GameRoom extends Room<{ state: GameState }> {
   maxClients = 4;
@@ -375,7 +399,11 @@ export class GameRoom extends Room<{ state: GameState }> {
   private barriers = new Map<string, { cells: number[]; remainingMs: number }>();
   // Chefes: as rachaduras do Krag andando (a ponta, quem já levou, quanto fica no chão depois) e o último dano do
   // tornado em cada jogador ("<mob>:<jogador>" -> ms).
-  private cracks = new Map<string, { kind: MobKind; from: Vec2; angle: number; length: number; traveled: number; hit: Set<string>; lingerMs: number }>();
+  private cracks = new Map<string, { kind: MobKind; spec: LineSpec; from: Vec2; angle: number; length: number; traveled: number; hit: Set<string>; lingerMs: number }>();
+  // Fizban: os frascos caindo e as fumaças no chão (o efeito, onde, o raio, a fase e quanto falta dela).
+  private clouds = new Map<string, { kind: MobKind; effect: Affliction; at: Vec2; radius: number; phase: "fall" | "cloud"; remainingMs: number }>();
+  // Veneno e queimadura de cada jogador: até quando (ms do relógio da sala).
+  private dots = new Map<string, Partial<Record<"poison" | "burn", number>>>();
   private spinHits = new Map<string, number>();
   // Buffs de habilidade ativos de cada um e até quando (ms do relógio da sala): Forma de Urso, Pele de Pedra, Rajada.
   // E a fase da forma do Homem-Fera que acaba sozinha (a pose e a volta) e quando.
@@ -448,6 +476,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       castSeq: 0,
       spirit: "",
       form: "",
+      status: "",
       attackAngle: 0,
       mana: stats.maxMana,
       maxMana: stats.maxMana,
@@ -518,6 +547,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.stats.delete(sessionId);
     this.buffs.delete(sessionId);
     this.formEnds.delete(sessionId);
+    this.dots.delete(sessionId);
   }
 
   private openExits() {
@@ -1384,6 +1414,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.tickBarriers(dtMs);
     this.tickForms();
     this.tickCracks(dtMs);
+    this.tickClouds(dtMs);
+    this.tickDots(dtMs);
     this.resolveDeaths();
     this.updateExits(dtMs);
     this.updateViews();
@@ -1410,12 +1442,14 @@ export class GameRoom extends Room<{ state: GameState }> {
       const kind = brain.mini ? { ...base, speed: base.speed * SLIME_SPLIT.speedFactor } : base;
       const slow = swampSlow(mob, kind.size / 2, id, swamps);
       const frenzy = brain.kind === "lobo" && wolfFrenzy(mob, hurt);
-      if (mob.frenzy !== frenzy) mob.frenzy = frenzy;
-      const boost = frenzy ? FRENZY.speedFactor : 1;
+      // Fenrir depois do Uivo: mais rápido e golpeia mais rápido por um tempo (fica vermelho como o frenesi, no desenho).
+      const howling = this.clock.currentTime < (brain.howlUntil ?? 0);
+      if (mob.frenzy !== (frenzy || howling)) mob.frenzy = frenzy || howling;
+      const boost = (frenzy ? FRENZY.speedFactor : 1) * (howling ? FENRIR_HOWL.speedFactor : 1);
       // Em frenesi, o lobo também golpeia mais rápido (preparo e recuperação mais curtos).
-      const attackTime = frenzy ? FRENZY.attackTimeFactor : 1;
+      const attackTime = (frenzy ? FRENZY.attackTimeFactor : 1) / (howling ? FENRIR_HOWL.attackFactor : 1);
       const stats =
-        slow === 1 && !frenzy
+        slow === 1 && !frenzy && !howling
           ? kind
           : {
               ...kind,
@@ -1468,7 +1502,11 @@ export class GameRoom extends Room<{ state: GameState }> {
       return;
     }
     if (event.type === "spin") return this.spinHit(id, kind, event.at);
-    if (event.type === "crack") return this.startCrack(kind, event.from, event.angle);
+    if (event.type === "crack") return this.startLine(kind, "crack", KRAG_KICK, event.from, event.angle);
+    if (event.type === "claw") return this.startLine(kind, "claw", FENRIR_CLAW, event.from, event.angle);
+    if (event.type === "potions") return this.throwPotions(kind, event.target);
+    if (event.type === "smoke") return this.addCloud(kind, randomAffliction(), event.at, FIZBAN_ESCAPE.smokeRadius, "smoke");
+    if (event.type === "howl") return this.howl(id, event.at);
     if (event.type === "blast") return this.areaHit(kind, event.at, KING_EXPLOSION.radius, KING_EXPLOSION.damage);
     if (event.ability === "slam") {
       this.areaHit(kind, event.at, KING_SLAM.hitRadius, KING_SLAM.damage);
@@ -1511,11 +1549,12 @@ export class GameRoom extends Room<{ state: GameState }> {
     });
   }
 
-  // Chute Sísmico: a rachadura vai até KRAG_KICK.length px ou até a primeira parede (o chão dela é medido agora).
-  private startCrack(kind: MobKind, from: Vec2, angle: number) {
+  // Ataque em linha pelo chão (a rachadura do Krag, a garra do Fenrir): vai até spec.length px ou até a primeira parede
+  // (o chão dela é medido agora).
+  private startLine(kind: MobKind, line: "crack" | "claw", spec: LineSpec, from: Vec2, angle: number) {
     const grid = this.level.grid;
     let length = 0;
-    while (length < KRAG_KICK.length) {
+    while (length < spec.length) {
       const next = length + 8;
       const x = from.x + Math.cos(angle) * next;
       const y = from.y + Math.sin(angle) * next;
@@ -1523,8 +1562,8 @@ export class GameRoom extends Room<{ state: GameState }> {
       length = next;
     }
     const id = `spell-${this.nextSpellId++}`;
-    this.cracks.set(id, { kind, from: { x: from.x, y: from.y }, angle, length, traveled: 0, hit: new Set(), lingerMs: KRAG_KICK.lingerMs });
-    this.state.spells.set(id, new SpellState({ kind: "crack", x: from.x, y: from.y, phase: "strike", angle, length }));
+    this.cracks.set(id, { kind, spec, from: { x: from.x, y: from.y }, angle, length, traveled: 0, hit: new Set(), lingerMs: spec.lingerMs });
+    this.state.spells.set(id, new SpellState({ kind: line, x: from.x, y: from.y, phase: "strike", angle, length }));
   }
 
   // Cada tick: a ponta de cada rachadura anda; quem ela alcança (perto da linha, até a ponta) leva o dano, uma vez.
@@ -1540,7 +1579,7 @@ export class GameRoom extends Room<{ state: GameState }> {
         }
         continue;
       }
-      crack.traveled = Math.min(crack.length, crack.traveled + (KRAG_KICK.speed * dtMs) / 1000);
+      crack.traveled = Math.min(crack.length, crack.traveled + (crack.spec.speed * dtMs) / 1000);
       const dx = Math.cos(crack.angle);
       const dy = Math.sin(crack.angle);
       this.state.players.forEach((player, sessionId) => {
@@ -1549,11 +1588,120 @@ export class GameRoom extends Room<{ state: GameState }> {
         const py = player.y - crack.from.y;
         const along = px * dx + py * dy;
         const across = Math.abs(px * dy - py * dx);
-        if (along < 0 || along > crack.traveled || across > KRAG_KICK.width / 2 + PLAYER_SIZE / 2) return;
+        if (along < 0 || along > crack.traveled || across > crack.spec.width / 2 + PLAYER_SIZE / 2) return;
         crack.hit.add(sessionId);
-        this.damagePlayer(sessionId, player, KRAG_KICK.damage, { kind: "mob", mob: crack.kind }, "physical");
+        this.damagePlayer(sessionId, player, crack.spec.damage, { kind: "mob", mob: crack.kind }, "physical");
         this.staggerUntil.set(sessionId, now + STAGGER.durationMs);
       });
+    }
+  }
+
+  // Fizban, Arremesso de Poções: 3 frascos, um em cima do alvo e dois em volta, um de cada efeito (em ordem sorteada).
+  private throwPotions(kind: MobKind, target: Vec2) {
+    const effects = shuffle<Affliction>(["poison", "burn", "frailty"]);
+    const spots = [target, ...[0, 1].map(() => {
+      const angle = Math.random() * Math.PI * 2;
+      const d = FIZBAN_POTIONS.spread.min + Math.random() * (FIZBAN_POTIONS.spread.max - FIZBAN_POTIONS.spread.min);
+      return { x: target.x + Math.cos(angle) * d, y: target.y + Math.sin(angle) * d };
+    })];
+    spots.forEach((at, i) => this.addCloud(kind, effects[i] ?? "poison", at, FIZBAN_POTIONS.radius, "potion"));
+  }
+
+  // Um frasco caindo ("potion": a fumaça vem depois da queda) ou uma fumaça direto ("smoke", a do pulo de fuga).
+  private addCloud(kind: MobKind, effect: Affliction, at: Vec2, radius: number, source: "potion" | "smoke") {
+    const id = `spell-${this.nextSpellId++}`;
+    const falling = source === "potion";
+    const phase = falling ? "fall" : "cloud";
+    this.clouds.set(id, { kind, effect, at: { x: at.x, y: at.y }, radius, phase, remainingMs: falling ? FIZBAN_POTIONS.fallMs : FIZBAN_POTIONS.cloudMs });
+    this.state.spells.set(id, new SpellState({ kind: `${source}-${effect}`, x: at.x, y: at.y, phase, angle: 0, length: 0 }));
+  }
+
+  // Cada tick: o frasco que caiu fere quem está perto e vira fumaça; a fumaça aplica o efeito em quem está nela e, no
+  // fim do tempo, some.
+  private tickClouds(dtMs: number) {
+    for (const [id, cloud] of this.clouds) {
+      cloud.remainingMs -= dtMs;
+      const inside: [string, PlayerState][] = [];
+      this.state.players.forEach((player, sessionId) => {
+        if (Math.hypot(player.x - cloud.at.x, player.y - cloud.at.y) <= cloud.radius + PLAYER_SIZE / 2) inside.push([sessionId, player]);
+      });
+      if (cloud.phase === "fall") {
+        if (cloud.remainingMs > 0) continue;
+        for (const [sessionId, player] of inside) this.damagePlayer(sessionId, player, FIZBAN_POTIONS.impactDamage, { kind: "mob", mob: cloud.kind }, "magic");
+        cloud.phase = "cloud";
+        cloud.remainingMs = FIZBAN_POTIONS.cloudMs;
+        const view = this.state.spells.get(id);
+        if (view) view.phase = "cloud";
+      }
+      for (const [sessionId, player] of inside) this.afflict(sessionId, player, cloud.effect);
+      if (cloud.remainingMs > 0) continue;
+      this.clouds.delete(id);
+      this.state.spells.delete(id);
+    }
+  }
+
+  // Pega um efeito de status (ou renova o tempo dele). A queimadura, quando pega, já arde de uma vez.
+  private afflict(sessionId: string, player: PlayerState, effect: Affliction) {
+    const now = this.clock.currentTime;
+    if (effect === "frailty") {
+      this.addBuff(sessionId, player, "frailty", AFFLICTIONS.frailty.durationMs);
+      return;
+    }
+    const dots = this.dots.get(sessionId) ?? {};
+    const fresh = (dots[effect] ?? 0) <= now;
+    dots[effect] = now + AFFLICTIONS[effect].durationMs;
+    this.dots.set(sessionId, dots);
+    if (effect === "burn" && fresh) this.damagePlayer(sessionId, player, AFFLICTIONS.burn.burst, { kind: "mob", mob: "fizban" }, "magic");
+  }
+
+  // Cada tick: o veneno e a queimadura ardem; e o status público de cada um (desenho) acompanha.
+  private tickDots(dtMs: number) {
+    const now = this.clock.currentTime;
+    this.state.players.forEach((player, sessionId) => {
+      const dots = this.dots.get(sessionId) ?? {};
+      const active: string[] = [];
+      for (const effect of ["poison", "burn"] as const) {
+        if ((dots[effect] ?? 0) <= now) continue;
+        active.push(effect);
+        const type = effect === "poison" ? "true" : "magic";
+        this.damagePlayer(sessionId, player, (AFFLICTIONS[effect].dps * dtMs) / 1000, { kind: "mob", mob: "fizban" }, type);
+      }
+      for (const buff of this.activeBuffs(sessionId)) if (buff === "frailty" || buff === "howl_slow") active.push(buff);
+      const status = active.join(" ");
+      if (player.status !== status) player.status = status;
+    });
+  }
+
+  // Fenrir, Uivo: empurra e deixa lento quem está perto, fica mais rápido por um tempo e chama lobos ao lado.
+  private howl(id: string, at: Vec2) {
+    const now = this.clock.currentTime;
+    this.state.players.forEach((player, sessionId) => {
+      if (Math.hypot(player.x - at.x, player.y - at.y) > FENRIR_HOWL.radius + PLAYER_SIZE / 2) return;
+      this.addBuff(sessionId, player, "howl_slow", FENRIR_HOWL.slowMs);
+      const push = knockback(at, player);
+      const scale = FENRIR_HOWL.knockback / Math.max(1, Math.hypot(push.x, push.y));
+      const next = moveWithCollision(this.level.grid, player, { x: push.x * scale, y: push.y * scale }, PLAYER_SIZE / 2);
+      player.x = next.x;
+      player.y = next.y;
+    });
+    const brain = this.mobBrains.get(id);
+    if (!brain) return;
+    brain.howlUntil = now + FENRIR_HOWL.hasteMs;
+    const target = "targetId" in brain.mind ? brain.mind.targetId : undefined;
+    const prey = target ? this.state.players.get(target) : undefined;
+    let alive = 0;
+    for (const other of this.mobBrains.values()) if (other.summoner === id) alive++;
+    const ts = this.level.grid.tileSize;
+    const sides = [{ x: 1.5 * ts, y: 0 }, { x: -1.5 * ts, y: 0 }, { x: 0, y: 1.5 * ts }, { x: 0, y: -1.5 * ts }];
+    let called = 0;
+    for (const side of sides) {
+      if (called >= FENRIR_HOWL.summons || alive + called >= FENRIR_HOWL.maxSummons) break;
+      const spot = { x: at.x + side.x, y: at.y + side.y };
+      if (!boxFits(this.level.grid, spot, MOB_KINDS.lobo.size / 2)) continue;
+      const wander: MobMind = { mode: "wander", wander: startIdle(Math.random) };
+      const mind = target && prey ? provoke(wander, target, prey) : wander;
+      this.addMob("lobo", spot, { kind: "lobo", area: brain.area, homeCells: brain.homeCells, mind, summoner: id });
+      called++;
     }
   }
 

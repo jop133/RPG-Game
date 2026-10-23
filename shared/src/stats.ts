@@ -34,6 +34,8 @@ export interface StatBonus {
   lifestealPercent?: number;
   woundedDamagePercent?: number;
   magicDamagePercent?: number;
+  // Dano Físico em % (negativo: a Fraqueza das poções azuis do Fizban).
+  physicalDamagePercent?: number;
 }
 
 // Efeito de uma essência absorvida.
@@ -94,7 +96,7 @@ export function statsFrom(bonuses: readonly StatBonus[], attack: WeaponStats): P
   return {
     maxHp: BASE_STATS.maxHp + sum("maxHp"),
     maxMana: BASE_STATS.maxMana + sum("maxMana"),
-    physicalDamage: attack.damage + sum("physicalDamage"),
+    physicalDamage: Math.max(0, (attack.damage + sum("physicalDamage")) * (1 + sum("physicalDamagePercent") / 100)),
     magicDamage: (BASE_STATS.magicDamage + sum("magicDamage")) * (1 + sum("magicDamagePercent") / 100),
     defensePercent: reduction(BASE_STATS.defensePercent + sum("defensePercent")),
     magicResistPercent: reduction(BASE_STATS.magicResistPercent + sum("magicResistPercent")),

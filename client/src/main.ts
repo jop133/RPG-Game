@@ -149,6 +149,8 @@ interface PlayerView extends Vec2 {
   // ("" normal, "transforming", "bear", "reverting").
   spirit?: string;
   form?: string;
+  // Público, no labirinto: efeitos de status ("poison burn frailty howl_slow", separados por espaço).
+  status?: string;
   attackSeq?: number;
   castSeq?: number;
   attackAngle?: number;
@@ -259,7 +261,7 @@ const MOB_URLS = Object.entries(
 // Ataque, pulo e morte (process_mobs.py): fitas com o quadro de cada uma (assets/mobs/anims.json). Os efeitos dos
 // ataques (mobs/efeitos/: adaga, círculo e cristal) são imagens soltas.
 // Chefes (process_bosses.py): chute, braços abertos e rachadura por direção; tornado, pulo e explosão numa só.
-const MOB_ACTION_RE = /\/(attack|jump|kick|openarm|crack)-|\/(death|tornado|jump|explosion)$/;
+const MOB_ACTION_RE = /\/(attack|jump|kick|openarm|crack|howl|claw|clawfx|smoke)-|\/(death|tornado|jump|explosion)$/;
 const MOB_IDLE_URLS = MOB_URLS.filter(({ key }) => !key.includes("/walk-") && !MOB_ACTION_RE.test(key));
 const MOB_ACTION_URLS = MOB_URLS.filter(({ key }) => MOB_ACTION_RE.test(key));
 interface MobAnimInfo {
@@ -358,6 +360,14 @@ const CROSSBOW_SHOW_MS = 420;
 const CROSSBOW_SCALE = 0.55;
 const CROSSBOW_FORWARD = 8;
 const CROSSBOW_RECOIL_PX = 2;
+// Cores das partículas de cada efeito de status no corpo.
+const STATUS_PARTICLES_PER_SECOND = 9;
+const STATUS_COLORS: Record<string, readonly number[]> = {
+  poison: [0x7ed957, 0xb6f27a, 0x3f9a2a],
+  burn: [0xff8a1f, 0xffc23d, 0xff4a1c],
+  frailty: [0x4a90ff, 0x9cc6ff, 0x2456c8],
+  howl_slow: [0x9ca3af, 0xd1d5db],
+};
 // Teleporte (tools/assets/process_actions.py): o tubo de luz no ponto de chegada, com a base (teleportInfo.feet) nos
 // pés do personagem. O tubo se forma (FORM_MS, os quadros em ordem), o personagem aparece dentro dele (REVEAL_MS, de
 // transparente a inteiro) e o tubo se desfaz (FADE_MS, os quadros ao contrário, apagando). Só desenho.
@@ -430,6 +440,8 @@ const MOB_ART: Record<MobKind, MobArt> = {
   slime: { feet: 58, height: 44, shadow: 40 },
   krag: { feet: BOSS_INFO.krag?.feet ?? 100, walkFeet: BOSS_INFO.krag?.feet ?? 100, frame: BOSS_INFO.krag?.canvas ?? 112, height: 86, shadow: 46 },
   rei_slime: { feet: BOSS_INFO.rei_slime?.feet ?? 128, walkFeet: BOSS_INFO.rei_slime?.feet ?? 128, frame: BOSS_INFO.rei_slime?.canvas ?? 144, height: 84, shadow: 80 },
+  fizban: { feet: BOSS_INFO.fizban?.feet ?? 100, walkFeet: BOSS_INFO.fizban?.feet ?? 100, frame: BOSS_INFO.fizban?.canvas ?? 112, height: 78, shadow: 40 },
+  fenrir: { feet: BOSS_INFO.fenrir?.feet ?? 100, walkFeet: BOSS_INFO.fenrir?.feet ?? 100, frame: BOSS_INFO.fenrir?.canvas ?? 112, height: 72, shadow: 60 },
 };
 // Boneco de Treino (só de dev): desenhado no código (createDummyTexture), com os pés na linha 60 do quadro de 64.
 const DUMMY_ART = { feet: 60, height: 56, shadow: 30 };
@@ -611,6 +623,8 @@ const MOB_NAMES: Record<MobKind, string> = {
   goblin: "um goblin",
   krag: "Krag, o Carrasco Hobgoblin",
   rei_slime: "o Rei Slime Abissal",
+  fizban: "Fizban, o Artífice Corrompido",
+  fenrir: "Fenrir, o Lobo Alfa Atroz",
 };
 
 // Luz de cada lugar (só desenho; ver client/src/lighting.ts). Ambiente = a escuridão onde não chega luz.
@@ -1679,6 +1693,7 @@ Subiu para o nível ${info.level}!` : "";
       avatar.label.setPosition(player.x, feet - AVATAR_HEIGHT - HP_BAR_GAP - HP_BAR_HEIGHT - 2);
       if (isSelf && this.arrivalPending) this.startArrival(sessionId, player.x, feet, time);
       this.fadeArrival(sessionId, avatar, time);
+      this.statusParticles(player.status ?? "", player.x, feet, time);
       const owner = { x: player.x, feet, facing: avatar.facing, moving };
       this.spirits?.sync(sessionId, player.spirit ?? "", owner, time, this.game.loop.delta, avatar.body.alpha);
     });
@@ -1777,6 +1792,21 @@ Subiu para o nível ${info.level}!` : "";
       .setRotation(0)
       .setScale(CROSSBOW_SCALE)
       .setDepth(bodyDepth + (socket.behindBody ? -0.05 : 0.05));
+  }
+
+  // Efeitos de status no corpo (só desenho): bolhas verdes do veneno, fagulhas da queimadura, gotas azuis da Lentidão e
+  // Fraqueza e poeira cinza do Uivo, em média STATUS_PARTICLES_PER_SECOND de cada.
+  private statusParticles(status: string, x: number, feet: number, time: number) {
+    if (!status || !this.particles) return;
+    const chance = (STATUS_PARTICLES_PER_SECOND * this.game.loop.delta) / 1000;
+    for (const effect of status.split(" ")) {
+      const colors = STATUS_COLORS[effect];
+      if (!colors || Math.random() > chance) continue;
+      const color = colors[Math.floor(Math.random() * colors.length)] ?? 0xffffff;
+      const px = x + Phaser.Math.FloatBetween(-10, 10);
+      const py = feet - Phaser.Math.FloatBetween(8, AVATAR_HEIGHT - 10);
+      this.particles.spark(px, py, color, Phaser.Math.FloatBetween(-12, 12), Phaser.Math.FloatBetween(-50, -20), 420, time);
+    }
   }
 
   // A pose da transformação no lugar do corpo (a arte só tem a de frente), uma vez, no tempo da pose do servidor.

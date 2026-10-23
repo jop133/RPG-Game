@@ -5,6 +5,10 @@ import {
   GNOME_CASTER,
   GOBLIN_DASH,
   GOBLIN_THROW,
+  FENRIR_CLAW,
+  FENRIR_HOWL,
+  FIZBAN_ESCAPE,
+  FIZBAN_POTIONS,
   KING_EXPLOSION,
   KING_SLAM,
   KRAG_KICK,
@@ -62,7 +66,13 @@ export type MobEvent =
   | { type: "impact"; ability: "pounce" | "leap" | "slam"; at: Vec2 }
   | { type: "spin"; at: Vec2 }
   | { type: "crack"; from: Vec2; angle: number }
-  | { type: "blast"; at: Vec2 };
+  | { type: "blast"; at: Vec2 }
+  // Fizban: os 3 frascos caindo em volta de `target`; a fumaça do pulo de fuga em `at`. Fenrir: o uivo em `at`; o golpe
+  // de garra saindo de `from` na direção `angle`.
+  | { type: "potions"; target: Vec2 }
+  | { type: "smoke"; at: Vec2 }
+  | { type: "howl"; at: Vec2 }
+  | { type: "claw"; from: Vec2; angle: number };
 
 export interface ThinkingMob {
   position: Vec2;
@@ -343,7 +353,13 @@ function startAbility(
     const plan = abilityPlan(ability, gap, timers, ready(ability));
     if (!plan) continue;
     const aim =
-      ability === "leap" ? clampTo(position, target, SLIME_LEAP.range) : ability === "slam" ? clampTo(position, target, KING_SLAM.range) : { x: target.x, y: target.y };
+      ability === "leap"
+        ? clampTo(position, target, SLIME_LEAP.range)
+        : ability === "slam"
+          ? clampTo(position, target, KING_SLAM.range)
+          : ability === "escape"
+            ? awayFrom(position, target, FIZBAN_ESCAPE.distance)
+            : { x: target.x, y: target.y };
     const cooldowns = plan.cooldownMs ? { ...timers.cooldowns, [ability]: plan.cooldownMs } : timers.cooldowns;
     return {
       mind: { mode: "ability", ability, targetId: mind.targetId, phase: "prep", remainingMs: plan.prepMs, angle, aim, alert: mind.alert },
@@ -376,7 +392,22 @@ function abilityPlan(ability: MobAbility, gap: number, timers: MobTimers, ready:
       return ready && gap <= KING_SLAM.range ? { prepMs: KING_SLAM.crouchMs, cooldownMs: KING_SLAM.cooldownMs } : undefined;
     case "explosion":
       return ready && gap <= KING_EXPLOSION.max ? { prepMs: KING_EXPLOSION.warnMs, cooldownMs: KING_EXPLOSION.cooldownMs } : undefined;
+    case "potions":
+      return ready && gap <= FIZBAN_POTIONS.max ? { prepMs: FIZBAN_POTIONS.windupMs, cooldownMs: FIZBAN_POTIONS.cooldownMs } : undefined;
+    case "escape":
+      return ready && gap <= FIZBAN_ESCAPE.trigger ? { prepMs: FIZBAN_ESCAPE.crouchMs, cooldownMs: FIZBAN_ESCAPE.cooldownMs } : undefined;
+    case "howl":
+      return ready && gap <= FENRIR_HOWL.max ? { prepMs: FENRIR_HOWL.prepMs, cooldownMs: FENRIR_HOWL.cooldownMs } : undefined;
+    case "claws":
+      return ready && gap >= FENRIR_CLAW.min && gap <= FENRIR_CLAW.max ? { prepMs: FENRIR_CLAW.windupMs, cooldownMs: FENRIR_CLAW.cooldownMs } : undefined;
   }
+}
+
+// O ponto a `distance` px de `from`, para o lado oposto de `threat` (a fuga do Fizban).
+function awayFrom(from: Vec2, threat: Vec2, distance: number): Vec2 {
+  const d = Math.hypot(from.x - threat.x, from.y - threat.y);
+  const dir = d > 0 ? { x: (from.x - threat.x) / d, y: (from.y - threat.y) / d } : { x: 1, y: 0 };
+  return { x: from.x + dir.x * distance, y: from.y + dir.y * distance };
 }
 
 // O ponto `to`, trazido para no máximo `max` px de `from`.
@@ -452,6 +483,14 @@ function finishPrep(position: Vec2, mind: Extract<MobMind, { mode: "ability" }>,
       return { position, mind: recover(mind, KRAG_KICK.recoverMs), events: [{ type: "crack", from: position, angle: towards }] };
     case "explosion":
       return { position, mind: recover(mind, KING_EXPLOSION.recoverMs), events: [{ type: "blast", at: position }] };
+    case "potions":
+      return { position, mind: recover(mind, CAST_RECOVER_MS), events: [{ type: "potions", target: target ? { x: target.x, y: target.y } : mind.aim }] };
+    case "escape":
+      return { position, mind: { ...mind, phase: "act", remainingMs: FIZBAN_ESCAPE.airMs }, events: [{ type: "smoke", at: position }] };
+    case "howl":
+      return { position, mind: recover(mind, CAST_RECOVER_MS), events: [{ type: "howl", at: position }] };
+    case "claws":
+      return { position, mind: recover(mind, FENRIR_CLAW.recoverMs), events: [{ type: "claw", from: position, angle: towards }] };
   }
 }
 
@@ -486,6 +525,8 @@ function stepLeap(position: Vec2, mind: Extract<MobMind, { mode: "ability" }>, w
   const moved = followPath(position, [], mind.aim, flying, dtMs);
   const stuck = distance(moved.position, position) < 0.5 && left > 1;
   if (distance(moved.position, mind.aim) > 2 && remainingMs > 0 && !stuck) return { position: moved.position, mind: { ...mind, remainingMs } };
+  // O pulo de fuga do Fizban só pousa (a fumaça saiu na partida).
+  if (mind.ability === "escape") return { position: moved.position, mind: recover(mind, FIZBAN_ESCAPE.recoverMs) };
   const after = mind.ability === "pounce" ? WOLF_POUNCE.recoverMs : mind.ability === "slam" ? KING_SLAM.recoverMs : SLIME_LEAP.recoverMs;
   return { position: moved.position, mind: recover(mind, after), events: [{ type: "impact", ability: mind.ability as "pounce" | "leap" | "slam", at: moved.position }] };
 }

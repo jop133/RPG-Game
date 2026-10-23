@@ -31,6 +31,8 @@ const MOBS = [
 const BOSSES = [
   ["krag", "Krag, o Carrasco"],
   ["rei_slime", "Rei Slime Abissal"],
+  ["fizban", "Fizban, o Artífice"],
+  ["fenrir", "Fenrir, o Lobo Alfa"],
 ] as const;
 // Painel recolhido (só o título): lembrado neste navegador.
 const COLLAPSED_KEY = "rpg-extracao:devPanelCollapsed";

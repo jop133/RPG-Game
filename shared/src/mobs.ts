@@ -22,8 +22,23 @@ export interface MobStats {
   boss?: boolean;
 }
 
-// dash/throw: goblin; pounce: lobo; leap: slime; bolt/crystal: gnomo; tornado/kick: Krag; slam/explosion: Rei Slime.
-export type MobAbility = "dash" | "throw" | "pounce" | "leap" | "bolt" | "crystal" | "tornado" | "kick" | "slam" | "explosion";
+// dash/throw: goblin; pounce: lobo; leap: slime; bolt/crystal: gnomo; tornado/kick: Krag; slam/explosion: Rei Slime;
+// potions/escape: Fizban; howl/claws: Fenrir.
+export type MobAbility =
+  | "dash"
+  | "throw"
+  | "pounce"
+  | "leap"
+  | "bolt"
+  | "crystal"
+  | "tornado"
+  | "kick"
+  | "slam"
+  | "explosion"
+  | "potions"
+  | "escape"
+  | "howl"
+  | "claws";
 
 export interface MobSpawn {
   kind: MobKind;

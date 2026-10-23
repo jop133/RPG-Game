@@ -172,6 +172,8 @@ export const MOB_DROPS: Record<MobKind, DropEntry[]> = {
   // Minibosses: muitos cristais e a essência da zona com chance alta.
   krag: [{ item: "cristal_magico", chance: 1, min: 6, max: 10 }, { item: "essencia_goblin", chance: 0.5, min: 1, max: 1 }, { item: "racao", chance: 0.5, min: 1, max: 2 }],
   rei_slime: [{ item: "cristal_magico", chance: 1, min: 6, max: 10 }, { item: "essencia_slime", chance: 0.5, min: 1, max: 1 }, { item: "racao", chance: 0.5, min: 1, max: 2 }],
+  fizban: [{ item: "cristal_magico", chance: 1, min: 6, max: 10 }, { item: "essencia_gnomo", chance: 0.5, min: 1, max: 1 }, { item: "racao", chance: 0.5, min: 1, max: 2 }],
+  fenrir: [{ item: "cristal_magico", chance: 1, min: 6, max: 10 }, { item: "essencia_lobo", chance: 0.5, min: 1, max: 1 }, { item: "racao", chance: 0.5, min: 1, max: 2 }],
 };
 // Itens no chão: cada unidade que cai é um item à parte, a pelo menos MIN_DISTANCE px de qualquer outro (espiral em volta
 // de onde o mob morreu, sem entrar em parede nem passar por ela). O desenho sai pulando do lugar da morte por TWEEN_MS;
@@ -287,10 +289,13 @@ export const BEAR_FORM = {
   claws: { damage: 14, range: 32, arcDegrees: 110 },
 };
 // O que cada buff soma aos status enquanto dura (StatBonus, em stats.ts).
+// Os negativos: "frailty" (Lentidão e Fraqueza, das poções azuis do Fizban) e "howl_slow" (o Uivo do Fenrir).
 export const BUFF_BONUS = {
   bear: { maxHp: 60, defensePercent: 15, physicalDamage: 6 },
   stone_skin: { defensePercent: 25 },
   haste: { speedPercent: 35 },
+  frailty: { speedPercent: -40, physicalDamagePercent: -30 },
+  howl_slow: { speedPercent: -40 },
 } as const;
 
 // Ticks de simulação do servidor por segundo.
@@ -464,6 +469,37 @@ export const MOB_KINDS = {
     attackArcDegrees: 180,
     recoverMs: 900,
     abilities: ["explosion", "slam"],
+    boss: true,
+  },
+  // Fizban, o Artífice Corrompido: golpe de perto fraco, Arremesso de Poções (FIZBAN_POTIONS) e, quando alguém chega
+  // perto, o Pulo de Fuga com Fumaça (FIZBAN_ESCAPE).
+  fizban: {
+    size: 26,
+    speed: 68,
+    maxHp: 360,
+    aggroRadius: 256,
+    reach: 10,
+    windupMs: 700,
+    attackDamage: 18,
+    attackReach: 34,
+    attackArcDegrees: 110,
+    recoverMs: 800,
+    abilities: ["escape", "potions"],
+    boss: true,
+  },
+  // Fenrir, o Lobo Alfa Atroz: mordida pesada, o Uivo (FENRIR_HOWL) e o Ataque de Garras (FENRIR_CLAW).
+  fenrir: {
+    size: 30,
+    speed: 112,
+    maxHp: 460,
+    aggroRadius: 288,
+    reach: 10,
+    windupMs: 450,
+    attackDamage: 30,
+    attackReach: 34,
+    attackArcDegrees: 100,
+    recoverMs: 550,
+    abilities: ["howl", "claws"],
     boss: true,
   },
 } satisfies Record<string, MobStats>;
@@ -643,7 +679,33 @@ export const KING_EXPLOSION = { cooldownMs: 12000, max: 120, warnMs: 1400, radiu
 export const BOSS_SPAWNS: readonly { kind: MobKind; zone: ZoneId }[] = [
   { kind: "krag", zone: "goblin" },
   { kind: "rei_slime", zone: "slime" },
+  { kind: "fizban", zone: "gnomo" },
+  { kind: "fenrir", zone: "lobo" },
 ];
+// Fizban, Arremesso de Poções: com o alvo à vista a até MAX px, a cada COOLDOWN_MS, gira o braço por WINDUP_MS e 3
+// frascos caem do céu: um em cima do alvo e dois a SPREAD px em volta, cada um de um efeito (poison, burn, frailty,
+// sorteados). Cada frasco leva FALL_MS caindo (o círculo avisa); na queda, quem está a até RADIUS px leva
+// IMPACT_DAMAGE e o efeito, e fica uma fumaça da cor por CLOUD_MS que aplica o efeito em quem estiver nela.
+export const FIZBAN_POTIONS = { cooldownMs: 6500, max: 300, windupMs: 900, fallMs: 800, spread: { min: 70, max: 120 }, radius: 40, impactDamage: 8, cloudMs: 3500 };
+// Fizban, Pulo de Fuga: com alguém a até TRIGGER px (perto o bastante para golpeá-lo), a cada COOLDOWN_MS, agacha por
+// CROUCH_MS e salta DISTANCE px para longe dele em AIR_MS, deixando uma fumaça de cor sorteada (o mesmo efeito das
+// poções) de raio SMOKE_RADIUS por FIZBAN_POTIONS.cloudMs onde estava.
+export const FIZBAN_ESCAPE = { cooldownMs: 9000, trigger: 52, crouchMs: 350, airMs: 600, distance: 170, smokeRadius: 46, recoverMs: 500 };
+// Efeitos de status (Fizban): Veneno e Queimadura são dano por segundo (a queimadura também BURST na hora em que pega);
+// Lentidão e Fraqueza é o buff negativo "frailty" (BUFF_BONUS). Pegar de novo renova o tempo.
+export const AFFLICTIONS = {
+  poison: { dps: 5, durationMs: 5000 },
+  burn: { dps: 8, durationMs: 3000, burst: 6 },
+  frailty: { durationMs: 4000 },
+};
+// Fenrir, Uivo: com o alvo à vista a até MAX px, a cada COOLDOWN_MS, para e uiva por PREP_MS; no fim, todo jogador a
+// até RADIUS px é empurrado KNOCKBACK px e fica lento ("howl_slow") por SLOW_MS; o Fenrir fica SPEED_FACTOR x mais
+// rápido e golpeia ATTACK_FACTOR x mais rápido por HASTE_MS, e chama SUMMONS lobos ao lado (no máximo MAX_SUMMONS vivos).
+export const FENRIR_HOWL = { cooldownMs: 16000, max: 220, prepMs: 1100, radius: 140, knockback: 70, slowMs: 3000, hasteMs: 6000, speedFactor: 1.2, attackFactor: 1.2, summons: 2, maxSummons: 4 };
+// Fenrir, Garras: com o alvo à vista entre MIN e MAX px, a cada COOLDOWN_MS, prepara por WINDUP_MS e lança o golpe de
+// garra pelo chão na direção do alvo: anda a SPEED px/s até LENGTH px (ou a primeira parede); quem ele alcança, a até
+// WIDTH/2 px da linha, leva DAMAGE (uma vez).
+export const FENRIR_CLAW = { cooldownMs: 6000, min: 56, max: 320, windupMs: 900, speed: 440, length: 340, width: 40, damage: 28, lingerMs: 250, recoverMs: 600 };
 // Gnomo, conjurador: fica entre KEEP_MIN e KEEP_MAX px do alvo (perto demais, recua; encurralado, picareta). Conjura
 // por CAST_MS (a animação de mexer as mãos) cada ataque:
 // - Projétil (a cada BOLT_COOLDOWN_MS): BOLT_SPEED px/s, até BOLT_RANGE px, BOLT_DAMAGE mágico;

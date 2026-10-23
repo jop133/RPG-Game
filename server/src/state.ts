@@ -54,6 +54,9 @@ export const PlayerState = schema(
     // "reverting" (a explosão primal da volta).
     spirit: t.string(),
     form: t.string(),
+    // Público (desenho): os efeitos de status de agora, separados por espaço ("poison", "burn", "frailty",
+    // "howl_slow"); "" = nenhum.
+    status: t.string(),
   },
   "PlayerState",
 );
@@ -114,7 +117,9 @@ export type ProjectileState = SchemaType<typeof ProjectileState>;
 // "active"). O cliente desenha
 // cada fase; os tempos são os de LIGHTNING_SPELL e SWAMP_SPELL.
 // kind "crack": a rachadura do Chute Sísmico do Krag (fase "strike"), saindo de x, y na direção `angle` até `length` px
-// (onde ela para: o alcance ou a primeira parede). As outras magias deixam angle e length em 0.
+// (onde ela para: o alcance ou a primeira parede); "claw": o golpe de garra do Fenrir, igual. As outras deixam angle e
+// length em 0. "potion-<efeito>" (Fizban; "fall" → "cloud"): o frasco caindo e depois a fumaça da cor; "smoke-<efeito>"
+// ("cloud"): a fumaça do pulo de fuga. Efeito: poison, burn ou frailty.
 export const SpellState = schema(
   { kind: t.string(), x: t.number(), y: t.number(), phase: t.string(), angle: t.number(), length: t.number() },
   "SpellState",

@@ -1,11 +1,25 @@
 import Phaser from "phaser";
-import { KING_EXPLOSION, KING_SLAM, KRAG_KICK, KRAG_TORNADO, MOB_KINDS, type MobKind, type MobStats } from "shared";
+import {
+  FENRIR_CLAW,
+  FENRIR_HOWL,
+  FIZBAN_ESCAPE,
+  FIZBAN_POTIONS,
+  KING_EXPLOSION,
+  KING_SLAM,
+  KRAG_KICK,
+  KRAG_TORNADO,
+  MOB_KINDS,
+  type MobKind,
+  type MobStats,
+} from "shared";
 import bossArt from "../../assets/mobs/bosses.json";
 
 // Minibosses no cliente (só desenho; quem decide é o servidor). A arte (tools/assets/process_bosses.py) vem toda num
 // quadro só por chefe (canvas) com os pés na mesma linha, então uma origem serve para tudo: parado, andando e ações.
 // - Krag: "attack" (o golpe), "tornado-prep" (braços abertos), "tornado-act" (o tornado, em laço), "kick" (o chute);
-// - Rei Slime: "slam" (o pulo, uma direção só), "explosion" (a explosão, uma direção só).
+// - Rei Slime: "slam" (o pulo, uma direção só), "explosion" (a explosão, uma direção só);
+// - Fizban: "potions" (o braço do arremesso, a mesma arte do golpe), "escape" (o pulo de fuga);
+// - Fenrir: "howl" (o uivo), "claws" (o ataque de garras).
 // Avisos no chão: a linha do chute, o círculo do tornado, o da queda do pulo e o da explosão. Barra de vida grande
 // com o nome em cima, dourada.
 
@@ -24,6 +38,8 @@ export const BOSS_INFO = bossArt as Record<string, BossInfo>;
 export const BOSS_NAMES: Partial<Record<MobKind, string>> = {
   krag: "Krag, o Carrasco Hobgoblin",
   rei_slime: "Rei Slime Abissal",
+  fizban: "Fizban, o Artífice Corrompido",
+  fenrir: "Fenrir, o Lobo Alfa Atroz",
 };
 
 export function isBoss(kind: string): boolean {
@@ -43,6 +59,14 @@ export function bossActionAnim(kind: string, action: string, facing: string): { 
       return { key: `mobs/${kind}/jump`, ms: KING_SLAM.crouchMs + KING_SLAM.airMs };
     case "explosion":
       return { key: `mobs/${kind}/explosion`, ms: KING_EXPLOSION.warnMs + 150 };
+    case "potions":
+      return { key: `mobs/${kind}/attack-${facing}`, ms: FIZBAN_POTIONS.windupMs + 200 };
+    case "escape":
+      return { key: `mobs/${kind}/jump-${facing}`, ms: FIZBAN_ESCAPE.crouchMs + FIZBAN_ESCAPE.airMs };
+    case "howl":
+      return { key: `mobs/${kind}/howl-${facing}`, ms: FENRIR_HOWL.prepMs };
+    case "claws":
+      return { key: `mobs/${kind}/claw-${facing}`, ms: FENRIR_CLAW.windupMs + 250 };
     default:
       return undefined;
   }
@@ -50,7 +74,8 @@ export function bossActionAnim(kind: string, action: string, facing: string): { 
 
 // Uma volta do tornado (em laço enquanto dura).
 const TORNADO_LOOP_MS = 650;
-export const LOOPING_BOSS_ANIMS = /\/tornado$/;
+// Em laço: o tornado, as fumaças do Fizban e o golpe de garra voando.
+export const LOOPING_BOSS_ANIMS = /\/tornado$|\/smoke-|\/clawfx-/;
 
 const TELEGRAPH = 0xff1744;
 const FLATTEN = 0.55;
@@ -77,6 +102,14 @@ export function drawBossWarning(g: Phaser.GameObjects.Graphics, mob: { x: number
       return;
     case "explosion":
       ring(mob.x, mob.y, KING_EXPLOSION.radius);
+      return;
+    case "howl":
+      ring(mob.x, mob.y, FENRIR_HOWL.radius);
+      return;
+    case "claws": {
+      const end = { x: mob.x + Math.cos(mob.attackAngle) * FENRIR_CLAW.length, y: mob.y + Math.sin(mob.attackAngle) * FENRIR_CLAW.length };
+      g.lineStyle(FENRIR_CLAW.width, TELEGRAPH, pulse).lineBetween(mob.x, mob.y, end.x, end.y);
+    }
   }
 }
 

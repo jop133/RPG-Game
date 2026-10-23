@@ -111,5 +111,138 @@
     "feet": 128
    }
   }
+ },
+ "fizban": {
+  "canvas": 112,
+  "feet": 100,
+  "anims": {
+   "walk": {
+    "frame": 112,
+    "frames": {
+     "south": 6,
+     "south-east": 6,
+     "east": 6,
+     "north-east": 6,
+     "north": 6,
+     "north-west": 6,
+     "west": 6,
+     "south-west": 6
+    },
+    "feet": 100
+   },
+   "attack": {
+    "frame": 112,
+    "frames": {
+     "south": 7,
+     "south-east": 7,
+     "east": 7,
+     "north-east": 7,
+     "north": 7,
+     "north-west": 7,
+     "west": 7,
+     "south-west": 7
+    },
+    "feet": 100
+   },
+   "jump": {
+    "frame": 112,
+    "frames": {
+     "south": 9,
+     "south-east": 9,
+     "east": 9,
+     "north-east": 9,
+     "north": 9,
+     "north-west": 9,
+     "west": 9,
+     "south-west": 9
+    },
+    "feet": 100
+   },
+   "smoke": {
+    "frame": 48,
+    "frames": {
+     "poison": 9,
+     "burn": 9,
+     "frailty": 9
+    },
+    "feet": 24
+   }
+  }
+ },
+ "fenrir": {
+  "canvas": 112,
+  "feet": 100,
+  "anims": {
+   "walk": {
+    "frame": 112,
+    "frames": {
+     "south": 4,
+     "south-east": 4,
+     "east": 4,
+     "north-east": 4,
+     "north": 4,
+     "north-west": 4,
+     "west": 4,
+     "south-west": 4
+    },
+    "feet": 100
+   },
+   "attack": {
+    "frame": 112,
+    "frames": {
+     "south": 6,
+     "south-east": 6,
+     "east": 6,
+     "north-east": 6,
+     "north": 6,
+     "north-west": 6,
+     "west": 6,
+     "south-west": 6
+    },
+    "feet": 100
+   },
+   "howl": {
+    "frame": 112,
+    "frames": {
+     "south": 9,
+     "south-east": 9,
+     "east": 9,
+     "north-east": 9,
+     "north": 9,
+     "north-west": 9,
+     "west": 9,
+     "south-west": 9
+    },
+    "feet": 100
+   },
+   "claw": {
+    "frame": 112,
+    "frames": {
+     "south": 9,
+     "south-east": 9,
+     "east": 9,
+     "north-east": 9,
+     "north": 9,
+     "north-west": 9,
+     "west": 9,
+     "south-west": 9
+    },
+    "feet": 100
+   },
+   "clawfx": {
+    "frame": 48,
+    "frames": {
+     "south": 9,
+     "south-east": 9,
+     "east": 9,
+     "north-east": 9,
+     "north": 9,
+     "north-west": 9,
+     "west": 9,
+     "south-west": 9
+    },
+    "feet": 24
+   }
+  }
  }
 }

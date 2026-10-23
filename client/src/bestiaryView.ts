@@ -13,7 +13,7 @@ const CARD_GAP = 5;
 const CARDS_TOP = 34;
 const SPRITE = 64;
 const DROP_ICON = 16;
-const MOB_TITLES: Record<MobKind, string> = { lobo: "Lobo", gnomo: "Gnomo", slime: "Slime", goblin: "Goblin", krag: "Krag", rei_slime: "Rei Slime" };
+const MOB_TITLES: Record<MobKind, string> = { lobo: "Lobo", gnomo: "Gnomo", slime: "Slime", goblin: "Goblin", krag: "Krag", rei_slime: "Rei Slime", fizban: "Fizban", fenrir: "Fenrir" };
 
 class MobCard {
   private readonly root: HTMLDivElement;

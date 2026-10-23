@@ -1183,6 +1183,20 @@ Slot vazio usa a moldura comum.
 
 ---
 
+## 2026-10 — Minibosses: Fizban, o Artífice Corrompido, e Fenrir, o Lobo Alfa Atroz; efeitos de status
+
+**Pedido do dono do projeto (Etapa 4B):** Fizban no meio da zona dos gnomos (golpe de perto, Arremesso de Poções: 3 frascos caindo do céu, um em cima do jogador, verde = veneno, laranja = queimadura, azul = lentidão e fraqueza, com fumaça da cor; Pulo de Fuga, de vez em quando, quando alguém o ataca de perto, deixando fumaça de cor sorteada). Fenrir no meio da zona dos lobos (mordida, Uivo: lentidão e empurrão em volta, +20% de velocidade e de velocidade de ataque, chama 2 lobos; Garras: o efeito da garra corre pelo chão e fere quem está no caminho). A fumaça cinza pintada nas 3 cores no script.
+
+**Como ficou:**
+- `tools/assets/process_bosses.py` ganhou os dois, no mesmo esquema (quadro de 112 px, pés na mesma linha). A fumaça é pintada mapeando o brilho de cada pixel num degradê escuro → claro da cor (o alfa fica igual, e o sombreamento junto): `smoke-poison`, `smoke-burn`, `smoke-frailty`. Os frascos (`flask-<efeito>`) e o efeito da garra voando (`clawfx-<direção>`, das 8 pastas `garraefeitoanimacao_*`).
+- **Efeitos de status** (`AFFLICTIONS` em `balance.ts`): Veneno (5/s por 5 s, dano verdadeiro) e Queimadura (6 na hora + 8/s por 3 s, mágico) são dano por tick no servidor; Lentidão e Fraqueza é o buff negativo `frailty` (−40% de Velocidade e −30% de Dano Físico, por 4 s), no mesmo sistema de buffs da Etapa 3 — para isso o status `physicalDamagePercent` entrou em `StatBonus`. O Uivo usa o buff negativo `howl_slow` (−40% de Velocidade por 3 s). `PlayerState.status` (público) diz os efeitos de agora: o cliente solta partículas da cor de cada um no corpo.
+- Fizban (`FIZBAN_POTIONS`, `FIZBAN_ESCAPE`): os 3 frascos caem em 0,8 s (o círculo da cor avisa); quem está a 40 px leva 8 e o efeito; fica a fumaça 3,5 s aplicando o efeito em quem estiver nela. O Pulo de Fuga dispara quando alguém está a até 52 px dele (perto o bastante para golpeá-lo; a IA do mob não sabe quem o acertou), a cada 9 s: deixa a fumaça onde estava e salta 170 px para longe.
+- Fenrir (`FENRIR_HOWL`, `FENRIR_CLAW`): o Uivo (a cada 16 s) empurra 70 px e deixa lento quem está a 140 px, dá a ele 1,2x de velocidade e de ataque por 6 s (fica vermelho, como o frenesi dos lobos) e chama 2 lobos comuns ao lado, já caçando o alvo (no máximo 4 chamados vivos). As Garras usam a mesma linha andando pelo chão da rachadura do Krag (generalizada: `startLine`), 440 px/s até 340 px, 28 de dano.
+
+**Escolhas minhas (avise se quiser diferente):** os números dos efeitos e dos chefes; "quando o atacam de perto" virou "quando alguém está a distância de golpe"; as poções e a fumaça ferem só jogadores.
+
+---
+
 ## 2026-10 — Minibosses: Krag, o Carrasco Hobgoblin, e Rei Slime Abissal
 
 **Pedido do dono do projeto (Etapa 4A):** um miniboss no meio do acampamento da zona goblin (Krag) e um no da zona dos slimes (Rei Slime), com porte, vida, barra destacada e recompensa de chefe. Krag: anda, golpeia, Tornado (pose de braços abertos ~0,5 s, vira tornado que persegue e fere em área, volta a ser o Krag) e Chute Sísmico (a rachadura corre pelo chão na direção do chute e fere quem está na linha). Rei Slime: anda (4 direções), o ataque normal é o pulo com impacto em área grande, e a Explosão com aviso, em área grande em volta dele.

@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { GNOME_CASTER, KRAG_KICK, LIGHTNING_SPELL, PLAYER_SIZE, SPELL_FLATTEN, SWAMP_SPELL, type Vec2 } from "shared";
+import { FENRIR_CLAW, FIZBAN_ESCAPE, FIZBAN_POTIONS, GNOME_CASTER, KRAG_KICK, LIGHTNING_SPELL, PLAYER_SIZE, SPELL_FLATTEN, SWAMP_SPELL, type Vec2 } from "shared";
 import magicArt from "../../assets/spells/magic.json";
 import type { Light, LightLook } from "./lighting";
 import type { Particles } from "./particles";
@@ -17,6 +17,10 @@ import type { Particles } from "./particles";
 // - Chute Sísmico do Krag ("crack", fase "strike"): pedaços da rachadura (mobs/krag/crack-<direção>, na direção do
 //   chute) brotando um atrás do outro ao longo da linha, na velocidade em que o servidor a faz andar (KRAG_KICK.speed),
 //   até `length`; somem quando o servidor a tira.
+// - Garras do Fenrir ("claw"): o golpe de garra (mobs/fenrir/clawfx-<direção>, em laço) correndo pela linha a
+//   FENRIR_CLAW.speed até `length`, e apagando no fim.
+// - Poções do Fizban ("potion-<efeito>"): "fall" = o círculo da cor no chão e o frasco caindo do céu; "cloud" = a fumaça
+//   da cor (mobs/fizban/smoke-<efeito>, em laço) do tamanho da área, apagando no fim. "smoke-<efeito>": só a fumaça.
 // Círculos e poça ficam na altura do chão (por baixo dos pés de todo mundo); o raio fica por cima de quem está ali.
 
 export interface SpellView extends Vec2 {
@@ -31,6 +35,13 @@ export interface SpellView extends Vec2 {
 const CRACK_SPACING = 48;
 const CRACK_ANIM_MS = 450;
 const CRACK_DIRECTIONS = ["east", "south-east", "south", "south-west", "west", "north-west", "north", "north-east"];
+// Poções e fumaças do Fizban: a cor de cada efeito, de onde o frasco cai (px acima), o tamanho da fumaça (a arte tem
+// ~45 px de largura) e o quanto ela apaga no fim.
+const POTION_COLORS: Record<string, number> = { poison: 0x7ed957, burn: 0xff8a1f, frailty: 0x4a90ff };
+const POTION_DROP_PX = 240;
+const SMOKE_ART_PX = 45;
+const SMOKE_FADE_MS = 500;
+const CLAW_FADE_MS = 200;
 
 const DIRECTIONS = ["south", "south-east", "east", "north-east", "north", "north-west", "west", "south-west"];
 const square = (size: number) => ({ frameWidth: size, frameHeight: size });
@@ -88,6 +99,9 @@ interface Drawn {
   mud?: Phaser.GameObjects.Sprite;
   spike?: Phaser.GameObjects.Image;
   crack?: { pieces: Phaser.GameObjects.Sprite[]; angle: number; length: number };
+  flask?: Phaser.GameObjects.Image;
+  warning?: Phaser.GameObjects.Ellipse;
+  smoke?: Phaser.GameObjects.Sprite;
   x: number;
   y: number;
 }
@@ -112,7 +126,7 @@ export class SpellEffects {
         d = { kind: spell.kind, phase: "", phaseAt: time, x: spell.x, y: spell.y };
         this.drawn.set(id, d);
       }
-      if (d.kind === "crack" && !d.crack) d.crack = { pieces: [], angle: spell.angle ?? 0, length: spell.length ?? 0 };
+      if ((d.kind === "crack" || d.kind === "claw") && !d.crack) d.crack = { pieces: [], angle: spell.angle ?? 0, length: spell.length ?? 0 };
       if (d.phase !== spell.phase) this.enter(d, spell.phase, time);
       this.animate(d, time);
     });
@@ -160,7 +174,11 @@ export class SpellEffects {
   private enter(d: Drawn, phase: string, time: number) {
     d.phase = phase;
     d.phaseAt = time;
-    if (d.kind === "crack") return;
+    if (d.kind === "crack" || d.kind === "claw") return;
+    if (d.kind.startsWith("potion-") || d.kind.startsWith("smoke-")) {
+      this.enterPotion(d, phase, time);
+      return;
+    }
     if (d.kind === "crystal") {
       this.enterCrystal(d, phase, time);
       return;
@@ -239,8 +257,65 @@ export class SpellEffects {
     }
   }
 
+  // Frasco caindo: o círculo da cor no chão e o frasco descendo do céu. Fumaça: a da cor, do tamanho da área.
+  private enterPotion(d: Drawn, phase: string, time: number) {
+    const effect = d.kind.slice(d.kind.indexOf("-") + 1);
+    const color = POTION_COLORS[effect] ?? 0xffffff;
+    const radius = d.kind.startsWith("potion-") ? FIZBAN_POTIONS.radius : FIZBAN_ESCAPE.smokeRadius;
+    if (phase === "fall") {
+      d.warning = this.scene.add.ellipse(d.x, d.y, radius * 2, radius * 2 * SPELL_FLATTEN, color, 0.3).setStrokeStyle(2, color, 0.9).setDepth(this.groundDepth + 0.01);
+      d.flask = this.scene.add.image(d.x, d.y - POTION_DROP_PX, `mobs/fizban/flask-${effect}`).setScale(0.7).setDepth(this.sortDepth(d.y + 1));
+      return;
+    }
+    if (phase !== "cloud") return;
+    d.warning?.destroy();
+    d.warning = undefined;
+    d.flask?.destroy();
+    d.flask = undefined;
+    const key = `mobs/fizban/smoke-${effect}`;
+    const scale = ((radius * 2) / SMOKE_ART_PX) * 1.15;
+    d.smoke = this.scene.add.sprite(d.x, d.y + radius * 0.3, key).setOrigin(0.5, 0.8).setScale(scale).setDepth(this.sortDepth(d.y + 2));
+    if (this.scene.anims.exists(key)) d.smoke.play(key);
+    this.particles?.explode(d.x, d.y - 8, [color, 0xffffff, color], time);
+  }
+
+  private animatePotion(d: Drawn, time: number) {
+    const t = time - d.phaseAt;
+    if (d.flask) {
+      const p = Math.min(1, t / FIZBAN_POTIONS.fallMs);
+      d.flask.setPosition(d.x, d.y - POTION_DROP_PX * (1 - p * p)).setRotation(p * Math.PI * 3);
+      d.warning?.setFillStyle(d.warning.fillColor, 0.2 + 0.2 * p);
+    }
+    if (d.smoke) {
+      const left = FIZBAN_POTIONS.cloudMs - t;
+      d.smoke.setAlpha(Math.max(0, Math.min(0.9, left / SMOKE_FADE_MS)));
+    }
+  }
+
+  // O golpe de garra do Fenrir: um sprite só correndo pela linha; no fim, apaga.
+  private animateClaw(d: Drawn, time: number) {
+    const crack = d.crack;
+    if (!crack) return;
+    const octant = Math.round(crack.angle / (Math.PI / 4));
+    const key = `mobs/fenrir/clawfx-${CRACK_DIRECTIONS[((octant % 8) + 8) % 8] ?? "east"}`;
+    if (crack.pieces.length === 0) {
+      if (!this.scene.textures.exists(key)) return;
+      const piece = this.scene.add.sprite(d.x, d.y, key).setScale(1.4).setDepth(this.sortDepth(d.y + 1));
+      if (this.scene.anims.exists(key)) piece.play(key);
+      crack.pieces.push(piece);
+    }
+    const piece = crack.pieces[0];
+    if (!piece) return;
+    const travel = (FENRIR_CLAW.speed * (time - d.phaseAt)) / 1000;
+    const along = Math.min(crack.length, travel);
+    piece.setPosition(d.x + Math.cos(crack.angle) * along, d.y + Math.sin(crack.angle) * along - 10);
+    if (travel > crack.length) piece.setAlpha(Math.max(0, 1 - ((travel - crack.length) / FENRIR_CLAW.speed) * (1000 / CLAW_FADE_MS)));
+  }
+
   private animate(d: Drawn, time: number) {
     if (d.kind === "crack") return this.animateCrack(d, time);
+    if (d.kind === "claw") return this.animateClaw(d, time);
+    if (d.flask || d.smoke) return this.animatePotion(d, time);
     if (d.kind === "crystal") return this.animateCrystal(d, time);
     const t = (time - d.phaseAt) / 1000;
     if (d.runeImage && d.rune) {
@@ -272,6 +347,9 @@ export class SpellEffects {
   private clear(d: Drawn) {
     d.spike?.destroy();
     for (const piece of d.crack?.pieces ?? []) piece.destroy();
+    d.flask?.destroy();
+    d.warning?.destroy();
+    d.smoke?.destroy();
     d.rune?.destroy();
     d.earth?.destroy();
     d.strike?.destroy();
