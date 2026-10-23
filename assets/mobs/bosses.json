@@ -1,0 +1,115 @@
+{
+ "krag": {
+  "canvas": 112,
+  "feet": 100,
+  "anims": {
+   "walk": {
+    "frame": 112,
+    "frames": {
+     "south": 8,
+     "south-east": 8,
+     "east": 8,
+     "north-east": 8,
+     "north": 8,
+     "north-west": 8,
+     "west": 8,
+     "south-west": 8
+    },
+    "feet": 100
+   },
+   "attack": {
+    "frame": 112,
+    "frames": {
+     "south": 6,
+     "south-east": 6,
+     "east": 6,
+     "north-east": 6,
+     "north": 6,
+     "north-west": 6,
+     "west": 6,
+     "south-west": 6
+    },
+    "feet": 100
+   },
+   "kick": {
+    "frame": 112,
+    "frames": {
+     "south": 7,
+     "south-east": 7,
+     "east": 7,
+     "north-east": 7,
+     "north": 7,
+     "north-west": 7,
+     "west": 7,
+     "south-west": 7
+    },
+    "feet": 100
+   },
+   "openarm": {
+    "frame": 112,
+    "frames": {
+     "south": 1,
+     "south-east": 1,
+     "east": 1,
+     "north-east": 1,
+     "north": 1,
+     "north-west": 1,
+     "west": 1,
+     "south-west": 1
+    },
+    "feet": 100
+   },
+   "crack": {
+    "frame": 68,
+    "frames": {
+     "south": 9,
+     "south-east": 9,
+     "east": 9,
+     "north-east": 9,
+     "north": 9,
+     "north-west": 9,
+     "west": 9,
+     "south-west": 9
+    },
+    "feet": 34
+   },
+   "tornado": {
+    "frame": 112,
+    "frames": {
+     "all": 9
+    },
+    "feet": 100
+   }
+  }
+ },
+ "rei_slime": {
+  "canvas": 144,
+  "feet": 128,
+  "anims": {
+   "walk": {
+    "frame": 144,
+    "frames": {
+     "south": 8,
+     "east": 8,
+     "north": 8,
+     "west": 8
+    },
+    "feet": 128
+   },
+   "jump": {
+    "frame": 144,
+    "frames": {
+     "all": 9
+    },
+    "feet": 128
+   },
+   "explosion": {
+    "frame": 144,
+    "frames": {
+     "all": 9
+    },
+    "feet": 128
+   }
+  }
+ }
+}

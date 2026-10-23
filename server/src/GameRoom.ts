@@ -13,6 +13,11 @@ import {
   GNOME_CASTER,
   GOBLIN_THROW,
   SLIME_LEAP,
+  KING_EXPLOSION,
+  KING_SLAM,
+  KRAG_KICK,
+  KRAG_TORNADO,
+  BOSS_SPAWNS,
   SLIME_SPLIT,
   SPELL_FLATTEN,
   WOLF_POUNCE,
@@ -123,6 +128,7 @@ import {
   type Buff,
   ICE_BARRIER,
   placeBarrier,
+  isSolid,
   withBlockedCells,
   cellOf,
   cellCenter,
@@ -223,6 +229,7 @@ function actionOf(mind: MobMind): string {
   if (mind.mode === "windup") return "attack";
   if (mind.mode !== "ability") return "";
   if (mind.ability === "pounce") return `pounce-${mind.phase}`;
+  if (mind.ability === "tornado") return `tornado-${mind.phase}`;
   if (mind.ability === "bolt" || mind.ability === "crystal") return "cast";
   return mind.ability;
 }
@@ -366,6 +373,10 @@ export class GameRoom extends Room<{ state: GameState }> {
   // tempo que falta da fase (de pé até sumir; quebrando até sair do estado). mobGrid: a grade dos mobs, o mapa com os
   // tiles das barreiras de pé como parede (refeita quando uma barreira sobe ou quebra); sem barreira, a do mapa.
   private barriers = new Map<string, { cells: number[]; remainingMs: number }>();
+  // Chefes: as rachaduras do Krag andando (a ponta, quem já levou, quanto fica no chão depois) e o último dano do
+  // tornado em cada jogador ("<mob>:<jogador>" -> ms).
+  private cracks = new Map<string, { kind: MobKind; from: Vec2; angle: number; length: number; traveled: number; hit: Set<string>; lingerMs: number }>();
+  private spinHits = new Map<string, number>();
   // Buffs de habilidade ativos de cada um e até quando (ms do relógio da sala): Forma de Urso, Pele de Pedra, Rajada.
   // E a fase da forma do Homem-Fera que acaba sozinha (a pose e a volta) e quando.
   private buffs = new Map<string, Map<Buff, number>>();
@@ -406,6 +417,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (DEV_TOOLS) this.onMessage("dev_command", (client, message) => this.handleDev(client.sessionId, message));
     if (DEV_TOOLS) this.onMessage("dev_hello", (client) => client.send("dev_tools", { room: this.roomKind() }));
     this.spawnMobs();
+    if (!this.sandbox) this.spawnBosses();
     this.openExits();
     this.placeHazards();
     if (this.sandbox) this.spawnTrainingDummy();
@@ -845,7 +857,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       const remainingMs = lightning ? LIGHTNING_SPELL.warnMs : SWAMP_SPELL.castMs;
       const damage = LIGHTNING_SPELL.baseDamage + magicDamage;
       this.spells.set(id, { kind: skill, owner: sessionId, phase, remainingMs, damage });
-      this.state.spells.set(id, new SpellState({ kind: skill, x: at.x, y: at.y, phase }));
+      this.state.spells.set(id, new SpellState({ kind: skill, x: at.x, y: at.y, phase, angle: 0, length: 0 }));
     }
     this.lastSpellMs.set(sessionId, { ...last, [skill]: now });
     // Conjurar também trava no lugar.
@@ -1371,6 +1383,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.tickSpells(dtMs);
     this.tickBarriers(dtMs);
     this.tickForms();
+    this.tickCracks(dtMs);
     this.resolveDeaths();
     this.updateExits(dtMs);
     this.updateViews();
@@ -1451,7 +1464,15 @@ export class GameRoom extends Room<{ state: GameState }> {
     if (event.type === "crystal") {
       const spellId = `spell-${this.nextSpellId++}`;
       this.spells.set(spellId, { kind: "crystal", owner: id, phase: "warn", remainingMs: GNOME_CASTER.crystalWarnMs, damage: GNOME_CASTER.crystalDamage, hostile: true });
-      this.state.spells.set(spellId, new SpellState({ kind: "crystal", x: event.at.x, y: event.at.y, phase: "warn" }));
+      this.state.spells.set(spellId, new SpellState({ kind: "crystal", x: event.at.x, y: event.at.y, phase: "warn", angle: 0, length: 0 }));
+      return;
+    }
+    if (event.type === "spin") return this.spinHit(id, kind, event.at);
+    if (event.type === "crack") return this.startCrack(kind, event.from, event.angle);
+    if (event.type === "blast") return this.areaHit(kind, event.at, KING_EXPLOSION.radius, KING_EXPLOSION.damage);
+    if (event.ability === "slam") {
+      this.areaHit(kind, event.at, KING_SLAM.hitRadius, KING_SLAM.damage);
+      this.addTempAcid(event.at, KING_SLAM.acidMs);
       return;
     }
     const leap = event.ability === "leap";
@@ -1465,6 +1486,88 @@ export class GameRoom extends Room<{ state: GameState }> {
       if (!leap) this.pounceSlowUntil.set(sessionId, now + WOLF_POUNCE.slowMs);
     });
     if (leap) this.addTempAcid(event.at, SLIME_LEAP.acidMs);
+  }
+
+  // Dano de área de um chefe (o Pulo Esmagador e a Explosão do Rei Slime): todo jogador a até `radius` px leva o dano e
+  // cambaleia.
+  private areaHit(kind: MobKind, at: Vec2, radius: number, damage: number) {
+    const now = this.clock.currentTime;
+    this.state.players.forEach((player, sessionId) => {
+      if (Math.hypot(player.x - at.x, player.y - at.y) > radius + PLAYER_SIZE / 2) return;
+      this.damagePlayer(sessionId, player, damage, { kind: "mob", mob: kind }, "physical");
+      this.staggerUntil.set(sessionId, now + STAGGER.durationMs);
+    });
+  }
+
+  // Tornado do Krag: quem está a até KRAG_TORNADO.hitRadius px leva o dano, no máximo uma vez a cada hitEveryMs.
+  private spinHit(mobId: string, kind: MobKind, at: Vec2) {
+    const now = this.clock.currentTime;
+    this.state.players.forEach((player, sessionId) => {
+      if (Math.hypot(player.x - at.x, player.y - at.y) > KRAG_TORNADO.hitRadius + PLAYER_SIZE / 2) return;
+      const key = `${mobId}:${sessionId}`;
+      if (now - (this.spinHits.get(key) ?? -Infinity) < KRAG_TORNADO.hitEveryMs) return;
+      this.spinHits.set(key, now);
+      this.damagePlayer(sessionId, player, KRAG_TORNADO.damage, { kind: "mob", mob: kind }, "physical");
+    });
+  }
+
+  // Chute Sísmico: a rachadura vai até KRAG_KICK.length px ou até a primeira parede (o chão dela é medido agora).
+  private startCrack(kind: MobKind, from: Vec2, angle: number) {
+    const grid = this.level.grid;
+    let length = 0;
+    while (length < KRAG_KICK.length) {
+      const next = length + 8;
+      const x = from.x + Math.cos(angle) * next;
+      const y = from.y + Math.sin(angle) * next;
+      if (isSolid(grid, Math.floor(x / grid.tileSize), Math.floor(y / grid.tileSize))) break;
+      length = next;
+    }
+    const id = `spell-${this.nextSpellId++}`;
+    this.cracks.set(id, { kind, from: { x: from.x, y: from.y }, angle, length, traveled: 0, hit: new Set(), lingerMs: KRAG_KICK.lingerMs });
+    this.state.spells.set(id, new SpellState({ kind: "crack", x: from.x, y: from.y, phase: "strike", angle, length }));
+  }
+
+  // Cada tick: a ponta de cada rachadura anda; quem ela alcança (perto da linha, até a ponta) leva o dano, uma vez.
+  // Chegou ao fim: fica lingerMs no chão e sai.
+  private tickCracks(dtMs: number) {
+    const now = this.clock.currentTime;
+    for (const [id, crack] of this.cracks) {
+      if (crack.traveled >= crack.length) {
+        crack.lingerMs -= dtMs;
+        if (crack.lingerMs <= 0) {
+          this.cracks.delete(id);
+          this.state.spells.delete(id);
+        }
+        continue;
+      }
+      crack.traveled = Math.min(crack.length, crack.traveled + (KRAG_KICK.speed * dtMs) / 1000);
+      const dx = Math.cos(crack.angle);
+      const dy = Math.sin(crack.angle);
+      this.state.players.forEach((player, sessionId) => {
+        if (crack.hit.has(sessionId)) return;
+        const px = player.x - crack.from.x;
+        const py = player.y - crack.from.y;
+        const along = px * dx + py * dy;
+        const across = Math.abs(px * dy - py * dx);
+        if (along < 0 || along > crack.traveled || across > KRAG_KICK.width / 2 + PLAYER_SIZE / 2) return;
+        crack.hit.add(sessionId);
+        this.damagePlayer(sessionId, player, KRAG_KICK.damage, { kind: "mob", mob: crack.kind }, "physical");
+        this.staggerUntil.set(sessionId, now + STAGGER.durationMs);
+      });
+    }
+  }
+
+  // Minibosses: um de cada, no meio da zona dele (BOSS_SPAWNS), parado no posto até alguém chegar perto.
+  private spawnBosses() {
+    for (const { kind, zone } of BOSS_SPAWNS) {
+      const at = this.zoneCenter(zone);
+      if (!at) continue;
+      const area = areaAt(this.level.areas, at) ?? this.level.areas[0];
+      if (!area) continue;
+      const cells = this.level.floorCells.get(area.name) ?? [];
+      const post: MobPost = { home: { x: at.x, y: at.y }, plan: { kind: "still" } };
+      this.addMob(kind, at, { kind, area, homeCells: cells, mind: { mode: "idle", path: [], waitMs: 0, leg: 0 }, post });
+    }
   }
 
   // Slimes explodindo: acabou a explosão, saem e soltam os 2 minis (um para cada lado), já caçando quem matou.

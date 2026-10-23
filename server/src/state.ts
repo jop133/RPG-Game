@@ -113,7 +113,12 @@ export type ProjectileState = SchemaType<typeof ProjectileState>;
 // Magia lançada no chão: kind "lightning" e "crystal" (do gnomo) (fases "warn" → "strike") ou "swamp" ("cast" →
 // "active"). O cliente desenha
 // cada fase; os tempos são os de LIGHTNING_SPELL e SWAMP_SPELL.
-export const SpellState = schema({ kind: t.string(), x: t.number(), y: t.number(), phase: t.string() }, "SpellState");
+// kind "crack": a rachadura do Chute Sísmico do Krag (fase "strike"), saindo de x, y na direção `angle` até `length` px
+// (onde ela para: o alcance ou a primeira parede). As outras magias deixam angle e length em 0.
+export const SpellState = schema(
+  { kind: t.string(), x: t.number(), y: t.number(), phase: t.string(), angle: t.number(), length: t.number() },
+  "SpellState",
+);
 export type SpellState = SchemaType<typeof SpellState>;
 
 // Barreira de Gelo (ICE_BARRIER): o centro, a direção (múltiplo de 45°: o cliente escolhe a arte das 8 direções), a vida

@@ -18,10 +18,12 @@ export interface MobStats {
   chaseSpeedFactor?: number;
   // Ataques especiais (mobAi.ts; os números em balance.ts).
   abilities?: readonly MobAbility[];
+  // Miniboss: barra de vida destacada com o nome, recompensa maior, nasce sozinho no acampamento.
+  boss?: boolean;
 }
 
-// dash/throw: goblin; pounce: lobo; leap: slime; bolt/crystal: gnomo.
-export type MobAbility = "dash" | "throw" | "pounce" | "leap" | "bolt" | "crystal";
+// dash/throw: goblin; pounce: lobo; leap: slime; bolt/crystal: gnomo; tornado/kick: Krag; slam/explosion: Rei Slime.
+export type MobAbility = "dash" | "throw" | "pounce" | "leap" | "bolt" | "crystal" | "tornado" | "kick" | "slam" | "explosion";
 
 export interface MobSpawn {
   kind: MobKind;

@@ -114,6 +114,7 @@ import { Particles } from "./particles";
 import { Bolts, FIREBALL_FPS, FIREBALL_KEY, type ProjectileView } from "./projectiles";
 import { MUD_FPS, MUD_KEY, SPELL_SHEETS, STRIKE_FPS, STRIKE_KEY, SpellEffects, type SpellView } from "./spells";
 import { Barriers, type BarrierView } from "./barriers";
+import { BOSS_INFO, BossBars, LOOPING_BOSS_ANIMS, bossActionAnim, drawBossWarning, isBoss } from "./bosses";
 import { POSE_APEX, POSE_FEET, POSE_KEY, PrimalBursts, Spirits, createFormAnimations, loadFormAssets } from "./forms";
 import { ZoneEffects, type HazardView } from "./zoneEffects";
 import { openRegistration, type Registration } from "./registration";
@@ -257,7 +258,8 @@ const MOB_URLS = Object.entries(
 ).map(([path, url]) => ({ key: path.slice(path.indexOf("mobs/"), -".png".length), url }));
 // Ataque, pulo e morte (process_mobs.py): fitas com o quadro de cada uma (assets/mobs/anims.json). Os efeitos dos
 // ataques (mobs/efeitos/: adaga, círculo e cristal) são imagens soltas.
-const MOB_ACTION_RE = /\/(attack|jump)-|\/death$/;
+// Chefes (process_bosses.py): chute, braços abertos e rachadura por direção; tornado, pulo e explosão numa só.
+const MOB_ACTION_RE = /\/(attack|jump|kick|openarm|crack)-|\/(death|tornado|jump|explosion)$/;
 const MOB_IDLE_URLS = MOB_URLS.filter(({ key }) => !key.includes("/walk-") && !MOB_ACTION_RE.test(key));
 const MOB_ACTION_URLS = MOB_URLS.filter(({ key }) => MOB_ACTION_RE.test(key));
 interface MobAnimInfo {
@@ -265,7 +267,11 @@ interface MobAnimInfo {
   frames: Record<string, number>;
   feet: number;
 }
-const MOB_ANIMS = mobAnims as Record<string, Record<string, MobAnimInfo>>;
+// As dos mobs comuns (anims.json) e as dos chefes (bosses.json, em arquivo à parte: process_mobs.py reescreve o outro).
+const MOB_ANIMS: Record<string, Record<string, MobAnimInfo>> = {
+  ...(mobAnims as Record<string, Record<string, MobAnimInfo>>),
+  ...Object.fromEntries(Object.entries(BOSS_INFO).map(([kind, info]) => [kind, info.anims])),
+};
 // Itens no chão (tools/assets/process_loot.py): a fita de cada um ("loot/cristal", "loot/essencia") e a animação em laço
 // (crystal_ground_anim, essence_ground_anim). Cada item de drop aponta para a sua.
 const LOOT_URLS = Object.entries(
@@ -415,15 +421,19 @@ const MOB_FRAME = 64;
 // Linha dos pés parado (de 64) e andando (de 96, mediana dos quadros), altura do bicho e largura da sombra, medidas
 // nas imagens. O pivô fica nos pés nas duas folhas (como nas classes): trocar de parado para andando não pula.
 // A altura põe a barra de vida acima da cabeça. Desenhados em 1:1. Slime não anda: sem walkFeet.
-const MOB_ART: Record<MobKind, { feet: number; walkFeet?: number; height: number; shadow: number }> = {
+// frame: lado do quadro de tudo do tipo (os chefes; os comuns têm parado 64 e caminhada 96).
+type MobArt = { feet: number; walkFeet?: number; height: number; shadow: number; frame?: number };
+const MOB_ART: Record<MobKind, MobArt> = {
   goblin: { feet: 61, walkFeet: 77, height: 59, shadow: 28 },
   lobo: { feet: 62, walkFeet: 78, height: 60, shadow: 36 },
   gnomo: { feet: 61, walkFeet: 78, height: 60, shadow: 24 },
   slime: { feet: 58, height: 44, shadow: 40 },
+  krag: { feet: BOSS_INFO.krag?.feet ?? 100, walkFeet: BOSS_INFO.krag?.feet ?? 100, frame: BOSS_INFO.krag?.canvas ?? 112, height: 86, shadow: 46 },
+  rei_slime: { feet: BOSS_INFO.rei_slime?.feet ?? 128, walkFeet: BOSS_INFO.rei_slime?.feet ?? 128, frame: BOSS_INFO.rei_slime?.canvas ?? 144, height: 84, shadow: 80 },
 };
 // Boneco de Treino (só de dev): desenhado no código (createDummyTexture), com os pés na linha 60 do quadro de 64.
 const DUMMY_ART = { feet: 60, height: 56, shadow: 30 };
-function mobArt(kind: string): { feet: number; walkFeet?: number; height: number; shadow: number } {
+function mobArt(kind: string): MobArt {
   return Object.hasOwn(MOB_ART, kind) ? MOB_ART[kind as MobKind] : DUMMY_ART;
 }
 
@@ -432,6 +442,8 @@ function mobArt(kind: string): { feet: number; walkFeet?: number; height: number
 // salto, a explosão dura a morte inteira.
 function mobActionAnim(mob: MobView, facing: string): { key: string; ms: number } | undefined {
   const kind = mob.kind;
+  const boss = bossActionAnim(kind, mob.action ?? "", facing);
+  if (boss) return boss;
   const stats = mobStats(kind);
   const attack = `mobs/${kind}/attack-${facing}`;
   switch (mob.action) {
@@ -592,7 +604,14 @@ const RECONNECTION_TOKEN_KEY = "rpg-extracao:reconnectionToken";
 const NAME_KEY = "rpg-extracao:name";
 // Último nome usado, só para vir preenchido (localStorage: conveniência, não identidade).
 const LAST_NAME_KEY = "rpg-extracao:lastName";
-const MOB_NAMES: Record<MobKind, string> = { lobo: "um lobo", gnomo: "um gnomo", slime: "um slime", goblin: "um goblin" };
+const MOB_NAMES: Record<MobKind, string> = {
+  lobo: "um lobo",
+  gnomo: "um gnomo",
+  slime: "um slime",
+  goblin: "um goblin",
+  krag: "Krag, o Carrasco Hobgoblin",
+  rei_slime: "o Rei Slime Abissal",
+};
 
 // Luz de cada lugar (só desenho; ver client/src/lighting.ts). Ambiente = a escuridão onde não chega luz.
 // Cidade: noite azulada, clara o bastante para ver a cidade. Labirinto: caverna escura; cada jogador carrega luz
@@ -815,6 +834,7 @@ class WorldScene extends Phaser.Scene {
   private particles?: Particles;
   // Projéteis Mágicos: sprite, luz, rastro e explosão (o voo é do servidor).
   private bolts?: Bolts;
+  private bossBars?: BossBars;
   // Magias do mago no chão (círculos, raio, poça) e as teclas delas.
   private spellEffects?: SpellEffects;
   private barriers?: Barriers;
@@ -853,7 +873,12 @@ class WorldScene extends Phaser.Scene {
     for (const { key, url } of [...TILESET_URLS, ...IDLE_URLS, ...MOB_IDLE_URLS, ...WEAPON_URLS, ...ARMOR_IDLE_URLS]) {
       if (!this.textures.exists(key)) this.load.image(key, url);
     }
-    for (const { key, url } of [...WALK_URLS, ...MOB_WALK_URLS, ...ATTACK_URLS, ...ARMOR_WALK_URLS]) {
+    // Caminhada dos chefes: no quadro deles (BOSS_INFO).
+    for (const { key, url } of MOB_WALK_URLS) {
+      const frame = BOSS_INFO[key.split("/")[1] ?? ""]?.canvas ?? WALK_FRAME;
+      if (!this.textures.exists(key)) this.load.spritesheet(key, url, { frameWidth: frame, frameHeight: frame });
+    }
+    for (const { key, url } of [...WALK_URLS, ...ATTACK_URLS, ...ARMOR_WALK_URLS]) {
       if (!this.textures.exists(key)) this.load.spritesheet(key, url, { frameWidth: WALK_FRAME, frameHeight: WALK_FRAME });
     }
     for (const { key, url } of LOOT_URLS) {
@@ -889,6 +914,7 @@ class WorldScene extends Phaser.Scene {
     this.spellEffects = new SpellEffects(this, this.particles, SPELL_GROUND_DEPTH, sortDepth, (amplitude) => this.shake.kick(amplitude));
     this.barriers = new Barriers(this, this.particles, SPELL_GROUND_DEPTH, sortDepth, OVERLAY_DEPTH);
     this.spirits = new Spirits(this, this.particles, sortDepth);
+    this.bossBars = new BossBars(this, OVERLAY_DEPTH);
     this.primal = new PrimalBursts(this);
     this.zoneFx = new ZoneEffects(this, this.particles, HAZARD_DEPTH, LIGHT_DEPTH + 0.06);
     this.keys = this.input.keyboard?.addKeys({ up: "W", down: "S", left: "A", right: "D" }) as MoveKeys;
@@ -1299,7 +1325,10 @@ Subiu para o nível ${info.level}!` : "";
     g.clear();
     const preparing = new Set<string>();
     // O golpe de perto não tem mais arco no chão (só a animação do mob); ficam os avisos do bote e do pulo.
-    room.state.mobs?.forEach((mob) => this.drawLeapWarning(g, mob, time));
+    room.state.mobs?.forEach((mob) => {
+      if (isBoss(mob.kind)) drawBossWarning(g, mob, time);
+      else this.drawLeapWarning(g, mob, time);
+    });
   }
 
   // Zonas hostis no quadro: perigos do chão, olhos no breu, clima, sangue, tochas (arte, dica e [E]), escuro e
@@ -1471,14 +1500,19 @@ Subiu para o nível ${info.level}!` : "";
       g.fillStyle(bar.color, 1);
       g.fillRect(player.x - bar.width / 2, y, bar.width * Math.min(1, channelMs / EXIT_CHANNEL.channelMs), bar.height);
     });
-    room.state.mobs?.forEach((mob) => {
+    const bosses = new Set<string>();
+    room.state.mobs?.forEach((mob, id) => {
       if (mob.action === "dying") return;
       const stats = mobStats(mob.kind);
       const size = mob.mini ? SLIME_SPLIT.scale : 1;
       const maxHp = Math.round(stats.maxHp * (mob.mini ? SLIME_SPLIT.hpFraction : 1));
       const top = mob.y + stats.size / 2 - mobArt(mob.kind).height * size - HP_BAR_GAP - HP_BAR_HEIGHT;
-      drawHpBar(g, mob.x, top, PLAYER_SIZE, mob.hp / maxHp);
+      if (stats.boss) {
+        bosses.add(id);
+        this.bossBars?.draw(g, id, mob.kind, mob.x, top, mob.hp / maxHp);
+      } else drawHpBar(g, mob.x, top, PLAYER_SIZE, mob.hp / maxHp);
     });
+    this.bossBars?.sweep(bosses);
   }
 
   // Só desenho: quem decide o que é parede é o servidor.
@@ -1578,7 +1612,7 @@ Subiu para o nível ${info.level}!` : "";
       if (this.anims.exists(key) || !this.textures.exists(key)) continue;
       const frames = this.anims.generateFrameNumbers(key, {});
       if (!key.includes("/jump-")) {
-        this.anims.create({ key, frames, frameRate: 10, repeat: 0 });
+        this.anims.create({ key, frames, frameRate: 10, repeat: LOOPING_BOSS_ANIMS.test(key) ? -1 : 0 });
         continue;
       }
       this.anims.create({ key: `${key}#prep`, frames: frames.slice(0, JUMP_CROUCH_FRAMES), frameRate: 10, repeat: 0 });
@@ -1973,7 +2007,7 @@ Subiu para o nível ${info.level}!` : "";
       let sprite = this.mobSprites.get(id);
       if (!sprite) {
         const art = mobArt(kind);
-        const body = this.add.sprite(mob.x, mob.y, mobKey(kind, "south")).setOrigin(0.5, art.feet / MOB_FRAME);
+        const body = this.add.sprite(mob.x, mob.y, mobKey(kind, "south")).setOrigin(0.5, art.feet / (art.frame ?? MOB_FRAME));
         const shadow = this.add.ellipse(mob.x, mob.y, art.shadow, art.shadow * 0.32, 0x000000, SHADOW_ALPHA).setDepth(SHADOW_DEPTH);
         const reaction = newReaction();
         sprite = {
@@ -2107,12 +2141,12 @@ Subiu para o nível ${info.level}!` : "";
     if (walk && art.walkFeet !== undefined) {
       if (body.anims.currentAnim?.key === walk && body.anims.isPlaying) return;
       const frame = body.anims.isPlaying ? (body.anims.currentFrame?.index ?? 1) - 1 : 0;
-      body.setOrigin(0.5, art.walkFeet / WALK_FRAME).play({ key: walk, startFrame: frame });
+      body.setOrigin(0.5, art.walkFeet / (art.frame ?? WALK_FRAME)).play({ key: walk, startFrame: frame });
       return;
     }
     if (body.anims.isPlaying) body.stop();
     const idle = mobKey(kind, sprite.facing);
-    if (body.texture.key !== idle) body.setTexture(idle).setOrigin(0.5, art.feet / MOB_FRAME);
+    if (body.texture.key !== idle) body.setTexture(idle).setOrigin(0.5, art.feet / (art.frame ?? MOB_FRAME));
   }
 
   // Ação do mob (golpe, investida, arremesso, bote, pulo, conjuração, explosão): a animação dela, uma vez, no tempo da

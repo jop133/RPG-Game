@@ -1183,6 +1183,20 @@ Slot vazio usa a moldura comum.
 
 ---
 
+## 2026-10 — Minibosses: Krag, o Carrasco Hobgoblin, e Rei Slime Abissal
+
+**Pedido do dono do projeto (Etapa 4A):** um miniboss no meio do acampamento da zona goblin (Krag) e um no da zona dos slimes (Rei Slime), com porte, vida, barra destacada e recompensa de chefe. Krag: anda, golpeia, Tornado (pose de braços abertos ~0,5 s, vira tornado que persegue e fere em área, volta a ser o Krag) e Chute Sísmico (a rachadura corre pelo chão na direção do chute e fere quem está na linha). Rei Slime: anda (4 direções), o ataque normal é o pulo com impacto em área grande, e a Explosão com aviso, em área grande em volta dele.
+
+**Como ficou:**
+- `tools/assets/process_bosses.py`: a arte vinha em tamanhos diferentes (80, 112, 64, 68; o Rei Slime 96, 108 e 112) e nomes irregulares. Tudo de um chefe vai para um quadro só (Krag 112 px, Rei Slime 144 px, ampliado 1,3x para ter porte de chefe; o tornado 1,5x) com os pés na mesma linha, então o cliente usa uma origem só. O Rei Slime não tem sprite parado: é o 1º quadro da caminhada; nas diagonais, a cardeal do lado. Manifesto à parte (`assets/mobs/bosses.json`), porque `process_mobs.py` reescreve o `anims.json`.
+- Shared: `krag` e `rei_slime` em `MOB_KINDS` (`boss: true`; tamanho de colisão 30 px, abaixo de um tile, porque o caminho e a colisão contam com isso: o desenho é bem maior). Ataques novos no `mobAi.ts`, no mesmo esquema dos outros (preparo → ação → eventos): `tornado` (persegue 1,6x mais rápido por 3,5 s, evento `spin` a cada tick), `kick` (evento `crack`), `slam` (o pulo do slime, maior; evento `impact`) e `explosion` (evento `blast`). Números em `balance.ts` (`KRAG_TORNADO`, `KRAG_KICK`, `KING_SLAM`, `KING_EXPLOSION`), para ajustar jogando.
+- Servidor: nascem no `zoneCenter` da zona (o tile de chão mais perto do meio do quadrante), parados no posto, com coleira; um por run, sem respawn (não nascem na Sala de Testes; lá, `__DEV__.spawnMob("krag")`). Tornado: quem está a 46 px leva 12 a cada 0,45 s. Rachadura: anda a 520 px/s até 320 px ou a primeira parede; quem ela alcança (a 16 px da linha) leva 30, uma vez. Pulo: 30 em 88 px, poça ácida. Explosão: aviso de 1,4 s, 48 em 130 px. Drops: 6 a 10 Cristais, 50% da essência da zona e ração.
+- Cliente (`client/src/bosses.ts`): as animações de cada ação (o tornado em laço), avisos vermelhos no chão (a faixa do chute, o círculo do tornado, o da queda do pulo e o da explosão), a rachadura brotando pedaço por pedaço na velocidade do servidor, e a barra de vida grande, dourada, com o nome em cima.
+
+**Escolhas minhas (avise se quiser diferente):** "acampamento" = o meio do quadrante da zona (o mapa não tem uma área de acampamento marcada); os números de vida e dano dos chefes; o Rei Slime tem a Explosão como prioridade quando o alvo está perto; os chefes entram no bestiário (o rank continua pedindo 4 tipos para o D).
+
+---
+
 ## 2026-10 — Espíritos Elementais do Elfo e Forma de Urso Primal do Homem-Fera
 
 **Pedido do dono do projeto (Etapa 3):** os 4 Espíritos Elementais na tábua de skills do elfo (só um equipado por vez), flutuando ao lado dele para todos verem, nas 8 direções, com a animação de flutuar quando ele anda e um auxílio na tecla; a Forma de Urso Primal do Homem-Fera: pose, explosão primal, Homem-Urso com 8 direções e caminhada (sem a armadura e a arma humanas), bônus de combate e a explosão também na volta.

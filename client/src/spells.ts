@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { GNOME_CASTER, LIGHTNING_SPELL, PLAYER_SIZE, SPELL_FLATTEN, SWAMP_SPELL, type Vec2 } from "shared";
+import { GNOME_CASTER, KRAG_KICK, LIGHTNING_SPELL, PLAYER_SIZE, SPELL_FLATTEN, SWAMP_SPELL, type Vec2 } from "shared";
 import magicArt from "../../assets/spells/magic.json";
 import type { Light, LightLook } from "./lighting";
 import type { Particles } from "./particles";
@@ -14,12 +14,23 @@ import type { Particles } from "./particles";
 // Arte de tools/assets/process_magic.py.
 // - Erupção de Cristal (do gnomo): "warn" = o círculo mágico ciano (mobs/efeitos/circulo) achatado no chão, girando e
 //   pulsando; "strike" = a estaca de cristal brota do chão (cresce de baixo para cima) com estilhaços e some no fim.
+// - Chute Sísmico do Krag ("crack", fase "strike"): pedaços da rachadura (mobs/krag/crack-<direção>, na direção do
+//   chute) brotando um atrás do outro ao longo da linha, na velocidade em que o servidor a faz andar (KRAG_KICK.speed),
+//   até `length`; somem quando o servidor a tira.
 // Círculos e poça ficam na altura do chão (por baixo dos pés de todo mundo); o raio fica por cima de quem está ali.
 
 export interface SpellView extends Vec2 {
   kind: string;
   phase: string;
+  // Só a rachadura do Krag: a direção (radianos) e até onde ela vai (px).
+  angle?: number;
+  length?: number;
 }
+
+// A rachadura: um pedaço a cada CRACK_SPACING px, tocando a animação em CRACK_ANIM_MS.
+const CRACK_SPACING = 48;
+const CRACK_ANIM_MS = 450;
+const CRACK_DIRECTIONS = ["east", "south-east", "south", "south-west", "west", "north-west", "north", "north-east"];
 
 const DIRECTIONS = ["south", "south-east", "east", "north-east", "north", "north-west", "west", "south-west"];
 const square = (size: number) => ({ frameWidth: size, frameHeight: size });
@@ -76,6 +87,7 @@ interface Drawn {
   strike?: Phaser.GameObjects.Sprite;
   mud?: Phaser.GameObjects.Sprite;
   spike?: Phaser.GameObjects.Image;
+  crack?: { pieces: Phaser.GameObjects.Sprite[]; angle: number; length: number };
   x: number;
   y: number;
 }
@@ -100,6 +112,7 @@ export class SpellEffects {
         d = { kind: spell.kind, phase: "", phaseAt: time, x: spell.x, y: spell.y };
         this.drawn.set(id, d);
       }
+      if (d.kind === "crack" && !d.crack) d.crack = { pieces: [], angle: spell.angle ?? 0, length: spell.length ?? 0 };
       if (d.phase !== spell.phase) this.enter(d, spell.phase, time);
       this.animate(d, time);
     });
@@ -147,6 +160,7 @@ export class SpellEffects {
   private enter(d: Drawn, phase: string, time: number) {
     d.phase = phase;
     d.phaseAt = time;
+    if (d.kind === "crack") return;
     if (d.kind === "crystal") {
       this.enterCrystal(d, phase, time);
       return;
@@ -207,7 +221,26 @@ export class SpellEffects {
     }
   }
 
+  // A rachadura brota pedaço por pedaço, na velocidade dela, até o fim da linha.
+  private animateCrack(d: Drawn, time: number) {
+    const crack = d.crack;
+    if (!crack) return;
+    const reached = Math.min(crack.length, (KRAG_KICK.speed * (time - d.phaseAt)) / 1000);
+    const octant = Math.round(crack.angle / (Math.PI / 4));
+    const key = `mobs/krag/crack-${CRACK_DIRECTIONS[((octant % 8) + 8) % 8] ?? "east"}`;
+    while ((crack.pieces.length + 0.5) * CRACK_SPACING <= reached + CRACK_SPACING / 2 && this.scene.textures.exists(key)) {
+      const along = (crack.pieces.length + 0.5) * CRACK_SPACING;
+      const x = d.x + Math.cos(crack.angle) * along;
+      const y = d.y + Math.sin(crack.angle) * along;
+      const piece = this.scene.add.sprite(x, y, key).setDepth(this.groundDepth + 0.02);
+      if (this.scene.anims.exists(key)) piece.play({ key, duration: CRACK_ANIM_MS });
+      crack.pieces.push(piece);
+      this.particles?.explode(x, y, [0x5c4a3a, 0x8a7560, 0x3b2f25], time);
+    }
+  }
+
   private animate(d: Drawn, time: number) {
+    if (d.kind === "crack") return this.animateCrack(d, time);
     if (d.kind === "crystal") return this.animateCrystal(d, time);
     const t = (time - d.phaseAt) / 1000;
     if (d.runeImage && d.rune) {
@@ -238,6 +271,7 @@ export class SpellEffects {
 
   private clear(d: Drawn) {
     d.spike?.destroy();
+    for (const piece of d.crack?.pieces ?? []) piece.destroy();
     d.rune?.destroy();
     d.earth?.destroy();
     d.strike?.destroy();

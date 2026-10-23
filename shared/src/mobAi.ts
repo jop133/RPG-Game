@@ -5,6 +5,10 @@ import {
   GNOME_CASTER,
   GOBLIN_DASH,
   GOBLIN_THROW,
+  KING_EXPLOSION,
+  KING_SLAM,
+  KRAG_KICK,
+  KRAG_TORNADO,
   LEASH,
   MOB_LOSE_TRACK_MS,
   MOB_WAKE_RADIUS,
@@ -49,11 +53,16 @@ export interface MobTimers {
 
 // O que um ataque especial faz no mundo; quem aplica é o servidor (dano, projétil, cristal, poça).
 // projectile: a adaga do goblin ou o projétil do gnomo, de `from` na direção `angle`. crystal: a erupção no ponto
-// `at` (o círculo agora, o cristal depois). impact: a queda do bote (lobo) ou do pulo (slime) em `at`.
+// `at` (o círculo agora, o cristal depois). impact: a queda do bote (lobo), do pulo (slime) ou do Pulo Esmagador (Rei
+// Slime) em `at`. spin: o tornado do Krag está em `at` neste tick (quem estiver perto leva dano, a cada intervalo).
+// crack: o Chute Sísmico do Krag, a rachadura saindo de `from` na direção `angle`. blast: a Explosão do Rei Slime em `at`.
 export type MobEvent =
   | { type: "projectile"; kind: "dagger" | "gnome"; from: Vec2; angle: number }
   | { type: "crystal"; at: Vec2 }
-  | { type: "impact"; ability: "pounce" | "leap"; at: Vec2 };
+  | { type: "impact"; ability: "pounce" | "leap" | "slam"; at: Vec2 }
+  | { type: "spin"; at: Vec2 }
+  | { type: "crack"; from: Vec2; angle: number }
+  | { type: "blast"; at: Vec2 };
 
 export interface ThinkingMob {
   position: Vec2;
@@ -261,9 +270,9 @@ function stepChasing(
     if (kept) return { position: kept.position, mind: kept.mind.mode === "chase" ? { ...mind, lastSeen, lostMs } : kept.mind, timers };
   }
 
-  // Encostou no alvo à vista: para e começa a preparar o golpe, com a direção travada a partir de agora. O slime não
-  // golpeia parado: o ataque dele é o pulo.
-  if (visible && gap <= stopAt && !world.stats.abilities?.includes("leap")) {
+  // Encostou no alvo à vista: para e começa a preparar o golpe, com a direção travada a partir de agora. O slime e o
+  // Rei Slime não golpeiam parados: o ataque deles é o pulo.
+  if (visible && gap <= stopAt && !world.stats.abilities?.some((a) => a === "leap" || a === "slam")) {
     const angle = Math.atan2(target.y - mob.position.y, target.x - mob.position.x);
     return {
       position: mob.position,
@@ -333,7 +342,8 @@ function startAbility(
   for (const ability of stats.abilities ?? []) {
     const plan = abilityPlan(ability, gap, timers, ready(ability));
     if (!plan) continue;
-    const aim = ability === "leap" ? clampTo(position, target, SLIME_LEAP.range) : { x: target.x, y: target.y };
+    const aim =
+      ability === "leap" ? clampTo(position, target, SLIME_LEAP.range) : ability === "slam" ? clampTo(position, target, KING_SLAM.range) : { x: target.x, y: target.y };
     const cooldowns = plan.cooldownMs ? { ...timers.cooldowns, [ability]: plan.cooldownMs } : timers.cooldowns;
     return {
       mind: { mode: "ability", ability, targetId: mind.targetId, phase: "prep", remainingMs: plan.prepMs, angle, aim, alert: mind.alert },
@@ -358,6 +368,14 @@ function abilityPlan(ability: MobAbility, gap: number, timers: MobTimers, ready:
       return ready && gap <= GNOME_CASTER.keepMax + 32 ? { prepMs: GNOME_CASTER.castMs, cooldownMs: GNOME_CASTER.crystalCooldownMs } : undefined;
     case "bolt":
       return ready && gap <= GNOME_CASTER.boltRange ? { prepMs: GNOME_CASTER.castMs, cooldownMs: GNOME_CASTER.boltCooldownMs } : undefined;
+    case "tornado":
+      return ready && gap <= KRAG_TORNADO.max ? { prepMs: KRAG_TORNADO.poseMs, cooldownMs: KRAG_TORNADO.cooldownMs } : undefined;
+    case "kick":
+      return ready && gap >= KRAG_KICK.min && gap <= KRAG_KICK.max ? { prepMs: KRAG_KICK.windupMs, cooldownMs: KRAG_KICK.cooldownMs } : undefined;
+    case "slam":
+      return ready && gap <= KING_SLAM.range ? { prepMs: KING_SLAM.crouchMs, cooldownMs: KING_SLAM.cooldownMs } : undefined;
+    case "explosion":
+      return ready && gap <= KING_EXPLOSION.max ? { prepMs: KING_EXPLOSION.warnMs, cooldownMs: KING_EXPLOSION.cooldownMs } : undefined;
   }
 }
 
@@ -400,6 +418,7 @@ function stepAbility(mob: ThinkingMob, mind: Extract<MobMind, { mode: "ability" 
     return finishPrep(mob.position, mind, target);
   }
   if (mind.ability === "dash") return stepDash(mob.position, mind, world, target, remainingMs, dtMs);
+  if (mind.ability === "tornado") return stepTornado(mob.position, mind, world, target, remainingMs, dtMs);
   return stepLeap(mob.position, mind, world, remainingMs, dtMs);
 }
 
@@ -425,7 +444,26 @@ function finishPrep(position: Vec2, mind: Extract<MobMind, { mode: "ability" }>,
       return { position, mind: { ...mind, phase: "act", remainingMs: WOLF_POUNCE.maxAirMs } };
     case "leap":
       return { position, mind: { ...mind, phase: "act", remainingMs: SLIME_LEAP.airMs } };
+    case "slam":
+      return { position, mind: { ...mind, phase: "act", remainingMs: KING_SLAM.airMs } };
+    case "tornado":
+      return { position, mind: { ...mind, phase: "act", remainingMs: KRAG_TORNADO.durationMs } };
+    case "kick":
+      return { position, mind: recover(mind, KRAG_KICK.recoverMs), events: [{ type: "crack", from: position, angle: towards }] };
+    case "explosion":
+      return { position, mind: recover(mind, KING_EXPLOSION.recoverMs), events: [{ type: "blast", at: position }] };
   }
+}
+
+// Tornado do Krag: persegue o alvo (ou o ponto de onde ele estava) mais rápido, girando: cada tick avisa onde está
+// (spin; o servidor dá o dano de área). No fim do tempo, volta a ser o Krag.
+function stepTornado(position: Vec2, mind: Extract<MobMind, { mode: "ability" }>, world: MobWorld, target: Vec2 | undefined, remainingMs: number, dtMs: number): MobStep {
+  const goal = target ?? mind.aim;
+  const fast = { ...world, stats: { ...world.stats, speed: world.stats.speed * KRAG_TORNADO.speedFactor } };
+  const moved = followPath(position, [], goal, fast, dtMs);
+  const events: MobEvent[] = [{ type: "spin", at: moved.position }];
+  if (remainingMs > 0) return { position: moved.position, mind: { ...mind, remainingMs }, events };
+  return { position: moved.position, mind: recover(mind, KRAG_TORNADO.recoverMs), events };
 }
 
 // Investida do goblin: corre até encostar no alvo (ou acabar o tempo) e dá a facada (o golpe normal, na hora).
@@ -448,8 +486,8 @@ function stepLeap(position: Vec2, mind: Extract<MobMind, { mode: "ability" }>, w
   const moved = followPath(position, [], mind.aim, flying, dtMs);
   const stuck = distance(moved.position, position) < 0.5 && left > 1;
   if (distance(moved.position, mind.aim) > 2 && remainingMs > 0 && !stuck) return { position: moved.position, mind: { ...mind, remainingMs } };
-  const after = mind.ability === "pounce" ? WOLF_POUNCE.recoverMs : SLIME_LEAP.recoverMs;
-  return { position: moved.position, mind: recover(mind, after), events: [{ type: "impact", ability: mind.ability as "pounce" | "leap", at: moved.position }] };
+  const after = mind.ability === "pounce" ? WOLF_POUNCE.recoverMs : mind.ability === "slam" ? KING_SLAM.recoverMs : SLIME_LEAP.recoverMs;
+  return { position: moved.position, mind: recover(mind, after), events: [{ type: "impact", ability: mind.ability as "pounce" | "leap" | "slam", at: moved.position }] };
 }
 
 // Preparando: parado, direção travada. Não é interrompido por dano. Ao terminar, golpeia e passa a se recuperar.

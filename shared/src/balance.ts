@@ -6,6 +6,7 @@ import type { ItemStats } from "./inventory";
 import type { DropEntry } from "./loot";
 import type { MobStats } from "./mobs";
 import type { AdventurerRank } from "./progression";
+import type { ZoneId } from "./zones";
 
 // Pixels por segundo.
 export const PLAYER_SPEED = 160;
@@ -168,6 +169,9 @@ export const MOB_DROPS: Record<MobKind, DropEntry[]> = {
   gnomo: [...CRYSTAL_DROPS, { item: "essencia_gnomo", chance: ESSENCE_DROP_CHANCE, min: 1, max: 1 }],
   slime: [...CRYSTAL_DROPS, { item: "essencia_slime", chance: ESSENCE_DROP_CHANCE, min: 1, max: 1 }],
   goblin: [...CRYSTAL_DROPS, { item: "essencia_goblin", chance: ESSENCE_DROP_CHANCE, min: 1, max: 1 }],
+  // Minibosses: muitos cristais e a essência da zona com chance alta.
+  krag: [{ item: "cristal_magico", chance: 1, min: 6, max: 10 }, { item: "essencia_goblin", chance: 0.5, min: 1, max: 1 }, { item: "racao", chance: 0.5, min: 1, max: 2 }],
+  rei_slime: [{ item: "cristal_magico", chance: 1, min: 6, max: 10 }, { item: "essencia_slime", chance: 0.5, min: 1, max: 1 }, { item: "racao", chance: 0.5, min: 1, max: 2 }],
 };
 // Itens no chão: cada unidade que cai é um item à parte, a pelo menos MIN_DISTANCE px de qualquer outro (espiral em volta
 // de onde o mob morreu, sem entrar em parede nem passar por ela). O desenho sai pulando do lugar da morte por TWEEN_MS;
@@ -429,6 +433,39 @@ export const MOB_KINDS = {
     attackArcDegrees: 100,
     recoverMs: 900,
   },
+  // Minibosses (um por run, no meio do acampamento da zona: BOSS_SPAWNS). O tamanho de colisão fica abaixo de um tile
+  // (o caminho e a colisão contam com isso); o desenho é bem maior.
+  // Krag, o Carrasco Hobgoblin: golpe de perto pesado, o Tornado (KRAG_TORNADO) e o Chute Sísmico (KRAG_KICK).
+  krag: {
+    size: 30,
+    speed: 74,
+    chaseSpeedFactor: 1.1,
+    maxHp: 420,
+    aggroRadius: 256,
+    reach: 14,
+    windupMs: 650,
+    attackDamage: 34,
+    attackReach: 40,
+    attackArcDegrees: 120,
+    recoverMs: 700,
+    abilities: ["tornado", "kick"],
+    boss: true,
+  },
+  // Rei Slime Abissal: o ataque normal é o Pulo Esmagador (KING_SLAM); de perto, a Explosão (KING_EXPLOSION).
+  rei_slime: {
+    size: 30,
+    speed: 52,
+    maxHp: 520,
+    aggroRadius: 224,
+    reach: 10,
+    windupMs: 900,
+    attackDamage: 28,
+    attackReach: 34,
+    attackArcDegrees: 180,
+    recoverMs: 900,
+    abilities: ["explosion", "slam"],
+    boss: true,
+  },
 } satisfies Record<string, MobStats>;
 
 export type MobKind = keyof typeof MOB_KINDS;
@@ -586,6 +623,27 @@ export const SLIME_LEAP = { range: 64, crouchMs: 300, airMs: 450, hitRadius: 40,
 // Slime, morte: explode por DEATH_MS (a animação) e solta 2 Mini-Slimes a OFFSET px para cada lado, com HP_FRACTION da
 // vida, SPEED_FACTOR x a velocidade e SCALE do desenho, já caçando quem o matou. Mini não se divide.
 export const SLIME_SPLIT = { deathMs: 900, offset: 28, hpFraction: 0.35, speedFactor: 1.35, scale: 0.6 };
+// Krag, Tornado: com o alvo à vista a até MAX px, a cada COOLDOWN_MS, abre os braços por POSE_MS (o aviso) e vira um
+// tornado por DURATION_MS: persegue o alvo a SPEED_FACTOR x a velocidade, e todo jogador a até HIT_RADIUS px leva DAMAGE
+// a cada HIT_EVERY_MS. No fim, volta a ser o Krag e recupera por RECOVER_MS.
+export const KRAG_TORNADO = { cooldownMs: 13000, max: 220, poseMs: 500, durationMs: 3500, speedFactor: 1.6, hitRadius: 46, damage: 12, hitEveryMs: 450, recoverMs: 800 };
+// Krag, Chute Sísmico: com o alvo à vista entre MIN e MAX px, a cada COOLDOWN_MS, prepara o chute por WINDUP_MS e
+// chuta: uma rachadura corre pelo chão na direção do alvo a SPEED px/s, até LENGTH px (ou a primeira parede). Quem a
+// rachadura alcança, a até WIDTH/2 px da linha, leva DAMAGE (uma vez) e cambaleia. Fica LINGER_MS no chão depois.
+export const KRAG_KICK = { cooldownMs: 7000, min: 64, max: 280, windupMs: 750, speed: 520, length: 320, width: 32, damage: 30, lingerMs: 700, recoverMs: 700 };
+// Rei Slime, Pulo Esmagador (o ataque normal): com o alvo à vista a até RANGE px, a cada COOLDOWN_MS, agacha por
+// CROUCH_MS (o círculo no chão avisa onde vai cair) e salta até lá em AIR_MS; na queda, todo jogador a até HIT_RADIUS
+// px leva DAMAGE e cambaleia; fica uma poça ácida. Recupera por RECOVER_MS.
+export const KING_SLAM = { cooldownMs: 2600, range: 200, crouchMs: 500, airMs: 600, hitRadius: 88, damage: 30, acidMs: 5000, recoverMs: 1000 };
+// Rei Slime, Explosão: com o alvo a até MAX px, a cada COOLDOWN_MS, incha por WARN_MS (o círculo avisa a área) e
+// explode: todo jogador a até RADIUS px dele leva DAMAGE. Recupera por RECOVER_MS.
+export const KING_EXPLOSION = { cooldownMs: 12000, max: 120, warnMs: 1400, radius: 130, damage: 48, recoverMs: 900 };
+// Onde cada miniboss nasce: no meio do acampamento (o tile de chão mais perto do centro) da zona dele. Um por run, sem
+// respawn.
+export const BOSS_SPAWNS: readonly { kind: MobKind; zone: ZoneId }[] = [
+  { kind: "krag", zone: "goblin" },
+  { kind: "rei_slime", zone: "slime" },
+];
 // Gnomo, conjurador: fica entre KEEP_MIN e KEEP_MAX px do alvo (perto demais, recua; encurralado, picareta). Conjura
 // por CAST_MS (a animação de mexer as mãos) cada ataque:
 // - Projétil (a cada BOLT_COOLDOWN_MS): BOLT_SPEED px/s, até BOLT_RANGE px, BOLT_DAMAGE mágico;
