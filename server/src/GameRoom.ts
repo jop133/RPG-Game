@@ -113,6 +113,7 @@ import {
   equipSkill,
   CLASS_SKILLS,
   FIREBALL_SKILL,
+  ARROW,
   SKILLS,
   spellTarget,
   swampArea,
@@ -263,6 +264,8 @@ interface Bolt {
   damage: number;
   spec: ProjectileSpec;
   hostile?: { mob: MobKind; type: DamageType };
+  // Tipo do dano num jogador atingido por projétil de jogador: sem o campo, mágico (o cajado); a flecha, físico.
+  type?: DamageType;
 }
 
 // Magia no chão, do lado do servidor: quem lançou, a fase e quanto falta dela, e o dano do raio (fixado no lançamento).
@@ -720,6 +723,11 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.attackLockUntil.set(sessionId, now + ATTACK_LOCK_MS);
     attacker.attackSeq += 1;
     attacker.attackAngle = angle;
+    // Besta: em vez do golpe, a Flecha (o mesmo voo dos projéteis), com o Dano Físico de agora.
+    if (stats.attack.weaponType === "crossbow") {
+      this.fireArrow(sessionId, attacker, angle, stats.physicalDamage);
+      return;
+    }
     this.hitMobs(sessionId, attacker, angle);
     this.hitPlayers(sessionId, attacker, angle);
     this.resolveDeaths();
@@ -731,6 +739,14 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.state.projectiles.set(id, new ProjectileState({ x: from.x, y: from.y, angle, done: false, kind: "" }));
     this.bolts.set(id, { flight: { x: from.x, y: from.y, angle, traveled: 0 }, owner, damage, spec: MAGIC_BOLT });
     this.applyBoltStep(id, launchProjectile(from, angle, this.level.grid, this.boltTargets(owner)));
+  }
+
+  // Flecha da besta: como o Projétil Mágico (acerta mobs e os outros jogadores), mas o dano é físico.
+  private fireArrow(owner: string, from: Vec2, angle: number, damage: number) {
+    const id = `bolt-${this.nextBoltId++}`;
+    this.state.projectiles.set(id, new ProjectileState({ x: from.x, y: from.y, angle, done: false, kind: "arrow" }));
+    this.bolts.set(id, { flight: { x: from.x, y: from.y, angle, traveled: 0 }, owner, damage, spec: ARROW, type: "physical" });
+    this.applyBoltStep(id, launchProjectile(from, angle, this.level.grid, this.boltTargets(owner), ARROW));
   }
 
   // Projétil de mob (adaga do goblin, projétil do gnomo): acerta só jogadores.
@@ -932,7 +948,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       return;
     }
     const player = this.state.players.get(targetId);
-    if (player) this.damagePlayer(targetId, player, bolt.damage, { kind: "player" }, "magic");
+    if (player) this.damagePlayer(targetId, player, bolt.damage, { kind: "player" }, bolt.type ?? "magic");
   }
 
   // Os status de um jogador (base, arma, equipamento e essências).

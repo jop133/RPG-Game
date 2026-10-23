@@ -169,6 +169,22 @@ describe("os 8 slots", () => {
   });
 });
 
+describe("Besta (só o elfo)", () => {
+  const CROSSBOW = "besta" as const;
+
+  it("só o elfo equipa; as outras classes são recusadas", () => {
+    expect(canEquip(CROSSBOW, "elfo")).toBe(true);
+    for (const classId of ["barbaro", "homem_fera", "mago"] as const) expect(canEquip(CROSSBOW, classId)).toBe(false);
+    const inventory = bag({ 1: { item: CROSSBOW, count: 1 } });
+    expect(equipFromSlot(inventory, { weapon: SWORD }, 1, "barbaro")).toEqual({ kind: "wrongClass", item: CROSSBOW });
+    expect(equipFromSlot(inventory, { weapon: SWORD }, 1, "elfo")).toMatchObject({ kind: "done", equipment: { weapon: CROSSBOW } });
+  });
+
+  it("o clique é um tiro (crossbow), não um golpe", () => {
+    expect(weaponStats({ weapon: CROSSBOW }).weaponType).toBe("crossbow");
+  });
+});
+
 describe("Cajado Arcano (só o mago)", () => {
   const STAFF = "cajado_arcano" as const;
 

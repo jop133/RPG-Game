@@ -1183,6 +1183,22 @@ Slot vazio usa a moldura comum.
 
 ---
 
+## 2026-10 — Soco desarmado, Besta e Flecha do elfo, teleporte na chegada
+
+**Pedido do dono do projeto (Etapa 1 das animações novas):** soco desenhado para bárbaro, elfo e homem-fera, só sem arma; a Besta, só do elfo, com tiro de Flecha à distância (dano físico) e a besta aparecendo na mão no disparo; o personagem surgindo de um tubo de teleporte ao entrar e ao sair do labirinto.
+
+**Como ficou:**
+- `tools/assets/process_actions.py` (Pillow): GIFs ou PNGs soltos por direção viram fitas de quadros 96x96 (`assets/characters/<classe>/punch-<direção>.png`, como a caminhada); a besta e a flecha, uma imagem por direção em `assets/weapons/`; o ícone `besta.png` (48x48); o tubo em `assets/effects/teleport.png` + `teleport.json` (quadro e linha do chão). Nos PNGs soltos do bárbaro e do homem-fera, o "(N)" do nome não é a ordem do golpe: o exportador começou o laço no quadro K de "_frame_00K", então o quadro original é (K + N − 1) mod 6; reordenado assim, o soco acerta no último quadro, como nos GIFs do elfo.
+- Item `besta` (`balance.ts`): arma com `weaponType: "crossbow"`, `allowedClasses: ["elfo"]` (o servidor já recusa outra classe em `equipFromSlot`), de graça na Forja e no painel de dev. O clique com a besta não golpeia: o servidor dispara a Flecha (`ARROW`: 560 px/s, 360 px, raio 4) pelo mesmo voo dos projéteis (`shared/src/projectile.ts`), com o Dano Físico de quem atirou; em jogador, o dano é físico (`Bolt.type`). `ProjectileState.kind = "arrow"`. Recarga e trava iguais às do golpe.
+- Cliente: o soco toca só com o slot de arma vazio (`animateAvatar`: punch / shoot / attack conforme a arma); com arma, a pose de sempre. A besta aparece na mão por 420 ms no tiro, na arte da direção do tiro (sem girar), e o corpo recua 2 px em vez de avançar. A flecha usa a arte da direção mais perto do ângulo do voo e gira só o resto. O tiro não entra na lista de golpes (senão todo mob a 370 px piscaria como atingido).
+- Teleporte: só desenho, só no próprio personagem, ao chegar ao labirinto pelo portal da cidade e ao voltar à cidade depois de extrair (não ao recarregar a página, nem depois da morte, nem na Sala de Testes). O tubo se forma (500 ms), o personagem aparece dentro dele (400 ms) e o tubo se desfaz (400 ms).
+
+**Faltou arte, avise se quiser diferente:** a pasta `besta e flecha/` não tem a animação do Elfo atirando (só a besta e a flecha). O elfo atira com o corpo parado ou andando e a besta na mão. O script já procura `besta e flecha/elfo_tiro/` (GIFs ou PNGs por direção) e o cliente toca `shoot-<direção>` se existir: é só colocar a arte e rodar o script de novo.
+
+**Escolhas minhas:** a armadura some durante o soco (não há camada de armadura para os quadros do soco, como já acontecia com o golpe desenhado); o mago não tem soco desenhado (fica a pose parada); o arquivo `teleporte/south.png` (64x64, igual ao 1º quadro) não é usado. Dano da besta 9, para ajustar jogando.
+
+---
+
 ## 2026-10 — Zonas por quadrante, área segura pequena e o dobro de grupos
 
 **Pedido do dono do projeto:** encolher a zona neutra a um raio pequeno em volta da chegada e esticar as 4 zonas pelo labirinto inteiro; grupos de 3 a 5 e mais perto uns dos outros, sem mexer na geometria do mapa.

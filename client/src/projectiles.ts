@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { GNOME_CASTER, GOBLIN_THROW, MAGIC_BOLT, type Vec2 } from "shared";
+import { ARROW, GNOME_CASTER, GOBLIN_THROW, MAGIC_BOLT, type Vec2 } from "shared";
 import { LIGHT_KEY, type Light, type LightLook } from "./lighting";
 import type { Particles } from "./particles";
 
@@ -33,6 +33,15 @@ interface BoltLook {
   trail: readonly number[];
   explosion: readonly number[];
   flashColor?: number;
+  // Arte por direção: prefixo das texturas "<prefixo>-<direção>" (8 direções); a rotação é só o resto do ângulo.
+  directional?: string;
+}
+
+const OCTANTS = ["east", "south-east", "south", "south-west", "west", "north-west", "north", "north-east"];
+// A direção da arte mais perto do ângulo e o quanto falta girar até ele (radianos).
+function octantOf(angle: number): { name: string; rest: number } {
+  const octant = Math.round(angle / (Math.PI / 4));
+  return { name: OCTANTS[((octant % 8) + 8) % 8] ?? "east", rest: angle - (octant * Math.PI) / 4 };
 }
 
 // A tira de 4 quadros de 64x64 (tools/assets/process_spells.py): a frente da cabeça em (56, 32) em todos; a origem
@@ -77,6 +86,19 @@ const LOOKS: Record<string, BoltLook> = {
     trail: [0x22d3ee, 0x67e8f9, 0xa5f3fc, 0x0891b2],
     explosion: [0x22d3ee, 0xa5f3fc, 0xffffff, 0x0e7490],
     flashColor: GNOME_COLOR,
+  },
+  // Flecha da besta (o elfo): uma arte por direção ("weapons/flecha-<direção>", tools/assets/process_actions.py),
+  // escolhida pelo ângulo do voo e girada só o que falta até ele; sem luz própria, como a adaga.
+  arrow: {
+    texture: "weapons/flecha-east",
+    directional: "weapons/flecha",
+    animated: false,
+    origin: { x: 0.5, y: 0.5 },
+    scale: 0.5,
+    spin: 0,
+    speed: ARROW.speed,
+    trail: [],
+    explosion: [0x8b5a2b, 0xd1d5db, 0x6b4a2a],
   },
   dagger: {
     texture: "mobs/efeitos/adaga-north",
@@ -143,7 +165,13 @@ export class Bolts {
       const ahead = (fly.look.speed * Math.min(time - fly.seenAt, EXTRAPOLATE_MS)) / 1000;
       const x = fly.serverX + Math.cos(bolt.angle) * ahead;
       const y = fly.serverY + Math.sin(bolt.angle) * ahead;
-      const rotation = fly.look.spin ? (time / 1000) * fly.look.spin * Math.PI * 2 : bolt.angle;
+      let rotation = fly.look.spin ? (time / 1000) * fly.look.spin * Math.PI * 2 : bolt.angle;
+      if (fly.look.directional) {
+        const { name, rest } = octantOf(bolt.angle);
+        const key = `${fly.look.directional}-${name}`;
+        if (fly.image.texture.key !== key && this.scene.textures.exists(key)) fly.image.setTexture(key);
+        rotation = rest;
+      }
       fly.image.setPosition(x, y).setRotation(rotation);
       this.trail(fly.look, x, y, bolt.angle, time, delta);
     });

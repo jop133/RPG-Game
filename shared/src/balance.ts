@@ -87,6 +87,13 @@ export const ITEMS = {
       bonus: { magicDamage: 14, maxMana: 25 },
     },
   },
+  // Arma do elfo: o clique dispara uma Flecha (ARROW) com o Dano Físico de quem atira. `range` é o alcance da flecha.
+  besta: {
+    name: "Besta",
+    rarity: "rare",
+    maxStack: 1,
+    equip: { slot: "weapon", weapon: { damage: 9, range: 360, arcDegrees: 0, weaponType: "crossbow" }, allowedClasses: ["elfo"] },
+  },
   // Conjunto de ferro (Forja): números provisórios, para ajustar jogando. Defesa e Velocidade em %.
   elmo_ferro: { name: "Elmo de Ferro", rarity: "common", maxStack: 1, equip: { slot: "helm", look: "iron", bonus: { maxHp: 15, defensePercent: 2 } } },
   peitoral_ferro: {
@@ -135,6 +142,7 @@ export const BUY_PRICES: Partial<Record<ItemId, number>> = { racao: 10 };
 export const FORGE_PRICES: Partial<Record<ItemId, number>> = {
   espada_ferro: 0,
   cajado_arcano: 0,
+  besta: 0,
   elmo_ferro: 0,
   peitoral_ferro: 0,
   calca_ferro: 0,
@@ -228,6 +236,9 @@ export const STARTING_EQUIPMENT_BY_CLASS: Partial<Record<ClassId, Equipment>> = 
 // reta e some ao bater numa parede, acertar alguém (mob ou outro jogador: fogo amigo, como o golpe) ou passar de
 // RANGE px. RADIUS é o tamanho dele para acertar. Carrega luz (regra 4): o que está a LIGHT_RADIUS px dele é enviado.
 export const MAGIC_BOLT = { speed: 420, range: 340, spawnOffset: 20, radius: 5, lightRadius: 64 };
+// Flecha da Besta (clique do elfo com a besta): o mesmo voo do projétil, mais rápida e fina; dano físico (o Dano Físico
+// de quem atirou no disparo). O voo usa ARROW.range; o `range` da besta em ITEMS é o mesmo número (só para mostrar).
+export const ARROW = { speed: 560, range: 360, spawnOffset: 18, radius: 4 };
 
 // Magias do mago (Q e R, só no labirinto): a mira é o ponto do mouse, até CAST_RANGE px de quem lança (mais longe, o
 // ponto é puxado para dentro do alcance). Limitadas só pela recarga; a Mana ainda não é gasta. As áreas são elipses no

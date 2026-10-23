@@ -97,7 +97,8 @@ export type ExitState = SchemaType<typeof ExitState>;
 
 // Projétil Mágico em voo (MAGIC_BOLT). angle: para onde voa (o cliente gira o desenho). done: bateu ou acabou o
 // alcance; fica um tick parado no ponto do impacto, para o cliente desenhar a explosão ali, e sai.
-// kind: "" (Projétil Mágico do mago), "dagger" (adaga do goblin, gira no ar) ou "gnome" (projétil do gnomo).
+// kind: "" (Projétil Mágico do mago), "arrow" (flecha da besta do elfo), "dagger" (adaga do goblin, gira no ar) ou
+// "gnome" (projétil do gnomo).
 export const ProjectileState = schema(
   { x: t.number(), y: t.number(), angle: t.number(), done: t.boolean(), kind: t.string() },
   "ProjectileState",

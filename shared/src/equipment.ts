@@ -5,13 +5,13 @@ import { addItems, type Inventory, type ItemStack, type ItemStats } from "./inve
 import type { StatBonus } from "./stats";
 
 // Golpe de uma arma (ou do soco): dano, alcance (do centro de quem golpeia até a borda do alvo, em px) e abertura do
-// arco à frente, em graus. weaponType "staff": a arma não golpeia, dispara o Projétil Mágico (MAGIC_BOLT); sem o
-// campo, é corpo a corpo.
+// arco à frente, em graus. weaponType "staff": o cajado (golpeia de perto; as magias são habilidades); "crossbow": a
+// arma não golpeia, o clique dispara uma Flecha (ARROW); sem o campo, é corpo a corpo.
 export interface WeaponStats {
   damage: number;
   range: number;
   arcDegrees: number;
-  weaponType?: "melee" | "staff";
+  weaponType?: "melee" | "staff" | "crossbow";
 }
 
 // O que um item equipável faz: em que slot vai, o golpe (se for arma), o que soma aos status enquanto equipado e, nas

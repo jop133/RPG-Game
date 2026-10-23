@@ -49,7 +49,7 @@ const ZONES = [
   ["wolf", "Frio (lobo)"],
   ["gnome", "Radiação (gnomo)"],
 ] as const;
-const SINGLE_ITEMS: readonly ItemId[] = ["espada_ferro", "cajado_arcano"];
+const SINGLE_ITEMS: readonly ItemId[] = ["espada_ferro", "cajado_arcano", "besta"];
 // Drops dos monstros: o Cristal e as 4 essências.
 const DROP_ITEMS: readonly ItemId[] = ["cristal_magico", "essencia_goblin", "essencia_slime", "essencia_lobo", "essencia_gnomo"];
 const LOCAL_SETTLE_MS = 250;

@@ -104,6 +104,8 @@ import {
 import { LightIndex, StaticCuller } from "./culling";
 import handSockets from "../../assets/characters/hand_sockets.json";
 import staffLook from "../../assets/weapons/cajado_arcano.json";
+import teleportUrl from "../../assets/effects/teleport.png?url";
+import teleportInfo from "../../assets/effects/teleport.json";
 import { Hud } from "./hud";
 import type { Prompt } from "./plates";
 import { LIGHT_KEY, LIGHT_TEXTURE_SIZE, Lighting, mergeNearby, phaseAt, type Light, type LightLook } from "./lighting";
@@ -221,10 +223,13 @@ const TILESET_URLS = Object.entries(
 const CHARACTER_URLS = Object.entries(
   import.meta.glob<string>("../../assets/characters/*/*.png", { eager: true, query: "?url", import: "default" }),
 ).map(([path, url]) => ({ key: path.slice(path.indexOf("characters/"), -".png".length), url }));
-const IDLE_URLS = CHARACTER_URLS.filter(({ key }) => !key.includes("/walk-") && !key.includes("/attack-"));
+const ACTION_STRIP_RE = /\/(attack|punch|shoot)-/;
+const IDLE_URLS = CHARACTER_URLS.filter(({ key }) => !key.includes("/walk-") && !ACTION_STRIP_RE.test(key));
 // Golpe desenhado (futuro): "characters/<classe>/attack-<direção>", fita de quadros 96x96 como a caminhada. Se a classe
 // tiver, toca no golpe e a espada segue a mão de cada quadro (hand_sockets.json); se não, fica a pose parada.
-const ATTACK_URLS = CHARACTER_URLS.filter(({ key }) => key.includes("/attack-"));
+// Soco desarmado (tools/assets/process_actions.py): "punch-<direção>", só sem arma equipada. Tiro de besta (futuro, o
+// elfo): "shoot-<direção>", só com a besta. Mesmo quadro de 96x96, tocados uma vez no tempo do golpe.
+const ATTACK_URLS = CHARACTER_URLS.filter(({ key }) => ACTION_STRIP_RE.test(key));
 // Armadura vestida (tools/assets/build_armor_layers.py): uma camada por peça, quadro a quadro, com o mesmo nome do
 // sprite do corpo: "armor/<classe>/<visual>/<peça>/<direção>" (64x64) e ".../walk-<direção>" (fita 96x96).
 const ARMOR_URLS = Object.entries(
@@ -328,6 +333,28 @@ const WEAPON_LOOKS: Record<string, WeaponLook> = {
 // Arma que dispara (cajado) em vez de golpear: sem varrida nem rastro de lâmina; o disparo é a canalização (staffPose).
 function isStaff(weapon: string | undefined): boolean {
   return weapon !== undefined && weapon in ITEMS && weaponStats({ weapon: weapon as ItemId }).weaponType === "staff";
+}
+// Besta (o elfo): o clique dispara a Flecha. A besta aparece na mão só no tiro, desenhada na direção dele
+// ("weapons/besta-<direção>", uma arte por direção, sem girar), um pouco à frente da mão; o corpo recua em vez de avançar.
+function isCrossbow(weapon: string | undefined): boolean {
+  return weapon !== undefined && weapon in ITEMS && weaponStats({ weapon: weapon as ItemId }).weaponType === "crossbow";
+}
+const CROSSBOW_SHOW_MS = 420;
+const CROSSBOW_SCALE = 0.55;
+const CROSSBOW_FORWARD = 8;
+const CROSSBOW_RECOIL_PX = 2;
+// Teleporte (tools/assets/process_actions.py): o tubo de luz no ponto de chegada, com a base (teleportInfo.feet) nos
+// pés do personagem. O tubo se forma (FORM_MS, os quadros em ordem), o personagem aparece dentro dele (REVEAL_MS, de
+// transparente a inteiro) e o tubo se desfaz (FADE_MS, os quadros ao contrário, apagando). Só desenho.
+const TELEPORT_KEY = "effects/teleport";
+const TELEPORT = { formMs: 500, revealMs: 400, fadeMs: 400, alpha: 0.9 };
+// Coice da besta: o corpo vai CROSSBOW_RECOIL_PX para trás da mira e volta, em CROSSBOW_KICK_MS (sem esticar).
+const CROSSBOW_KICK_MS = 180;
+function crossbowKick(startMs: number, angle: number, time: number): { x: number; y: number; sx: number; sy: number } {
+  const t = time - startMs;
+  if (t < 0 || t >= CROSSBOW_KICK_MS) return { x: 0, y: 0, sx: 1, sy: 1 };
+  const k = Math.sin((Math.PI * t) / CROSSBOW_KICK_MS);
+  return { x: -Math.cos(angle) * CROSSBOW_RECOIL_PX * k, y: -Math.sin(angle) * CROSSBOW_RECOIL_PX * k, sx: 1, sy: 1 };
 }
 // No golpe, o braço estica até WEAPON_ARM_EXTEND px na direção do ataque, no pico da varrida.
 const WEAPON_ARM_EXTEND = 3;
@@ -538,6 +565,8 @@ const ABOVE_LAYER = "above";
 interface SceneData {
   place: Place;
   room: Room<unknown, ServerState>;
+  // Chegou pelo portal (entrou no labirinto ou extraiu e voltou à cidade): o personagem surge do tubo de teleporte.
+  teleport?: boolean;
 }
 
 // VITE_SERVER_PORT permite apontar para um servidor de teste (ex.: 2568) sem mexer no do dono do projeto.
@@ -790,11 +819,15 @@ class WorldScene extends Phaser.Scene {
   private nearTorch = false;
   private lastOwnSwingAt = -Infinity;
   private mapKey: MapKey = "city";
+  // Teleporte de chegada: falta começar (o avatar próprio ainda não existe) e o tubo tocando agora.
+  private arrivalPending = false;
+  private arrival?: { tube: Phaser.GameObjects.Sprite; startMs: number; sessionId: string };
 
   init(data: SceneData) {
     this.place = data.place;
     this.room = data.room;
     this.mapKey = data.place === "labyrinth" && data.room.name === "sandbox" ? "arena" : data.place;
+    this.arrivalPending = data.teleport ?? false;
   }
 
   // Mapas e folhas de tiles ficam no cache do jogo: só a primeira visita baixa os arquivos.
@@ -813,6 +846,9 @@ class WorldScene extends Phaser.Scene {
     for (const { key, url } of MOB_ACTION_URLS) {
       const info = mobAnimInfo(key);
       if (info && !this.textures.exists(key)) this.load.spritesheet(key, url, { frameWidth: info.frame, frameHeight: info.frame });
+    }
+    if (!this.textures.exists(TELEPORT_KEY)) {
+      this.load.spritesheet(TELEPORT_KEY, teleportUrl, { frameWidth: teleportInfo.frame, frameHeight: teleportInfo.frame });
     }
     for (const { key, url } of SPELL_URLS) {
       if (this.textures.exists(key)) continue;
@@ -929,6 +965,7 @@ class WorldScene extends Phaser.Scene {
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => this.sendAttack(pointer));
     room.onMessage("extracted", (result: ExtractionResult) => {
       this.room = undefined;
+      arriveByTeleport = true;
       sessionStorage.removeItem(RECONNECTION_TOKEN_KEY);
       hud.hide();
       showEndScreen("Você extraiu", describeLoot(result), "Voltar à cidade");
@@ -1381,6 +1418,8 @@ Subiu para o nível ${info.level}!` : "";
       }
       const classId = player.classId ?? "";
       const seed = Math.floor(Math.random() * 1e9);
+      // Tiro de besta não é golpe: quem a flecha acerta reage pelo dano, não pelo alcance do "golpe".
+      if (isCrossbow(player.equipment?.get("weapon"))) return;
       const shape = swingShape(player.equipment?.get("weapon"));
       this.swings.push({ x: player.x, y: player.y, angle: player.attackAngle ?? 0, classId, startMs: time, seed, ...shape });
     });
@@ -1557,17 +1596,22 @@ Subiu para o nível ${info.level}!` : "";
         }
         avatar.lastHp = player.hp;
       }
-      this.animateAvatar(avatar, player.classId, time - avatar.lastMoveAt < WALK_LINGER_MS, time - avatar.swingAt < ATTACK_FACING_MS);
+      const weapon = player.equipment?.get("weapon");
+      const attacking = time - avatar.swingAt < ATTACK_FACING_MS;
+      this.animateAvatar(avatar, player.classId, weapon, time - avatar.lastMoveAt < WALK_LINGER_MS, attacking);
       const recoil = recoilOffset(avatar.reaction, time);
-      const lunge = lungeOffset(avatar.swingAt, avatar.swingAngle, time);
+      // Besta: o tiro empurra o corpo um pouco para trás; o resto avança no golpe.
+      const lunge = isCrossbow(weapon) ? crossbowKick(avatar.swingAt, avatar.swingAngle, time) : lungeOffset(avatar.swingAt, avatar.swingAngle, time);
       const bodyX = player.x + recoil.x + lunge.x;
       const bodyY = feet + recoil.y + lunge.y;
       avatar.body.setPosition(bodyX, bodyY).setDepth(sortDepth(feet)).setScale(lunge.sx, lunge.sy);
       applyFlash(avatar.body, avatar.reaction, time, isSelf ? SELF_FLASH_COLOR : HIT_FLASH_COLOR);
-      this.poseWeapon(avatar, player.classId, player.equipment?.get("weapon"), sortDepth(feet), time);
+      this.poseWeapon(avatar, player.classId, weapon, sortDepth(feet), time);
       this.poseArmor(avatar, player, sortDepth(feet));
       avatar.shadow.setPosition(player.x, feet - 1).setScale(stepSquash(avatar.body));
       avatar.label.setPosition(player.x, feet - AVATAR_HEIGHT - HP_BAR_GAP - HP_BAR_HEIGHT - 2);
+      if (isSelf && this.arrivalPending) this.startArrival(sessionId, player.x, feet, time);
+      this.fadeArrival(sessionId, avatar, time);
     });
     for (const [sessionId, avatar] of this.avatars) {
       if (seen.has(sessionId)) continue;
@@ -1591,6 +1635,11 @@ Subiu para o nível ${info.level}!` : "";
   private poseWeapon(avatar: Avatar, classId: string | undefined, weapon: string | undefined, bodyDepth: number, time: number) {
     const key = `weapons/${weapon}`;
     avatar.weaponItem = weapon;
+    if (isCrossbow(weapon)) {
+      avatar.castFlash = false;
+      this.poseCrossbow(avatar, classId, bodyDepth, time);
+      return;
+    }
     if (!weapon || !this.textures.exists(key)) {
       avatar.weapon.setVisible(false);
       avatar.grip.setVisible(false);
@@ -1635,6 +1684,70 @@ Subiu para o nível ${info.level}!` : "";
         const tip = weaponPoint(avatar.weapon, look.tip);
         this.bolts?.flash(tip.x, tip.y, time);
       }
+    }
+  }
+
+  // A besta na mão, só durante o tiro: a arte da direção do tiro, no socket da mão, empurrada CROSSBOW_FORWARD px
+  // para a mira. Atrás do corpo quando a mão está atrás. Sem punho por cima (a arte já tem a coronha).
+  private poseCrossbow(avatar: Avatar, classId: string | undefined, bodyDepth: number, time: number) {
+    avatar.grip.setVisible(false);
+    const key = `weapons/besta-${facingFor(Math.cos(avatar.swingAngle), Math.sin(avatar.swingAngle))}`;
+    if (time - avatar.swingAt >= CROSSBOW_SHOW_MS || !this.textures.exists(key)) {
+      avatar.weapon.setVisible(false);
+      return;
+    }
+    const socket = this.handSocket(avatar, classId);
+    const body = avatar.body;
+    const x = body.x + socket.dx * body.scaleX + Math.cos(avatar.swingAngle) * CROSSBOW_FORWARD;
+    const y = body.y + socket.dy * body.scaleY + Math.sin(avatar.swingAngle) * CROSSBOW_FORWARD;
+    if (avatar.weapon.texture.key !== key) avatar.weapon.setTexture(key).setOrigin(0.5, 0.5);
+    avatar.weapon
+      .setVisible(true)
+      .setPosition(x, y)
+      .setRotation(0)
+      .setScale(CROSSBOW_SCALE)
+      .setDepth(bodyDepth + (socket.behindBody ? -0.05 : 0.05));
+  }
+
+  // Chegada pelo portal: o tubo de teleporte aparece nos pés do próprio personagem (uma vez por cena).
+  private startArrival(sessionId: string, x: number, feet: number, time: number) {
+    this.arrivalPending = false;
+    if (!this.textures.exists(TELEPORT_KEY)) return;
+    const tube = this.add
+      .sprite(x, feet, TELEPORT_KEY, 0)
+      .setOrigin(0.5, teleportInfo.feet / teleportInfo.frame)
+      .setDepth(sortDepth(feet) + 0.2)
+      .setAlpha(TELEPORT.alpha);
+    this.arrival = { tube, startMs: time, sessionId };
+  }
+
+  // O tubo se forma, o personagem aparece dentro dele e o tubo se desfaz (TELEPORT). Até lá, o personagem inteiro
+  // (corpo, arma, armadura, sombra e nome) segue a transparência.
+  private fadeArrival(sessionId: string, avatar: Avatar, time: number) {
+    const arrival = this.arrival;
+    if (!arrival || arrival.sessionId !== sessionId) return;
+    const t = time - arrival.startMs;
+    const last = teleportInfo.frames - 1;
+    const { formMs, revealMs, fadeMs } = TELEPORT;
+    let frame = last;
+    let tubeAlpha = TELEPORT.alpha;
+    let bodyAlpha = 1;
+    if (t < formMs) {
+      frame = Math.floor((t / formMs) * teleportInfo.frames);
+      bodyAlpha = 0;
+    } else if (t < formMs + revealMs) {
+      bodyAlpha = (t - formMs) / revealMs;
+    } else if (t < formMs + revealMs + fadeMs) {
+      const k = (t - formMs - revealMs) / fadeMs;
+      frame = last - Math.floor(k * teleportInfo.frames);
+      tubeAlpha *= 1 - k;
+    } else {
+      arrival.tube.destroy();
+      this.arrival = undefined;
+    }
+    if (this.arrival) arrival.tube.setFrame(Phaser.Math.Clamp(frame, 0, last)).setAlpha(tubeAlpha);
+    for (const part of [avatar.body, avatar.weapon, avatar.grip, avatar.shadow, avatar.label, ...avatar.armor.values()]) {
+      part.setAlpha(bodyAlpha);
     }
   }
 
@@ -1703,11 +1816,15 @@ Subiu para o nível ${info.level}!` : "";
   private handSocket(avatar: Avatar, classId: string | undefined): HandSocket {
     const key = avatar.body.texture.key;
     const name = key.slice(key.lastIndexOf("/") + 1);
+    // Soco e tiro não têm mão rastreada: a do parado na mesma direção.
+    const action = /^(punch|shoot)-/.exec(name);
     const [animation, direction] = name.startsWith("walk-")
       ? ["walk", name.slice("walk-".length)]
       : name.startsWith("attack-")
         ? ["attack", name.slice("attack-".length)]
-        : ["idle", name];
+        : action
+          ? ["idle", name.slice(action[0].length)]
+          : ["idle", name];
     const frame = animation === "idle" ? 0 : (avatar.body.anims.currentFrame?.index ?? 1) - 1;
     const sockets = HAND_SOCKETS[classId ?? ""] ?? HAND_SOCKETS.mago;
     const frames = sockets?.[animation]?.[direction];
@@ -1720,12 +1837,14 @@ Subiu para o nível ${info.level}!` : "";
     return { dx: idle.dx + bob.x * flip, dy: idle.dy + bob.y, behindBody: idle.behindBody };
   }
 
-  // Golpe (se a classe tiver a fita attack-<direção>): toca o golpe uma vez.
+  // Golpe: sem arma, o soco (punch-<direção>); com a besta, o tiro (shoot-<direção>); com outra arma, attack-<direção>.
+  // Toca uma vez, se a classe tiver a fita; se não, fica a pose de sempre.
   // Andando: toca a caminhada da direção (trocar de direção no meio do passo continua do mesmo quadro).
   // Parado: sprite parado da última direção.
-  private animateAvatar(avatar: Avatar, classId: string | undefined, walking: boolean, attacking: boolean) {
+  private animateAvatar(avatar: Avatar, classId: string | undefined, weapon: string | undefined, walking: boolean, attacking: boolean) {
     const body = avatar.body;
-    const attack = characterKey(classId, `attack-${avatar.facing}`);
+    const strip = !weapon ? "punch" : isCrossbow(weapon) ? "shoot" : "attack";
+    const attack = characterKey(classId, `${strip}-${avatar.facing}`);
     if (attacking && this.anims.exists(attack)) {
       if (body.anims.currentAnim?.key !== attack) body.setOrigin(0.5, WALK_FEET).play(attack);
       return;
@@ -2265,12 +2384,17 @@ const DEV_SEEN_KEY = "rpg-extracao:devTools";
 // A sala em que a página está agora (a da última cena mostrada).
 let currentRoom: Room<unknown, ServerState> | undefined;
 
+// A próxima cena é uma chegada pelo portal (entrou no labirinto, ou extraiu e volta à cidade): o personagem surge do
+// teleporte. Recarregar a página, a Sala de Testes e a volta depois da morte não marcam.
+let arriveByTeleport = false;
+
 // Troca de lugar: uma cena nova para cada sala, e a anterior sai inteira (desenhos, teclas, estado).
 function show(data: SceneData) {
   currentRoom = data.room;
   if (currentScene) game.scene.remove(currentScene);
   currentScene = `world-${++sceneCount}`;
-  game.scene.add(currentScene, WorldScene, true, data);
+  game.scene.add(currentScene, WorldScene, true, { ...data, teleport: arriveByTeleport });
+  arriveByTeleport = false;
 }
 
 // O join resolve antes do primeiro estado chegar; até lá, `players` não existe.
@@ -2348,10 +2472,12 @@ function errorMessage(e: unknown): string {
 
 // Saiu pelo portal da cidade: entra numa run aberta com vaga (ou numa nova), com o mesmo nome.
 async function goToLabyrinth() {
+  arriveByTeleport = true;
   try {
     const room = await client.joinOrCreate<ServerState>("game", { name: sessionStorage.getItem(NAME_KEY) });
     await enterLabyrinth(room);
   } catch (e) {
+    arriveByTeleport = false;
     showEndScreen("Não deu para entrar no labirinto", e instanceof Error ? e.message : "", "Voltar à cidade");
   }
 }
