@@ -21,9 +21,11 @@ describe("startingSkills e restoreSkills", () => {
     expect(restoreSkills([], "mago")).toHaveLength(SKILL_SLOTS);
   });
 
-  it("as classes sem habilidades ainda têm a lista vazia", () => {
+  it("as habilidades de cada classe (o bárbaro ainda não tem)", () => {
     expect(CLASS_SKILLS.mago).toEqual(["fireball", "lightning", "swamp", "ice_barrier"]);
-    for (const id of ["elfo", "barbaro", "homem_fera"] as const) expect(CLASS_SKILLS[id]).toEqual([]);
+    expect(CLASS_SKILLS.elfo).toEqual(["spirit_water", "spirit_fire", "spirit_earth", "spirit_wind"]);
+    expect(CLASS_SKILLS.homem_fera).toEqual(["bear_transform"]);
+    expect(CLASS_SKILLS.barbaro).toEqual([]);
   });
 });
 

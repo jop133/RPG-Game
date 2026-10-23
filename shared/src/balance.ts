@@ -261,6 +261,34 @@ export const SWAMP_SPELL = { castMs: 350, durationMs: 5000, radiusX: 61, radiusY
 // BREAK_MS no estado (a animação de quebra) já sem bloquear.
 export const ICE_BARRIER = { hp: 150, durationMs: 12000, distance: 56, cells: 3, cooldownMs: 9000, breakMs: 900 };
 
+// Espíritos Elementais do Elfo: só um equipado por vez (skills.ts). Equipado, flutua ao lado dele (desenho); a tecla
+// da skill pede o auxílio do espírito:
+// - Água: cura HEAL de vida no elfo e em todo aliado a até RADIUS px;
+// - Fogo: dispara a Bola de Fogo (o projétil do cajado) na direção do mouse, com DAMAGE de dano mágico;
+// - Terra: Pele de Pedra, um buff ("stone_skin", BUFF_BONUS) por DURATION_MS;
+// - Vento: Rajada, um buff de velocidade ("haste", BUFF_BONUS) por DURATION_MS.
+export const SPIRIT_WATER = { heal: 30, radius: 96, cooldownMs: 12000 };
+export const SPIRIT_FIRE = { damage: 12, cooldownMs: 2500 };
+export const SPIRIT_EARTH = { durationMs: 6000, cooldownMs: 15000 };
+export const SPIRIT_WIND = { durationMs: 4000, cooldownMs: 10000 };
+// Forma de Urso Primal (Homem-Fera): a tecla começa a pose (POSE_MS, parado no lugar); no fim dela vira Homem-Urso por
+// DURATION_MS (o buff "bear": mais vida, defesa e dano, e o golpe passa a ser a garra, CLAWS). A tecla de novo, ou o
+// fim do tempo, desfaz: a explosão primal cobre a volta (REVERT_MS). A recarga conta do começo da pose; desfazer antes
+// não espera a recarga.
+export const BEAR_FORM = {
+  poseMs: 900,
+  durationMs: 20000,
+  revertMs: 500,
+  cooldownMs: 30000,
+  claws: { damage: 14, range: 32, arcDegrees: 110 },
+};
+// O que cada buff soma aos status enquanto dura (StatBonus, em stats.ts).
+export const BUFF_BONUS = {
+  bear: { maxHp: 60, defensePercent: 15, physicalDamage: 6 },
+  stone_skin: { defensePercent: 25 },
+  haste: { speedPercent: 35 },
+} as const;
+
 // Ticks de simulação do servidor por segundo.
 export const TICK_RATE = 20;
 

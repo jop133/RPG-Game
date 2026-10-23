@@ -114,6 +114,13 @@ import {
   CLASS_SKILLS,
   FIREBALL_SKILL,
   ARROW,
+  BEAR_FORM,
+  SPIRIT_EARTH,
+  SPIRIT_FIRE,
+  SPIRIT_WATER,
+  SPIRIT_WIND,
+  spiritOf,
+  type Buff,
   ICE_BARRIER,
   placeBarrier,
   withBlockedCells,
@@ -359,6 +366,10 @@ export class GameRoom extends Room<{ state: GameState }> {
   // tempo que falta da fase (de pé até sumir; quebrando até sair do estado). mobGrid: a grade dos mobs, o mapa com os
   // tiles das barreiras de pé como parede (refeita quando uma barreira sobe ou quebra); sem barreira, a do mapa.
   private barriers = new Map<string, { cells: number[]; remainingMs: number }>();
+  // Buffs de habilidade ativos de cada um e até quando (ms do relógio da sala): Forma de Urso, Pele de Pedra, Rajada.
+  // E a fase da forma do Homem-Fera que acaba sozinha (a pose e a volta) e quando.
+  private buffs = new Map<string, Map<Buff, number>>();
+  private formEnds = new Map<string, number>();
   private nextBarrierId = 1;
   private mobGrid?: CollisionGrid;
   // Habilidades equipadas de cada um (Q e R). PlayerState.skills espelha para o dono.
@@ -423,6 +434,8 @@ export class GameRoom extends Room<{ state: GameState }> {
       maxHp: stats.maxHp,
       attackSeq: 0,
       castSeq: 0,
+      spirit: "",
+      form: "",
       attackAngle: 0,
       mana: stats.maxMana,
       maxMana: stats.maxMana,
@@ -440,6 +453,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     const skills = store.skills(record.characterId, record.classId);
     this.skills.set(client.sessionId, skills);
     mirrorSkills(player.skills, skills);
+    player.spirit = spiritOf(skills);
     // O que o personagem trouxe da cidade (ou o kit inicial, se for novo).
     this.setInventory(client.sessionId, player, store.inventory(record.characterId));
     this.state.players.set(client.sessionId, player);
@@ -490,6 +504,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.characters.delete(sessionId);
     this.essences.delete(sessionId);
     this.stats.delete(sessionId);
+    this.buffs.delete(sessionId);
+    this.formEnds.delete(sessionId);
   }
 
   private openExits() {
@@ -642,7 +658,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.equipment.set(sessionId, gear.equipment);
     mirrorEquipment(player.equipment, gear.equipment);
     const before = this.statsOf(sessionId);
-    const after = playerStats(this.essences.get(sessionId) ?? [], gear.equipment);
+    const after = playerStats(this.essences.get(sessionId) ?? [], gear.equipment, this.activeBuffs(sessionId));
     this.stats.set(sessionId, after);
     player.maxHp = after.maxHp;
     player.hp = Math.max(1, Math.min(after.maxHp, player.hp + (after.maxHp - before.maxHp)));
@@ -677,7 +693,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     const record = this.characters.get(sessionId);
     if (record) store.setEssences(record.characterId, essences);
     const before = this.stats.get(sessionId) ?? playerStats([]);
-    const after = playerStats(essences, this.equipment.get(sessionId));
+    const after = playerStats(essences, this.equipment.get(sessionId), this.activeBuffs(sessionId));
     this.essences.set(sessionId, essences);
     this.stats.set(sessionId, after);
     player.essences.push(essences[essences.length - 1] as ItemId);
@@ -784,6 +800,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.skills.set(sessionId, next);
     store.setSkills(record.characterId, next);
     mirrorSkills(player.skills, next);
+    player.spirit = spiritOf(next);
   }
 
   // Tecla da skill (Q = slot 0, R = slot 1). O cliente diz o slot e o ponto do mouse; aqui: a skill equipada nele,
@@ -796,6 +813,11 @@ export class GameRoom extends Room<{ state: GameState }> {
     const skill = cast && this.skills.get(sessionId)?.[cast.slot];
     if (!cast || !caster || !skill) return;
     const now = this.clock.currentTime;
+    // Forma de Urso: a tecla de novo desfaz (sem esperar a recarga); no meio da pose ou da volta, nada.
+    if (skill === "bear_transform" && caster.form !== "") {
+      if (caster.form === "bear") this.startRevert(sessionId, caster);
+      return;
+    }
     const last = this.lastSpellMs.get(sessionId) ?? {};
     if (!isOffCooldown(last[skill], now, SKILLS[skill].cooldownMs)) return;
     const magicDamage = this.statsOf(sessionId).magicDamage;
@@ -804,6 +826,16 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.fireBolt(sessionId, caster, angle, FIREBALL_SKILL.baseDamage + magicDamage);
     } else if (skill === "ice_barrier") {
       if (!this.raiseBarrier(caster, angle)) return;
+    } else if (skill === "bear_transform") {
+      this.startTransform(sessionId, caster);
+    } else if (skill === "spirit_water") {
+      this.spiritHeal(caster);
+    } else if (skill === "spirit_fire") {
+      this.fireBolt(sessionId, caster, angle, SPIRIT_FIRE.damage);
+    } else if (skill === "spirit_earth") {
+      this.addBuff(sessionId, caster, "stone_skin", SPIRIT_EARTH.durationMs);
+    } else if (skill === "spirit_wind") {
+      this.addBuff(sessionId, caster, "haste", SPIRIT_WIND.durationMs);
     } else {
       const at = spellTarget(caster, cast.target, this.level.grid);
       if (!at) return;
@@ -1039,6 +1071,82 @@ export class GameRoom extends Room<{ state: GameState }> {
     return this.mobGrid ?? this.level.grid;
   }
 
+  // Os buffs de agora de um jogador (os vencidos saem em tickForms).
+  private activeBuffs(sessionId: string): Buff[] {
+    return [...(this.buffs.get(sessionId)?.keys() ?? [])];
+  }
+
+  // Liga um buff por `durationMs` (de novo: renova) e recalcula os status.
+  private addBuff(sessionId: string, player: PlayerState, buff: Buff, durationMs: number) {
+    const buffs = this.buffs.get(sessionId) ?? new Map<Buff, number>();
+    buffs.set(buff, this.clock.currentTime + durationMs);
+    this.buffs.set(sessionId, buffs);
+    this.refreshStats(sessionId, player);
+  }
+
+  private removeBuff(sessionId: string, player: PlayerState, buff: Buff) {
+    if (!this.buffs.get(sessionId)?.delete(buff)) return;
+    this.refreshStats(sessionId, player);
+  }
+
+  // Status de novo com os buffs de agora. Vida máxima a mais sobe a vida junto; a menos, a vida fica no novo teto.
+  private refreshStats(sessionId: string, player: PlayerState) {
+    const before = this.statsOf(sessionId);
+    const after = playerStats(this.essences.get(sessionId) ?? [], this.equipment.get(sessionId), this.activeBuffs(sessionId));
+    this.stats.set(sessionId, after);
+    player.maxHp = after.maxHp;
+    const gained = Math.max(0, after.maxHp - before.maxHp);
+    player.hp = Math.max(1, Math.min(after.maxHp, player.hp + gained));
+  }
+
+  // Espírito da Água: cura quem lançou e os aliados a até SPIRIT_WATER.radius px.
+  private spiritHeal(caster: PlayerState) {
+    this.state.players.forEach((player) => {
+      if (player.hp <= 0 || Math.hypot(player.x - caster.x, player.y - caster.y) > SPIRIT_WATER.radius) return;
+      player.hp = Math.min(player.maxHp, player.hp + SPIRIT_WATER.heal);
+    });
+  }
+
+  // Forma de Urso: a pose (parado no lugar por BEAR_FORM.poseMs). O resto acontece em tickForms.
+  private startTransform(sessionId: string, player: PlayerState) {
+    const now = this.clock.currentTime;
+    player.form = "transforming";
+    this.formEnds.set(sessionId, now + BEAR_FORM.poseMs);
+    this.attackLockUntil.set(sessionId, now + BEAR_FORM.poseMs);
+  }
+
+  // A volta: a explosão primal por BEAR_FORM.revertMs, e o buff sai no fim dela.
+  private startRevert(sessionId: string, player: PlayerState) {
+    player.form = "reverting";
+    this.formEnds.set(sessionId, this.clock.currentTime + BEAR_FORM.revertMs);
+  }
+
+  // Cada tick: buffs vencidos saem (o do urso vencido começa a volta); a pose que acabou vira urso; a volta que acabou
+  // devolve a forma normal.
+  private tickForms() {
+    const now = this.clock.currentTime;
+    this.state.players.forEach((player, sessionId) => {
+      for (const [buff, until] of this.buffs.get(sessionId) ?? []) {
+        if (now < until) continue;
+        if (buff === "bear") {
+          if (player.form === "bear") this.startRevert(sessionId, player);
+          continue;
+        }
+        this.removeBuff(sessionId, player, buff);
+      }
+      const end = this.formEnds.get(sessionId);
+      if (end === undefined || now < end) return;
+      this.formEnds.delete(sessionId);
+      if (player.form === "transforming") {
+        player.form = "bear";
+        this.addBuff(sessionId, player, "bear", BEAR_FORM.durationMs);
+      } else if (player.form === "reverting") {
+        player.form = "";
+        this.removeBuff(sessionId, player, "bear");
+      }
+    });
+  }
+
   // Os status de um jogador (base, arma, equipamento e essências).
   private statsOf(sessionId: string): PlayerStats {
     return this.stats.get(sessionId) ?? playerStats([]);
@@ -1262,6 +1370,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.moveBolts(dtMs);
     this.tickSpells(dtMs);
     this.tickBarriers(dtMs);
+    this.tickForms();
     this.resolveDeaths();
     this.updateExits(dtMs);
     this.updateViews();
@@ -1643,10 +1752,16 @@ export class GameRoom extends Room<{ state: GameState }> {
     store.changeClass(record.characterId, classId);
     record.classId = classId;
     player.classId = classId;
+    // Trocou de classe: sai da Forma de Urso e perde os buffs de habilidade.
+    this.buffs.delete(sessionId);
+    this.formEnds.delete(sessionId);
+    player.form = "";
+    this.refreshStats(sessionId, player);
     const skills = startingSkills(classId);
     store.setSkills(record.characterId, skills);
     this.skills.set(sessionId, skills);
     mirrorSkills(player.skills, skills);
+    player.spirit = spiritOf(skills);
     this.devGear(sessionId, player, (gear) => ({ gear: dropForeignGear(gear, classId) }));
     const gear = { inventory: this.inventories.get(sessionId), equipment: this.equipment.get(sessionId) };
     if (gear.inventory && gear.equipment) store.saveGear(record.characterId, gear.inventory, gear.equipment);

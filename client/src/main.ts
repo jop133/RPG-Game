@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { Client, type Room } from "@colyseus/sdk";
 import {
+  BEAR_FORM,
   CITY_PORTAL_RADIUS,
   CLASS_IDS,
   CLASS_REQUIRED_CODE,
@@ -113,6 +114,7 @@ import { Particles } from "./particles";
 import { Bolts, FIREBALL_FPS, FIREBALL_KEY, type ProjectileView } from "./projectiles";
 import { MUD_FPS, MUD_KEY, SPELL_SHEETS, STRIKE_FPS, STRIKE_KEY, SpellEffects, type SpellView } from "./spells";
 import { Barriers, type BarrierView } from "./barriers";
+import { POSE_APEX, POSE_FEET, POSE_KEY, PrimalBursts, Spirits, createFormAnimations, loadFormAssets } from "./forms";
 import { ZoneEffects, type HazardView } from "./zoneEffects";
 import { openRegistration, type Registration } from "./registration";
 import cityMapUrl from "../../assets/maps/city.json?url";
@@ -142,6 +144,10 @@ interface PlayerView extends Vec2 {
   eyes?: { forEach(callback: (value: number, index: number) => void): void };
   // Público: sangrando (gotas de sangue).
   bleeding?: boolean;
+  // Públicos, no labirinto: o Espírito Elemental que flutua ao lado do elfo ("" = nenhum) e a forma do Homem-Fera
+  // ("" normal, "transforming", "bear", "reverting").
+  spirit?: string;
+  form?: string;
   attackSeq?: number;
   castSeq?: number;
   attackAngle?: number;
@@ -481,8 +487,10 @@ function mobKey(kind: string, facing: string): string {
   return `mobs/${kind}/${facing}`;
 }
 
+// Aparências do corpo: as classes e o Homem-Urso (a Forma de Urso do Homem-Fera, assets/characters/urso).
+const BODY_LOOKS: readonly string[] = [...CLASS_IDS, "urso"];
 function characterKey(classId: string | undefined, facing: string, walking = false): string {
-  const known = CLASS_IDS.find((id) => id === classId) ?? CLASS_IDS[0];
+  const known = BODY_LOOKS.find((id) => id === classId) ?? CLASS_IDS[0];
   return `characters/${known}/${walking ? "walk-" : ""}${facing}`;
 }
 
@@ -514,6 +522,9 @@ interface Avatar {
   // Habilidade lançada (castSeq): o cajado aponta para a mira (staffPose) desde castAt.
   castAt: number;
   castAngle: number;
+  // Forma do Homem-Fera vista no quadro anterior e se a explosão do ápice da pose já saiu.
+  lastForm: string;
+  primalFired: boolean;
 }
 
 // Item no chão: o desenho (a animação do item, ou a caixinha da pilha de quem morreu), o brilho no piso, e o pulo de
@@ -807,6 +818,8 @@ class WorldScene extends Phaser.Scene {
   // Magias do mago no chão (círculos, raio, poça) e as teclas delas.
   private spellEffects?: SpellEffects;
   private barriers?: Barriers;
+  private spirits?: Spirits;
+  private primal?: PrimalBursts;
   private skillKeys: Phaser.Input.Keyboard.Key[] = [];
   // [E] no labirinto: acender tocha dos goblins; a dica fica até se afastar.
   private torchKey?: Phaser.Input.Keyboard.Key;
@@ -851,6 +864,7 @@ class WorldScene extends Phaser.Scene {
       const info = mobAnimInfo(key);
       if (info && !this.textures.exists(key)) this.load.spritesheet(key, url, { frameWidth: info.frame, frameHeight: info.frame });
     }
+    loadFormAssets(this);
     if (!this.textures.exists(TELEPORT_KEY)) {
       this.load.spritesheet(TELEPORT_KEY, teleportUrl, { frameWidth: teleportInfo.frame, frameHeight: teleportInfo.frame });
     }
@@ -864,6 +878,7 @@ class WorldScene extends Phaser.Scene {
 
   create() {
     this.createWalkAnimations();
+    createFormAnimations(this, BEAR_FORM.poseMs);
     const map = this.createMap();
     this.mapLights = new LightIndex(this.readMapLights());
     this.lighting = new Lighting(this, AMBIENT[this.place], LIGHT_DEPTH, VIGNETTE_ALPHA[this.place]);
@@ -873,6 +888,8 @@ class WorldScene extends Phaser.Scene {
     this.bolts = new Bolts(this, this.particles, LIGHT_DEPTH + 0.05);
     this.spellEffects = new SpellEffects(this, this.particles, SPELL_GROUND_DEPTH, sortDepth, (amplitude) => this.shake.kick(amplitude));
     this.barriers = new Barriers(this, this.particles, SPELL_GROUND_DEPTH, sortDepth, OVERLAY_DEPTH);
+    this.spirits = new Spirits(this, this.particles, sortDepth);
+    this.primal = new PrimalBursts(this);
     this.zoneFx = new ZoneEffects(this, this.particles, HAZARD_DEPTH, LIGHT_DEPTH + 0.06);
     this.keys = this.input.keyboard?.addKeys({ up: "W", down: "S", left: "A", right: "D" }) as MoveKeys;
     // Teclas dos slots nos dois lugares: o personagem leva o inventário para a cidade. Clicar no slot do HUD faz o mesmo.
@@ -1410,6 +1427,8 @@ Subiu para o nível ${info.level}!` : "";
       avatar.castAt = time;
       avatar.castAngle = player.attackAngle ?? 0;
       avatar.castFlash = true;
+      // Elfo com espírito: a tecla da skill é o auxílio dele.
+      if (player.spirit) this.spirits?.pulse(sessionId, time);
     });
     room.state.players.forEach((player, sessionId) => {
       const seq = player.attackSeq ?? 0;
@@ -1602,9 +1621,15 @@ Subiu para o nível ${info.level}!` : "";
         }
         avatar.lastHp = player.hp;
       }
-      const weapon = player.equipment?.get("weapon");
+      // Forma de Urso: o corpo vira o Homem-Urso (sem a arma e a armadura humanas); na pose, nem um nem outro.
+      const form = player.form ?? "";
+      const human = form === "";
+      const look = form === "bear" || form === "reverting" ? "urso" : player.classId;
+      const weapon = human ? player.equipment?.get("weapon") : undefined;
       const attacking = time - avatar.swingAt < ATTACK_FACING_MS;
-      this.animateAvatar(avatar, player.classId, weapon, time - avatar.lastMoveAt < WALK_LINGER_MS, attacking);
+      const moving = time - avatar.lastMoveAt < WALK_LINGER_MS;
+      if (form === "transforming") this.playPose(avatar);
+      else this.animateAvatar(avatar, look, weapon, moving, attacking);
       const recoil = recoilOffset(avatar.reaction, time);
       // Besta: o tiro empurra o corpo um pouco para trás; o resto avança no golpe.
       const lunge = isCrossbow(weapon) ? crossbowKick(avatar.swingAt, avatar.swingAngle, time) : lungeOffset(avatar.swingAt, avatar.swingAngle, time);
@@ -1613,11 +1638,15 @@ Subiu para o nível ${info.level}!` : "";
       avatar.body.setPosition(bodyX, bodyY).setDepth(sortDepth(feet)).setScale(lunge.sx, lunge.sy);
       applyFlash(avatar.body, avatar.reaction, time, isSelf ? SELF_FLASH_COLOR : HIT_FLASH_COLOR);
       this.poseWeapon(avatar, player.classId, weapon, sortDepth(feet), time);
-      this.poseArmor(avatar, player, sortDepth(feet));
+      if (human) this.poseArmor(avatar, player, sortDepth(feet));
+      else for (const layer of avatar.armor.values()) layer.setVisible(false);
+      this.updateForm(sessionId, avatar, form, bodyX, feet, sortDepth(feet));
       avatar.shadow.setPosition(player.x, feet - 1).setScale(stepSquash(avatar.body));
       avatar.label.setPosition(player.x, feet - AVATAR_HEIGHT - HP_BAR_GAP - HP_BAR_HEIGHT - 2);
       if (isSelf && this.arrivalPending) this.startArrival(sessionId, player.x, feet, time);
       this.fadeArrival(sessionId, avatar, time);
+      const owner = { x: player.x, feet, facing: avatar.facing, moving };
+      this.spirits?.sync(sessionId, player.spirit ?? "", owner, time, this.game.loop.delta, avatar.body.alpha);
     });
     for (const [sessionId, avatar] of this.avatars) {
       if (seen.has(sessionId)) continue;
@@ -1627,6 +1656,7 @@ Subiu para o nível ${info.level}!` : "";
       avatar.weapon.destroy();
       avatar.grip.destroy();
       for (const layer of avatar.armor.values()) layer.destroy();
+      this.spirits?.remove(sessionId);
       this.avatars.delete(sessionId);
     }
   }
@@ -1713,6 +1743,25 @@ Subiu para o nível ${info.level}!` : "";
       .setRotation(0)
       .setScale(CROSSBOW_SCALE)
       .setDepth(bodyDepth + (socket.behindBody ? -0.05 : 0.05));
+  }
+
+  // A pose da transformação no lugar do corpo (a arte só tem a de frente), uma vez, no tempo da pose do servidor.
+  private playPose(avatar: Avatar) {
+    const body = avatar.body;
+    if (body.anims.currentAnim?.key === POSE_KEY || !this.anims.exists(POSE_KEY)) return;
+    body.setOrigin(0.5, POSE_FEET).play(POSE_KEY);
+  }
+
+  // A explosão primal: no ápice da pose (uma vez por transformação) e no começo da volta. Segue o corpo enquanto toca.
+  private updateForm(sessionId: string, avatar: Avatar, form: string, x: number, feet: number, depth: number) {
+    if (form !== "transforming") avatar.primalFired = false;
+    const apex = form === "transforming" && avatar.body.anims.currentAnim?.key === POSE_KEY && avatar.body.anims.getProgress() >= POSE_APEX;
+    if ((apex && !avatar.primalFired) || (form === "reverting" && avatar.lastForm !== "reverting")) {
+      avatar.primalFired = true;
+      this.primal?.spawn(sessionId, x, feet, depth + 0.3);
+    }
+    avatar.lastForm = form;
+    this.primal?.follow(sessionId, x, feet, depth + 0.3);
   }
 
   // Chegada pelo portal: o tubo de teleporte aparece nos pés do próprio personagem (uma vez por cena).
@@ -1905,6 +1954,8 @@ Subiu para o nível ${info.level}!` : "";
       castAt: -Infinity,
       castAngle: 0,
       pendingHp: 0,
+      lastForm: "",
+      primalFired: false,
     };
   }
 

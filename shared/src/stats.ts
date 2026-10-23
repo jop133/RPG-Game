@@ -1,4 +1,4 @@
-import { BASE_STATS, ITEMS, MAX_REDUCTION_PERCENT, REGEN_DELAY_MS, type ItemId, WOUNDED_FRACTION } from "./balance";
+import { BASE_STATS, BEAR_FORM, BUFF_BONUS, ITEMS, MAX_REDUCTION_PERCENT, REGEN_DELAY_MS, type ItemId, WOUNDED_FRACTION } from "./balance";
 import { EQUIP_SLOTS, type Equipment, type WeaponStats, weaponStats } from "./equipment";
 import type { ItemStats } from "./inventory";
 
@@ -78,8 +78,14 @@ function bonusesOf(essences: readonly ItemId[], equipment: Equipment): StatBonus
   return [...fromEssences, ...fromEquipment];
 }
 
-export function playerStats(essences: readonly ItemId[], equipment: Equipment = {}): PlayerStats {
-  return statsFrom(bonusesOf(essences, equipment), weaponStats(equipment));
+// Buff de habilidade ativo agora (BUFF_BONUS): a Forma de Urso, a Pele de Pedra (Espírito da Terra) e a Rajada
+// (Espírito do Vento). O servidor guarda até quando cada um dura.
+export type Buff = keyof typeof BUFF_BONUS;
+
+// Os status com os buffs ativos. Na Forma de Urso, o golpe é a garra (BEAR_FORM.claws), qualquer que seja a arma.
+export function playerStats(essences: readonly ItemId[], equipment: Equipment = {}, buffs: readonly Buff[] = []): PlayerStats {
+  const attack = buffs.includes("bear") ? BEAR_FORM.claws : weaponStats(equipment);
+  return statsFrom([...bonusesOf(essences, equipment), ...buffs.map((buff) => BUFF_BONUS[buff])], attack);
 }
 
 // Os status a partir da base, de uma lista de bônus e do golpe da arma, com os tetos aplicados.

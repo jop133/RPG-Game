@@ -49,6 +49,11 @@ export const PlayerState = schema(
     eyes: t.array("number").view(OWNER_TAG),
     // Sangrando (estilhaços de cristal): público, todos veem as gotas.
     bleeding: t.boolean(),
+    // Públicos (desenho): o Espírito Elemental equipado do elfo ("water", "fire", "earth", "wind"; "" = nenhum), que
+    // flutua ao lado dele, e a forma do Homem-Fera: "" (normal), "transforming" (a pose), "bear" (Homem-Urso) ou
+    // "reverting" (a explosão primal da volta).
+    spirit: t.string(),
+    form: t.string(),
   },
   "PlayerState",
 );

@@ -1183,6 +1183,22 @@ Slot vazio usa a moldura comum.
 
 ---
 
+## 2026-10 — Espíritos Elementais do Elfo e Forma de Urso Primal do Homem-Fera
+
+**Pedido do dono do projeto (Etapa 3):** os 4 Espíritos Elementais na tábua de skills do elfo (só um equipado por vez), flutuando ao lado dele para todos verem, nas 8 direções, com a animação de flutuar quando ele anda e um auxílio na tecla; a Forma de Urso Primal do Homem-Fera: pose, explosão primal, Homem-Urso com 8 direções e caminhada (sem a armadura e a arma humanas), bônus de combate e a explosão também na volta.
+
+**Como ficou:**
+- `tools/assets/process_forms.py`: espíritos em `assets/spirits/` (parado e fita de flutuar, 68x68), o Homem-Urso como uma aparência a mais do corpo (`assets/characters/urso/`, no mesmo formato das classes: parado 64x64 e caminhada 96x96), a pose e a explosão em `assets/effects/` (+ `forms.json`) e os 5 ícones na moldura vazia. Os nomes da arte vinham irregulares ("northeast", "__northwest", "walksoutheastframe"): normalizados.
+- Skills (`skills.ts`): `spirit_water`, `spirit_fire`, `spirit_earth`, `spirit_wind` (elfo) e `bear_transform` (homem-fera). **Um espírito por vez:** `equipSkill` tira o espírito que estiver em outro slot; `restoreSkills` derruba o segundo, se o banco tiver dois. O elfo fica com um slot para o espírito e o outro vazio (é a única família de skill dele, por enquanto).
+- Auxílio de cada espírito (números em `balance.ts`, para ajustar jogando): Água cura 30 no elfo e nos aliados a 96 px (12 s); Fogo lança a Bola de Fogo, 12 de dano mágico (2,5 s); Terra, Pele de Pedra, +25% de Defesa por 6 s (15 s); Vento, Rajada, +35% de Velocidade por 4 s (10 s).
+- **Buffs** (`Buff` em `stats.ts`, `BUFF_BONUS` em `balance.ts`): `playerStats` recebe os buffs ativos; o servidor guarda até quando cada um dura e recalcula os status ao ligar e ao vencer (`refreshStats`).
+- Forma de Urso (`BEAR_FORM`): a tecla começa a pose (0,9 s, parado no lugar); no fim, `form = "bear"` e o buff `bear` por 20 s: +60 de Vida, +15% de Defesa, +6 de Dano Físico, e o golpe vira a garra (14 de dano, 32 px, 110°) qualquer que seja a arma. A tecla de novo, ou o fim do tempo, faz a volta (`"reverting"`, 0,5 s). A recarga (30 s) conta do começo; desfazer não espera a recarga. Trocar de classe (dev) tira a forma e os buffs.
+- Estado público (`PlayerState.spirit` e `form`): todos veem o espírito e a forma. O cliente (`client/src/forms.ts`) desenha: o espírito seguindo com atraso suave, à direita de onde o elfo olha, subindo e descendo, e estourando em partículas da cor dele na tecla; a pose no lugar do corpo; a explosão primal no ápice da pose (60%) e no começo da volta; o Homem-Urso com as fitas dele, sem arma nem armadura.
+
+**Escolhas minhas (avise se quiser diferente):** os auxílios dos espíritos acima (o pedido não dizia qual); a pose só tem a arte de frente, então é ela qualquer que seja a direção; o espírito aparece só no labirinto (o estado da cidade não tem o campo); o Homem-Urso não tem golpe desenhado (avança como o golpe sem arte).
+
+---
+
 ## 2026-10 — Arte nova do Raio e do Pântano; Barreira de Gelo (4ª magia do mago)
 
 **Pedido do dono do projeto (Etapa 2):** o Raio Celestial e o Pântano de Lama com os círculos e as animações novas (`magias/raio`, `magias/terra`); a Barreira de Gelo como 4ª habilidade do mago: uma parede de gelo à frente, na direção da mira (8 direções), com vida própria, que bloqueia os inimigos e absorve os golpes e projéteis deles, e quebra com animação.
