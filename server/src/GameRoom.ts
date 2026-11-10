@@ -397,14 +397,14 @@ export class GameRoom extends Room<{ state: GameState }> {
   // tempo que falta da fase (de pé até sumir; quebrando até sair do estado). mobGrid: a grade dos mobs, o mapa com os
   // tiles das barreiras de pé como parede (refeita quando uma barreira sobe ou quebra); sem barreira, a do mapa.
   private barriers = new Map<string, { cells: number[]; remainingMs: number }>();
-  // Chefes: as rachaduras do Krag andando (a ponta, quem já levou, quanto fica no chão depois) e o último dano do
-  // tornado em cada jogador ("<mob>:<jogador>" -> ms).
+  // Chefes: as rachaduras do Krag andando (a ponta, quem já levou, quanto fica no chão depois) e o último dano de
+  // tornado em cada jogador (ms).
   private cracks = new Map<string, { kind: MobKind; spec: LineSpec; from: Vec2; angle: number; length: number; traveled: number; hit: Set<string>; lingerMs: number }>();
   // Fizban: os frascos caindo e as fumaças no chão (o efeito, onde, o raio, a fase e quanto falta dela).
   private clouds = new Map<string, { kind: MobKind; effect: Affliction; at: Vec2; radius: number; phase: "fall" | "cloud"; remainingMs: number }>();
   // Veneno e queimadura de cada jogador: até quando (ms do relógio da sala).
   private dots = new Map<string, Partial<Record<"poison" | "burn", number>>>();
-  private spinHits = new Map<string, number>();
+  private lastSpinHitAt = new Map<string, number>();
   // Buffs de habilidade ativos de cada um e até quando (ms do relógio da sala): Forma de Urso, Pele de Pedra, Rajada.
   // E a fase da forma do Homem-Fera que acaba sozinha (a pose e a volta) e quando.
   private buffs = new Map<string, Map<Buff, number>>();
@@ -548,6 +548,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.buffs.delete(sessionId);
     this.formEnds.delete(sessionId);
     this.dots.delete(sessionId);
+    this.lastSpinHitAt.delete(sessionId);
   }
 
   private openExits() {
@@ -1463,8 +1464,11 @@ export class GameRoom extends Room<{ state: GameState }> {
       if (isDormant(thinking, players)) return;
       const world = { grid: this.gridForMobs(), home: brain.area, homeCells: brain.homeCells, stats, players, post: brain.post, noticeable, flank: brain.flank };
       const next = stepMob(thinking, world, dtMs, Math.random);
-      mob.x = next.position.x;
-      mob.y = next.position.y;
+      // Nunca deixa uma posição inválida (NaN) chegar ao estado: o mob fica onde estava neste tick.
+      if (Number.isFinite(next.position.x) && Number.isFinite(next.position.y)) {
+        mob.x = next.position.x;
+        mob.y = next.position.y;
+      }
       mob.windup = next.mind.mode === "windup";
       if (next.mind.mode === "windup") mob.attackAngle = next.mind.angle;
       if (next.mind.mode === "ability") {
@@ -1501,7 +1505,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.state.spells.set(spellId, new SpellState({ kind: "crystal", x: event.at.x, y: event.at.y, phase: "warn", angle: 0, length: 0 }));
       return;
     }
-    if (event.type === "spin") return this.spinHit(id, kind, event.at);
+    if (event.type === "spin") return this.spinHit(kind, event.at);
     if (event.type === "crack") return this.startLine(kind, "crack", KRAG_KICK, event.from, event.angle);
     if (event.type === "claw") return this.startLine(kind, "claw", FENRIR_CLAW, event.from, event.angle);
     if (event.type === "potions") return this.throwPotions(kind, event.target);
@@ -1538,13 +1542,16 @@ export class GameRoom extends Room<{ state: GameState }> {
   }
 
   // Tornado do Krag: quem está a até KRAG_TORNADO.hitRadius px leva o dano, no máximo uma vez a cada hitEveryMs.
-  private spinHit(mobId: string, kind: MobKind, at: Vec2) {
+  // O evento chega a cada tick do tornado, mas o dano não: cada jogador leva no máximo um a cada hitEveryMs (de
+  // qualquer tornado), para não virar uma enxurrada de dano, números e partículas. Ponto inválido (NaN): nada.
+  private spinHit(kind: MobKind, at: Vec2) {
+    if (!Number.isFinite(at.x) || !Number.isFinite(at.y)) return;
     const now = this.clock.currentTime;
     this.state.players.forEach((player, sessionId) => {
+      if (player.hp <= 0) return;
       if (Math.hypot(player.x - at.x, player.y - at.y) > KRAG_TORNADO.hitRadius + PLAYER_SIZE / 2) return;
-      const key = `${mobId}:${sessionId}`;
-      if (now - (this.spinHits.get(key) ?? -Infinity) < KRAG_TORNADO.hitEveryMs) return;
-      this.spinHits.set(key, now);
+      if (now - (this.lastSpinHitAt.get(sessionId) ?? -Infinity) < KRAG_TORNADO.hitEveryMs) return;
+      this.lastSpinHitAt.set(sessionId, now);
       this.damagePlayer(sessionId, player, KRAG_TORNADO.damage, { kind: "mob", mob: kind }, "physical");
     });
   }

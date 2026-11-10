@@ -182,7 +182,8 @@ function followPath(
       continue;
     }
     const step = Math.min(remaining, gap);
-    const delta = { x: ((waypoint.x - pos.x) / gap) * step, y: ((waypoint.y - pos.y) / gap) * step };
+    const safeGap = Math.max(0.001, gap);
+    const delta = { x: ((waypoint.x - pos.x) / safeGap) * step, y: ((waypoint.y - pos.y) / safeGap) * step };
     const next = moveWithCollision(world.grid, pos, delta, world.stats.size / 2);
     const moved = distance(pos, next);
     pos = next;
@@ -499,7 +500,9 @@ function finishPrep(position: Vec2, mind: Extract<MobMind, { mode: "ability" }>,
 function stepTornado(position: Vec2, mind: Extract<MobMind, { mode: "ability" }>, world: MobWorld, target: Vec2 | undefined, remainingMs: number, dtMs: number): MobStep {
   const goal = target ?? mind.aim;
   const fast = { ...world, stats: { ...world.stats, speed: world.stats.speed * KRAG_TORNADO.speedFactor } };
-  const moved = followPath(position, [], goal, fast, dtMs);
+  // Já em cima do alvo (distância ~0): fica onde está, sem calcular direção (nada de dividir por zero).
+  const close = Math.hypot(goal.x - position.x, goal.y - position.y) < 0.001;
+  const moved = close ? { position } : followPath(position, [], goal, fast, dtMs);
   const events: MobEvent[] = [{ type: "spin", at: moved.position }];
   if (remainingMs > 0) return { position: moved.position, mind: { ...mind, remainingMs }, events };
   return { position: moved.position, mind: recover(mind, KRAG_TORNADO.recoverMs), events };

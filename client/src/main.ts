@@ -456,6 +456,8 @@ function mobActionAnim(mob: MobView, facing: string): { key: string; ms: number 
   const kind = mob.kind;
   const boss = bossActionAnim(kind, mob.action ?? "", facing);
   if (boss) return boss;
+  // Tornado sem a arte carregada: nunca cai no golpe normal.
+  if (isTornado(mob.action)) return undefined;
   const stats = mobStats(kind);
   const attack = `mobs/${kind}/attack-${facing}`;
   switch (mob.action) {
@@ -478,6 +480,11 @@ function mobActionAnim(mob: MobView, facing: string): { key: string; ms: number 
     default:
       return undefined;
   }
+}
+
+// O Krag girando (a pose de braços abertos e o tornado).
+function isTornado(action: string | undefined): boolean {
+  return action === "tornado-prep" || action === "tornado-act";
 }
 
 // Diagonal sem caminhada (gnomo): anda com a da cardeal do lado para onde vai. Parado ou preparando golpe, o sprite
@@ -2077,8 +2084,8 @@ Subiu para o nível ${info.level}!` : "";
       // Andando = mudou de lugar nos últimos WALK_LINGER_MS e não está parado preparando o golpe.
       const walking = time - sprite.lastMoveAt < WALK_LINGER_MS && !mob.windup;
       this.animateMob(sprite, mob, walking);
-      // O golpe saiu (windup acabou): bote na direção do golpe.
-      if (sprite.lastWindup && !mob.windup) {
+      // O golpe saiu (windup acabou): bote na direção do golpe. Girando (tornado), sem bote.
+      if (sprite.lastWindup && !mob.windup && !isTornado(mob.action)) {
         sprite.lungeAt = time;
         sprite.lungeAngle = mob.attackAngle;
       }
@@ -2189,6 +2196,9 @@ Subiu para o nível ${info.level}!` : "";
       return false;
     }
     const seq = mob.actionSeq ?? 0;
+    // Tornado do Krag: o laço segue rodando até o estado acabar; dano, hits e eventos no meio não o recomeçam nem o
+    // trocam pelo golpe normal.
+    if (isTornado(mob.action) && sprite.body.anims.currentAnim?.key === anim.key && sprite.body.anims.isPlaying) return true;
     if (sprite.playedAnim === anim.key && sprite.playedSeq === seq) return true;
     sprite.playedAnim = anim.key;
     sprite.playedSeq = seq;
